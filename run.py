@@ -221,17 +221,6 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
     project = cfg["project"]
     ckpt_dir = project["ckpt_dir"]
 
-    # --agent：启用 agent 决策层
-    agent_enabled = bool(args.agent)
-    if agent_enabled and not cfg["agent"].get("enabled"):
-        from guardian.config import resolve_secret
-        if not resolve_secret(cfg["agent"], "api_key_env"):
-            print("[agent] --agent 已指定但未配置 API key，agent 层将降级为纯规则。"
-                  f"请设置环境变量 {cfg['agent'].get('api_key_env', 'ANTHROPIC_API_KEY')}。",
-                  flush=True)
-        else:
-            cfg["agent"]["enabled"] = True
-
     # --with-mcp：后台启动 MCP server
     mcp_thread = None
     if args.with_mcp:
@@ -254,10 +243,20 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
 
     # agent 决策层（v1）
     advisor = None
-    if agent_enabled:
+    if args.agent:
         from guardian.agent_advisor import AgentAdvisor
+        # 强制启用配置节，让 AgentAdvisor 的 _has_credentials() 做凭据检测
+        cfg["agent"]["enabled"] = True
         advisor = AgentAdvisor(cfg["agent"])
-        print(f"[agent] 决策层已启用（provider={advisor.provider}）", flush=True)
+        if not advisor.is_enabled():
+            print("[agent] 决策层未启用：未检测到 API 凭据。"
+                  "请设置 ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN 环境变量。",
+                  flush=True)
+            print("[agent] 训练将以纯规则模式继续。", flush=True)
+            advisor = None
+        else:
+            print(f"[agent] 决策层已启用（provider={advisor.provider}, "
+                  f"model={advisor._get_model_id()}）", flush=True)
 
     notifier = Notifier(cfg["notifier"])
     monitor = None

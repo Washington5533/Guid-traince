@@ -133,10 +133,15 @@ class AgentAdvisor:
         if not self.is_enabled("summary_narrative"):
             return None
         try:
+            # narrate 需要生成较长文本，给 2x decision_timeout
+            _narrate_timeout = max(self.decision_timeout * 2, 20)
             future = self._executor.submit(
-                self._call_llm_text, structured_data, prompt_template, self.decision_timeout,
+                self._call_llm_text, structured_data, prompt_template, _narrate_timeout,
             )
-            text = future.result(timeout=self.decision_timeout)
+            text = future.result(timeout=_narrate_timeout)
+        except FutureTimeoutError:
+            self._record_failure()
+            return None
         except Exception:
             self._record_failure()
             return None

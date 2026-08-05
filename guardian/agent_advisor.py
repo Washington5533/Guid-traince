@@ -49,7 +49,7 @@ class AgentAdvisor:
         """配置检查 + 熔断状态 + 单点开关。"""
         if not self.enabled_cfg:
             return False
-        if not resolve_secret(self.cfg, "api_key_env"):
+        if not self._has_credentials():
             return False
         if decision_point is not None and self.decision_points.get(decision_point, True) is False:
             return False
@@ -60,6 +60,19 @@ class AgentAdvisor:
             self._breaker_until = None
             self._consecutive_failures = 0
         return True
+
+    def _has_credentials(self) -> bool:
+        """有任一形式的 API 凭据即返回 True。
+        支持：配置指定的 env var、ANTHROPIC_API_KEY、ANTHROPIC_AUTH_TOKEN。
+        """
+        if resolve_secret(self.cfg, "api_key_env"):
+            return True
+        # 直接查环境变量（兼容 ANTHROPIC_AUTH_TOKEN 等 OAuth / 第三方兼容 API）
+        for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+                     "OPENAI_API_KEY"):
+            if os.environ.get(name):
+                return True
+        return False
 
     def _record_failure(self) -> None:
         self._consecutive_failures += 1
@@ -141,7 +154,7 @@ class AgentAdvisor:
         不生效、不走超时降级语义（找不到就是找不到，不影响当次训练）。
         失败返回 None。
         """
-        if not self.enabled_cfg or not resolve_secret(self.cfg, "api_key_env"):
+        if not self.enabled_cfg or not self._has_credentials():
             return None
         try:
             return self._call_llm_suggest(kind, context, registry_snapshot)
@@ -207,11 +220,24 @@ class AgentAdvisor:
     # -- SDK dispatch
 
     def _get_api_key(self) -> str | None:
-        return resolve_secret(self.cfg, "api_key_env")
+        """取 API 凭据：配置的 env var → ANTHROPIC_API_KEY → ANTHROPIC_AUTH_TOKEN。"""
+        key = resolve_secret(self.cfg, "api_key_env")
+        if key:
+            return key
+        for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY"):
+            val = os.environ.get(name)
+            if val:
+                return val
+        return None
 
     def _get_model_id(self) -> str:
         if self.model:
             return self.model
+        # 环境变量覆盖（兼容 ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_HAIKU_MODEL）
+        for env_name in ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"):
+            val = os.environ.get(env_name)
+            if val:
+                return val
         if self.provider == "anthropic":
             return "claude-haiku-4-5-20251001"
         if self.provider == "openai":
@@ -234,9 +260,21 @@ class AgentAdvisor:
         import anthropic
         api_key = self._get_api_key()
         if not api_key:
-            raise RuntimeError("未配置 ANTHROPIC_API_KEY 环境变量")
-        # per-request timeout + no auto-retry：decide() 自己控制超时与重试
-        client = anthropic.Anthropic(api_key=api_key).with_options(
+            raise RuntimeError("未配置 ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN 环境变量")
+
+        # 构造 client：支持自定义 base_url（第三方 Anthropic 兼容 API）
+        client_kwargs: dict[str, Any] = {"max_retries": 0}
+        base_url = os.environ.get("ANTHROPIC_BASE_URL")
+        if base_url:
+            client_kwargs["base_url"] = base_url
+
+        # 区分 api_key 与 auth_token（OAuth / 第三方兼容 API 用 token）
+        if os.environ.get("ANTHROPIC_AUTH_TOKEN") and not os.environ.get("ANTHROPIC_API_KEY"):
+            client_kwargs["auth_token"] = api_key
+        else:
+            client_kwargs["api_key"] = api_key
+
+        client = anthropic.Anthropic(**client_kwargs).with_options(
             timeout=min(timeout, 60), max_retries=0,
         )
         response = client.messages.create(

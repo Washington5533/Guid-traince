@@ -247,6 +247,8 @@ def test_suggest_success_returns_dict(monkeypatch):
 
 def test_no_api_key_disables(monkeypatch):
     monkeypatch.delenv(API_KEY_ENV, raising=False)
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
     adv = AgentAdvisor({"enabled": True, "api_key_env": API_KEY_ENV})
     assert adv.is_enabled() is False
     result = adv.decide("monitor_response", {}, ["ignore", "alert_only"], "alert_only")
@@ -410,10 +412,13 @@ def test_check_sdk_not_installed():
     adv.close()
 
 
-def test_get_model_id_defaults_to_haiku():
-    """未配置 model 时默认返回 haiku。"""
+def test_get_model_id_defaults_to_haiku(monkeypatch):
+    """未配置 model 且无环境变量时默认返回 haiku。"""
+    for name in ("ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"):
+        monkeypatch.delenv(name, raising=False)
     adv = make_advisor()
-    assert "haiku" in adv._get_model_id() or "claude" in adv._get_model_id()
+    model = adv._get_model_id()
+    assert "haiku" in model or "claude" in model
     adv.close()
 
 

@@ -229,11 +229,13 @@ class TrainingMonitor:
         notifier: Any = None,
         contract: Any = None,
         advisor: Any = None,
+        on_intervention: Any = None,
     ):
         self.cfg = config or {}
         self.notifier = notifier
         self.contract = contract
         self.advisor = advisor      # v1；v0 恒为 None
+        self.on_intervention = on_intervention  # v1: callable(action, param, reason) -> 通知 cp_3
 
         # --- 指标异常检测参数 ---
         self.window = deque(maxlen=int(self.cfg.get("sliding_window", 50)))
@@ -382,16 +384,80 @@ class TrainingMonitor:
     # ------------------------------------------------------------------
 
     def _emit(self, events: list[AnomalyEvent]) -> list[AnomalyEvent]:
-        """v0：应对动作恒为 alert_only，只告警不打断训练。"""
+        """v1：有 advisor 时由 agent 选择应对动作，否则走规则默认（alert_only）。"""
         for ev in events:
-            ev.response = {"source": "rule_default", "action": "alert_only", "restart": False}
+            action_space = self._action_space_for(ev.type)
+            default = "alert_only"
+            response = self._decide_response(ev, action_space, default)
+            ev.response = response
             self.anomalies.append(ev)
             if self.notifier is not None:
                 self.notifier.send(
                     f"检测到 {ev.type}", ev.detail,
                     alert_type=ev.type, level=ev.level, response=ev.response,
                 )
+            # 重启式动作通知 cp_3
+            if response.get("restart") and self.on_intervention is not None:
+                self.on_intervention(
+                    response["action"], response.get("param"),
+                    f"{ev.type}: {ev.detail}",
+                )
         return events
+
+    # -- 动作空间定义（cp_2.md 有限动作集） --
+
+    @staticmethod
+    def _action_space_for(anomaly_type: str) -> list:
+        if anomaly_type == "loss_spike":
+            return [
+                "ignore", "alert_only",
+                {"action": "restart_with_lower_lr",
+                 "ratio": {"min": 0.1, "max": 0.9}},
+            ]
+        if anomaly_type == "loss_stagnation":
+            return [
+                "ignore", "alert_only",
+                {"action": "suggest_lr_increase",
+                 "ratio": {"min": 1.1, "max": 3.0}},
+            ]
+        if anomaly_type == "nan_inf":
+            return [
+                "rollback_to_last_ckpt", "alert_only",
+                {"action": "restart_with_lower_lr",
+                 "ratio": {"min": 0.1, "max": 0.9}},
+            ]
+        if anomaly_type == "gpu_idle":
+            return ["ignore", "alert_only"]
+        if anomaly_type == "gpu_temp":
+            return ["alert_only"]       # 硬件安全不交给 agent
+        return ["alert_only"]
+
+    def _decide_response(self, ev: AnomalyEvent, action_space: list, default: str) -> dict:
+        """异常确认后决定'怎么应对'：advisor 可用时问 agent，否则/超时走默认。"""
+        if self.advisor is None:
+            return {"source": "rule_default", "action": "alert_only", "restart": False}
+
+        context = {
+            "anomaly_type": ev.type,
+            "detail": ev.detail,
+            "step": ev.step,
+            "metrics": ev.metrics,
+            "history_count": len(self.anomalies),
+        }
+        result = self.advisor.decide("monitor_response", context, action_space, default)
+        action = result.get("action", default)
+        restart = action not in ("ignore", "alert_only", "suggest_lr_increase")
+        # suggest_lr_increase 是纯建议，不自动执行
+        param = None
+        if isinstance(action, dict):
+            param = {k: v for k, v in action.items() if k != "action"}
+            action = action.get("action", default)
+        return {
+            "source": result.get("source", "rule_default"),
+            "action": action,
+            "restart": restart,
+            "param": param,
+        }
 
     # ------------------------------------------------------------------
     # 查询接口（供 cp_3 / cp_5 / cp_10）

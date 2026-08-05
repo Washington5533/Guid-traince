@@ -261,7 +261,8 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
     notifier = Notifier(cfg["notifier"])
     monitor = None
     if not args.no_monitor and cfg["monitor"].get("enabled", True):
-        monitor = TrainingMonitor(cfg["monitor"], notifier, contract=contract, advisor=advisor)
+        monitor = TrainingMonitor(cfg["monitor"], notifier, contract=contract, advisor=advisor,
+                                  on_intervention=None)  # 下文 watchdog 创建后回填
         if not monitor.enabled:
             print("[监控] 指标通道不可用，退化为进程级看护（存活 + 崩溃恢复）", flush=True)
 
@@ -278,6 +279,10 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
         # 让 watchdog 能算出重启作废了多少 epoch（无指标通道时为 None，不猜）
         progress_fn=(monitor.current_step if monitor is not None else None),
     )
+
+    # 回填 monitor → watchdog 的干预通道：agent 决策的重启式动作经此转发
+    if monitor is not None and advisor is not None:
+        monitor.on_intervention = watchdog.request_intervention
 
     # --with-mcp：在 watchdog 就绪后后台启动
     if args.with_mcp:

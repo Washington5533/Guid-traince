@@ -340,6 +340,67 @@ class TrainingWatchdog:
             return "resume_after_delay", self.restart_delay
         return "resume_unchanged", None
 
+    def _decide_recovery(self, crash: CrashInfo) -> tuple[str, Any, str]:
+        """可恢复中断确认后，决定'怎么恢复'。
+
+        advisor 可用时问 agent，否则/超时走规则默认策略。
+        返回 (action, param, source)。
+        """
+        default_action, default_param = self.default_strategy(crash)
+        if self.advisor is None:
+            return default_action, default_param, "rule_default"
+
+        action_space = self._recovery_action_space(crash.kind)
+        context = {
+            "crash_kind": crash.kind,
+            "detail": crash.detail,
+            "exit_code": crash.exit_code,
+            "retry_count": self.retry_count,
+            "history": [r.to_dict() for r in self.restarts[-5:]],
+        }
+        result = self.advisor.decide(
+            "watchdog_recovery", context, action_space, default_action,
+        )
+        source = result.get("source", "rule_default")
+        chosen = result.get("action", default_action)
+        param = None
+        if isinstance(chosen, dict):
+            param = {k: v for k, v in chosen.items() if k != "action"}
+            chosen = chosen.get("action", default_action)
+        # 提取数值参数
+        if param and isinstance(param, dict) and "ratio" in param:
+            param = param["ratio"]
+        elif param and isinstance(param, dict) and "steps" in param:
+            param = param["steps"]
+        elif param is not None and not isinstance(param, (int, float, str, type(None))):
+            param = None
+        return chosen, param, source
+
+    @staticmethod
+    def _recovery_action_space(kind: str) -> list:
+        """每种崩溃类型的可选恢复动作（cp_3.md 有限动作集）。"""
+        if kind == "oom":
+            return [
+                {"action": "reduce_batch", "ratio": {"min": 0.1, "max": 0.9}},
+                {"action": "enable_grad_accum", "steps": {"min": 2, "max": 8}},
+                {"action": "reduce_batch_and_grad_accum",
+                 "ratio": {"min": 0.1, "max": 0.5},
+                 "steps": {"min": 2, "max": 4}},
+                "resume_unchanged",
+            ]
+        if kind == "sigkill":
+            return [
+                "resume_unchanged",
+                {"action": "resume_with_reduced_workers",
+                 "ratio": {"min": 0.25, "max": 0.75}},
+            ]
+        if kind == "network":
+            return [
+                {"action": "resume_after_delay", "seconds": {"min": 5, "max": 300}},
+                "resume_unchanged",
+            ]
+        return ["resume_unchanged"]
+
     # --- 重启路径 ---------------------------------------------------
 
     # --- 挂起检测（cp_3 第三类故障：不退出的故障） -------------------
@@ -562,7 +623,7 @@ class TrainingWatchdog:
                              detail="max_retries exceeded")
                 return final
 
-            action, param = self.default_strategy(crash)
+            action, param, decision_source = self._decide_recovery(crash)
             if action == "resume_after_delay":
                 time.sleep(min(float(param or 0), 5))
                 action, param = "resume_unchanged", None

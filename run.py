@@ -295,7 +295,7 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
             if mcp_thread is not None:
                 print("[MCP] 已在后台线程启动，外部 agent 客户端可接入。", flush=True)
         # 不可用时已在上面打印过提示，此处不再重复
-    summary_gen = SummaryGenerator(project, monitor, analyzer, watchdog)
+    summary_gen = SummaryGenerator(project, monitor, analyzer, watchdog, advisor=advisor)
 
     def on_tick(_wd, _proc) -> None:
         if monitor is not None:

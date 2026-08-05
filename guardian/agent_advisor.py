@@ -14,6 +14,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from typing import Any
 
+import json
+import os
+import sys
+from importlib import import_module
+
 from .config import resolve_secret
 
 
@@ -145,45 +150,223 @@ class AgentAdvisor:
 
     # --- 内部实现 ---------------------------------------------------------
 
+    # -- prompt 构建器
+
+    SYSTEM_DECIDE = (
+        "你是一个训练守护 agent，负责在预设的有限动作集里做出操作决策。"
+        "你收到的上下文来自训练监控系统（cp_2 monitor），异常检测本身已由"
+        "规则引擎确认——你只需要选择'怎么应对'。\n\n"
+        "规则：\n"
+        "1. 你必须从提供的 action_space 中选择一个动作，不能自己发明\n"
+        "2. 如果动作带有参数（如 ratio），参数必须在声明的范围内\n"
+        "3. 返回 JSON 格式：{\"action\": \"动作名\", ...参数} 或纯字符串动作名\n"
+        "4. 只返回 JSON 或动作名，不要任何解释文字"
+    )
+
+    SYSTEM_NARRATE = (
+        "你是一个训练分析师。根据结构化训练摘要，用中文生成一段简洁的"
+        "自然语言总结（100-300 字）。内容包括：训练是否顺利完成、关键指标、"
+        "异常事件与处理结果、整体评价。不要编造数据。"
+    )
+
+    SYSTEM_SUGGEST = (
+        "你是一个训练系统专家。根据当前注册表和任务上下文，生成一条"
+        "新的注册表扩展提议。输出必须为 JSON："
+        "{\"name\": \"指标/路径名\", \"direction\": \"max\"|\"min\", "
+        "\"kind\": \"metric\"|\"adjustable_path\", \"evidence\": \"依据说明\", "
+        "\"entry\": {...具体条目...}}。\n"
+        "evidence 必须引用上下文中的具体数据点或趋势，不能写'感觉'或'可能'。"
+    )
+
+    @staticmethod
+    def _parse_llm_response(text: str) -> Any:
+        """从 LLM 返回文本中提取动作：优先找 JSON 对象，否则取纯文本。"""
+        text = (text or "").strip()
+        # 尝试整体 JSON 解析
+        try:
+            obj = json.loads(text)
+            return obj
+        except (json.JSONDecodeError, ValueError):
+            pass
+        # 尝试用 {} 包裹的 JSON 片段
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            try:
+                return json.loads(text[start:end + 1])
+            except (json.JSONDecodeError, ValueError):
+                pass
+        # 回退：取第一行非空的纯文本作为动作名
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith(("//", "#", "--")):
+                # 去掉可能的引号
+                return stripped.strip("'\"")
+        return text
+
+    # -- SDK dispatch
+
+    def _get_api_key(self) -> str | None:
+        return resolve_secret(self.cfg, "api_key_env")
+
+    def _get_model_id(self) -> str:
+        if self.model:
+            return self.model
+        if self.provider == "anthropic":
+            return "claude-haiku-4-5-20251001"
+        if self.provider == "openai":
+            return "gpt-4.1-mini"
+        return "claude-haiku-4-5-20251001"
+
+    def _check_sdk(self, pkg: str) -> None:
+        """SDK 未安装时抛出明确的 RuntimeError，由 decide() 捕获走降级。"""
+        try:
+            import_module(pkg)
+        except ImportError:
+            raise RuntimeError(
+                f"{pkg} SDK 未安装，请 pip install {pkg} 后重试。"
+                f"当前 provider={self.provider}，训练将以规则默认动作继续。"
+            ) from None
+
+    def _call_anthropic(self, system_prompt: str, user_message: str, timeout: float,
+                        max_tokens: int = 512) -> str:
+        self._check_sdk("anthropic")
+        import anthropic
+        api_key = self._get_api_key()
+        if not api_key:
+            raise RuntimeError("未配置 ANTHROPIC_API_KEY 环境变量")
+        # per-request timeout + no auto-retry：decide() 自己控制超时与重试
+        client = anthropic.Anthropic(api_key=api_key).with_options(
+            timeout=min(timeout, 60), max_retries=0,
+        )
+        response = client.messages.create(
+            model=self._get_model_id(),
+            max_tokens=max_tokens,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
+        )
+        # 安全提取文本：响应可能含多个 content block
+        text = next((b.text for b in response.content if getattr(b, "type", None) == "text"), "")
+        if not text and getattr(response, "stop_reason", "") == "refusal":
+            raise RuntimeError("模型拒绝响应 (refusal)，可能是 prompt 被安全过滤")
+        return text
+
+    def _call_openai(self, system_prompt: str, user_message: str, timeout: float,
+                     max_tokens: int = 512) -> str:
+        self._check_sdk("openai")
+        import openai
+        api_key = self._get_api_key()
+        if not api_key:
+            raise RuntimeError("未配置 OPENAI_API_KEY 环境变量")
+        client = openai.OpenAI(api_key=api_key).with_options(
+            timeout=min(timeout, 60), max_retries=0,
+        )
+        response = client.chat.completions.create(
+            model=self._get_model_id(),
+            max_tokens=max_tokens,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+        )
+        return response.choices[0].message.content or ""
+
     def _build_prompt(
         self, decision_point: str, context: dict[str, Any], action_space: list[Any],
     ) -> dict[str, Any]:
-        """拼接结构化上下文和动作集为 LLM 可理解的 prompt。"""
+        """组装结构化 prompt（供 decide() 传给 _call_llm）。"""
         return {
             "decision_point": decision_point,
             "context": context,
             "action_space": action_space,
-            "model": self.model,
+            "model": self._get_model_id(),
         }
 
-    def _call_llm(self, prompt: dict[str, Any], timeout: float) -> Any:
-        """实际网络调用，测试中总是被 mock 掉。
+    def _build_decision_prompt(
+        self, decision_point: str, context: dict[str, Any], action_space: list[Any],
+    ) -> str:
+        """构造 decide() 的 user message。"""
+        import json
+        parts = [
+            f"决策点: {decision_point}",
+            f"上下文: {json.dumps(context, ensure_ascii=False, indent=2)}",
+            "",
+            "可选动作（必须从以下列表中选一个）：",
+        ]
+        for item in action_space:
+            if isinstance(item, str):
+                parts.append(f"  - \"{item}\"")
+            elif isinstance(item, dict):
+                parts.append(f"  - {json.dumps(item, ensure_ascii=False)}")
+        parts.append("")
+        parts.append("请返回你的选择：")
+        return "\n".join(parts)
 
-        真实实现按 provider 分发；未接入具体 SDK 时抛错触发降级，
-        而不是静默返回假数据。
-        """
-        raise NotImplementedError(
-            f"provider={self.provider} 的真实 LLM 调用尚未接入，"
-            "请在测试中 mock AgentAdvisor._call_llm"
-        )
+    def _build_narrative_prompt(
+        self, structured_data: dict[str, Any], prompt_template: str | None,
+    ) -> str:
+        """构造 narrate() 的 user message。"""
+        import json
+        data_text = json.dumps(structured_data, ensure_ascii=False, indent=2)
+        if prompt_template:
+            return prompt_template.format(summary=data_text)
+        return f"请基于以下训练摘要生成自然语言解读：\n\n{data_text}"
+
+    def _build_suggest_prompt(
+        self, kind: str, context: dict[str, Any], registry_snapshot: dict[str, Any] | None,
+    ) -> str:
+        """构造 suggest() 的 user message。"""
+        import json
+        parts = [
+            f"提议类型: {kind}",
+            f"任务上下文: {json.dumps(context, ensure_ascii=False, indent=2)}",
+        ]
+        if registry_snapshot:
+            parts.append(f"当前注册表: {json.dumps(registry_snapshot, ensure_ascii=False, indent=2)}")
+        parts.append("")
+        parts.append("请生成一条新的注册表扩展提议（JSON 格式）：")
+        return "\n".join(parts)
+
+    # -- 三个 LLM 调用入口（替换 NotImplementedError stubs）
+
+    def _call_llm(self, prompt: dict[str, Any], timeout: float) -> Any:
+        """decide() 的 LLM 调用：发送决策 prompt，返回动作名或 dict。"""
+        decision_point = prompt.get("decision_point", "unknown")
+        context = prompt.get("context") or {}
+        action_space = list(prompt.get("action_space") or [])
+
+        user_message = self._build_decision_prompt(decision_point, context, action_space)
+
+        if self.provider == "openai":
+            raw = self._call_openai(self.SYSTEM_DECIDE, user_message, timeout)
+        else:
+            raw = self._call_anthropic(self.SYSTEM_DECIDE, user_message, timeout)
+        return self._parse_llm_response(raw)
 
     def _call_llm_text(
         self, structured_data: dict[str, Any], prompt_template: str | None, timeout: float,
     ) -> str:
-        """narrate() 的真实网络调用，测试中总是被 mock 掉。"""
-        raise NotImplementedError(
-            f"provider={self.provider} 的真实 LLM 调用尚未接入，"
-            "请在测试中 mock AgentAdvisor._call_llm_text"
-        )
+        """narrate() 的 LLM 调用：返回自然语言文本。"""
+        user_message = self._build_narrative_prompt(structured_data, prompt_template)
+
+        if self.provider == "openai":
+            return self._call_openai(self.SYSTEM_NARRATE, user_message, timeout, max_tokens=1024)
+        return self._call_anthropic(self.SYSTEM_NARRATE, user_message, timeout, max_tokens=1024)
 
     def _call_llm_suggest(
         self, kind: str, context: dict[str, Any], registry_snapshot: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        """suggest() 的真实网络调用，测试中总是被 mock 掉。"""
-        raise NotImplementedError(
-            f"provider={self.provider} 的真实 LLM 调用尚未接入，"
-            "请在测试中 mock AgentAdvisor._call_llm_suggest"
-        )
+        """suggest() 的 LLM 调用：返回提议 dict。失败抛异常，外层返回 None。"""
+        user_message = self._build_suggest_prompt(kind, context, registry_snapshot)
+
+        if self.provider == "openai":
+            raw = self._call_openai(self.SYSTEM_SUGGEST, user_message, timeout=15)
+        else:
+            raw = self._call_anthropic(self.SYSTEM_SUGGEST, user_message, timeout=15)
+        result = self._parse_llm_response(raw)
+        if not isinstance(result, dict):
+            raise ValueError(f"LLM 返回了非 JSON 的提议：{str(result)[:200]}")
+        return result
 
     @staticmethod
     def _validate_action(raw_output: Any, action_space: list[Any]) -> Any | None:

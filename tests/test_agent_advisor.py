@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -261,4 +262,163 @@ def test_sidecar_action_space_filtered_by_caller(monkeypatch):
     result = adv.decide("monitor_response", {}, sidecar_action_space, "alert_only")
     assert result["source"] == "invalid_output"
     assert result["action"] == "alert_only"
+    adv.close()
+
+
+# ------------------------------------------------------------------
+# prompt 构建器测试
+# ------------------------------------------------------------------
+
+def test_build_decision_prompt_covers_all_actions():
+    """决策 prompt 必须列出 action_space 中所有动作。"""
+    adv = make_advisor()
+    text = adv._build_decision_prompt(
+        "monitor_response",
+        {"loss": 1.5, "step": 100},
+        ["ignore", {"action": "restart_with_lower_lr", "ratio": {"min": 0.1, "max": 0.9}}],
+    )
+    assert "monitor_response" in text
+    assert '"ignore"' in text
+    assert "restart_with_lower_lr" in text
+    adv.close()
+
+
+def test_build_narrative_prompt_includes_summary_data():
+    """叙述 prompt 包含结构化摘要数据。"""
+    adv = make_advisor()
+    data = {"status": "completed", "training": {"final_loss": 0.03}}
+    text = adv._build_narrative_prompt(data, None)
+    assert "completed" in text
+    assert "final_loss" in text
+    adv.close()
+
+
+def test_build_narrative_prompt_respects_template():
+    """自定义模板时按模板填充。"""
+    adv = make_advisor()
+    data = {"loss": 0.5}
+    text = adv._build_narrative_prompt(data, "训练结果: {summary}")
+    assert "训练结果:" in text
+    assert "0.5" in text
+    adv.close()
+
+
+def test_build_suggest_prompt_includes_registry():
+    """提议 prompt 包含注册表快照。"""
+    adv = make_advisor()
+    registry = {"metric_registry": {"val/loss": {"direction": "min"}}}
+    text = adv._build_suggest_prompt("metric", {"task": "classification"}, registry)
+    assert "val/loss" in text
+    assert "classification" in text
+    adv.close()
+
+
+def test_parse_llm_response_json_object():
+    """从 LLM 返回的 JSON 对象正确解析。"""
+    result = AgentAdvisor._parse_llm_response('{"action": "reduce_batch", "ratio": 0.5}')
+    assert result == {"action": "reduce_batch", "ratio": 0.5}
+
+
+def test_parse_llm_response_bare_string():
+    """从 LLM 返回的纯字符串正确解析。"""
+    result = AgentAdvisor._parse_llm_response("ignore")
+    assert result == "ignore"
+
+
+def test_parse_llm_response_extracts_json_from_text():
+    """从含解释文字的响应中提取 JSON 片段。"""
+    result = AgentAdvisor._parse_llm_response(
+        '根据上下文，我选择降低学习率。\n{"action": "restart_with_lower_lr", "ratio": 0.5}'
+    )
+    assert result == {"action": "restart_with_lower_lr", "ratio": 0.5}
+
+
+# ------------------------------------------------------------------
+# SDK dispatch 测试
+# ------------------------------------------------------------------
+
+def test_provider_defaults_to_anthropic():
+    """默认 provider 为 anthropic。"""
+    adv = make_advisor()
+    assert adv.provider == "anthropic"
+    adv.close()
+
+
+def test_call_llm_dispatches_to_anthropic():
+    """_call_llm 在 provider=anthropic 时调 _call_anthropic。"""
+    adv = make_advisor()
+    with patch.object(adv, "_call_anthropic", return_value="ignore") as mock:
+        prompt = adv._build_prompt("test", {}, ["ignore"])
+        result = adv._call_llm(prompt, 5.0)
+        assert result == "ignore"
+        mock.assert_called_once()
+        args = mock.call_args[0]
+        assert "训练守护 agent" in args[0]
+    adv.close()
+
+
+def test_call_llm_dispatches_to_openai():
+    """_call_llm 在 provider=openai 时调 _call_openai。"""
+    adv = make_advisor(provider="openai")
+    with patch.object(adv, "_call_openai", return_value="alert_only") as mock:
+        prompt = adv._build_prompt("test", {}, ["alert_only"])
+        result = adv._call_llm(prompt, 5.0)
+        assert result == "alert_only"
+        mock.assert_called_once()
+    adv.close()
+
+
+def test_call_llm_text_dispatches_to_anthropic():
+    """_call_llm_text 调 _call_anthropic 并返回文本。"""
+    adv = make_advisor()
+    with patch.object(adv, "_call_anthropic", return_value="训练总体平稳。") as mock:
+        result = adv._call_llm_text({"loss": 0.5}, None, 5.0)
+        assert result == "训练总体平稳。"
+        mock.assert_called_once()
+        args = mock.call_args[0]
+        assert "训练分析师" in args[0]
+    adv.close()
+
+
+def test_call_llm_suggest_parses_json():
+    """_call_llm_suggest 调 SDK 并解析 JSON 返回。"""
+    adv = make_advisor()
+    with patch.object(adv, "_call_anthropic",
+                      return_value='{"name": "val/f1", "direction": "max", '
+                                  '"kind": "metric", "evidence": "test"}') as mock:
+        result = adv._call_llm_suggest("metric", {"task": "cls"}, None)
+        assert result["name"] == "val/f1"
+        assert result["direction"] == "max"
+        mock.assert_called_once()
+    adv.close()
+
+
+def test_call_llm_suggest_non_json_raises():
+    """_call_llm_suggest 返回非 JSON 时抛 ValueError。"""
+    adv = make_advisor()
+    with patch.object(adv, "_call_anthropic", return_value="只是一段文字"):
+        with pytest.raises(ValueError):
+            adv._call_llm_suggest("metric", {}, None)
+    adv.close()
+
+
+def test_check_sdk_not_installed():
+    """SDK 未安装时 _check_sdk 抛 RuntimeError。"""
+    adv = make_advisor()
+    with pytest.raises(RuntimeError, match="SDK 未安装"):
+        adv._check_sdk("nonexistent_pkg_xyz_12345")
+    adv.close()
+
+
+def test_get_model_id_defaults_to_haiku():
+    """未配置 model 时默认返回 haiku。"""
+    adv = make_advisor()
+    assert "haiku" in adv._get_model_id() or "claude" in adv._get_model_id()
+    adv.close()
+
+
+def test_get_model_id_respects_config():
+    """配置了 model 时用配置值。"""
+    adv = make_advisor(model="claude-opus-5")
+    assert adv._get_model_id() == "claude-opus-5"
     adv.close()

@@ -13,7 +13,7 @@
 | 源文件 | 10 个 guardian 模块 + run.py + train.py |
 | 测试 | 75 个，全通过 |
 | v0 完成度 | **90%** |
-| v1 完成度 | **70%** |
+| v1 完成度 | **85%** |
 
 ---
 
@@ -59,10 +59,10 @@
 | Agent 异常应对决策 | ✅ | `_decide_response()`: loss_spike/nan_inf/gpu_idle 各有 action_space |
 | 有限动作集 | ✅ | sidecar 下不含 skip_batch/lower_lr，只含重启式动作 |
 | 干预回调 | ✅ | `on_intervention` → watchdog.request_intervention |
-| wandb/tensorboard 通道 | ❌ | 仅支持 log_file 和 metrics_json |
+| wandb/tensorboard 通道 | ✅/❌ | wandb ✅（本地 run 目录增量读取）；tensorboard ❌ |
 | 嵌入模式 GuardianCallback | ❌ | 设计文档列为可选升级 |
 
-**完成度: 80%**
+**完成度: 88%**
 
 ---
 
@@ -92,8 +92,9 @@
 | 快速校验/完整校验 | ❌ | 需 buildable_entry 契约（v1），当前只读 metrics.json |
 | best.pth 软链接 | ❌ | 未实现 |
 | per-class 指标/混淆矩阵 | ❌ | 需完整校验支持 |
+| metric_source 记录 | ✅ | report() 自动调 contract.select_metric() |
 
-**完成度: 65%**
+**完成度: 75%**
 
 ---
 
@@ -155,11 +156,12 @@
 | strict_mode | ✅ | 缺失即拒绝启动 |
 | cli_mappings 解析 | ✅ | 抽象路径 → 命令行 flag |
 | batch_adjustable() | ✅ | launcher 检测，DDP 下 v0 不调 batch |
-| metric_registry | ❌ | v1 |
-| select_metric / select_adjust_path | ❌ | v1，advisor 已就绪但调用方法未实现 |
-| 提议审核系统 | ❌ | v1，propose/approve/reject/list_proposals |
+| metric_registry | ✅ | 5 类任务 + fallback |
+| select_metric | ✅ | 4 层推断: config_explicit → agent_decide → key_infer → fallback |
+| select_adjust_path | ✅ | 白名单 + cli_mappings 过滤 + agent 选择 |
+| 提议审核系统 | ✅ | propose/approve/reject/list_proposals，JSON 落盘 |
 
-**完成度: 55%（v0 部分完整）**
+**完成度: 90%**
 
 ---
 

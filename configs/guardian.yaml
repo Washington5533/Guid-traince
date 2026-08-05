@@ -1,0 +1,45 @@
+# guardian 自己怎么工作。完整键位参考见 checkpoint/configuration.md
+# 这里只写与默认值不同的项即可；未写的全部走内置默认值。
+
+project:
+  name: mnist-guardian
+  ckpt_dir: ./checkpoints
+  log_dir: ./logs
+
+watchdog:
+  max_retries: 3
+  restart_delay: 5
+  oom_batch_reduce_ratio: 0.5
+  min_batch_size: 8
+  sigterm_grace: 30
+  # 挂起检测：多久没有新指标算"疑似无进展"（只告警）
+  no_progress_timeout: 1800
+  # null = 永不因挂起自动重启。必须按自己任务的 epoch 时长设定，guardian 不猜
+  no_progress_kill_after: null
+
+monitor:
+  poll_interval: 5
+  hardware_poll_interval: 30
+  sliding_window: 50
+  loss_spike_ratio: 0.5
+
+notifier:
+  channels: [terminal]
+  cooldown: 300
+
+checkpoint:
+  poll_interval: 10
+  save_top_k: 5
+  # 无条件保留最近 N 个，避免删掉训练脚本下次 resume 要用的文件
+  keep_recent: 2
+
+# v1 能力，默认关闭；未配置 API key 时零成本降级为纯规则
+agent:
+  enabled: false
+
+mcp:
+  enabled: false
+
+contract:
+  path: configs/contract.yaml
+  strict_mode: false

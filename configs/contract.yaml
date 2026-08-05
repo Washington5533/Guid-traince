@@ -1,0 +1,37 @@
+# 被守护的训练脚本长什么样 —— sidecar 与训练进程之间唯一的接口面。
+# guardian 在训练进程之外，看不见任何进程内变量，只能依赖这里声明的内容。
+# 详见 checkpoint/cp_11.md
+#
+# 相对路径以本文件所在目录为基准。
+
+script_contract:
+  # 1. 可续训：sidecar 唯一的干预手段就是"重启"，缺这项则只能告警
+  resumable:
+    entry: cli
+    resume_flag: "--resume"
+    ckpt_flag: "--ckpt"
+
+  # 2. checkpoint 格式：guardian 靠这些键判断 checkpoint 是否写完、可否续训
+  checkpoint_schema:
+    required_keys: [epoch, model_state_dict, optimizer_state_dict]
+    recommended_keys: [rng_state]
+
+  # 3. 指标通道：缺这项则退化为进程级看护，无法做 loss 级异常检测
+  metrics_channel:
+    type: log_file            # log_file | metrics_json（wandb/tensorboard 属 v0 之后）
+    path: ../logs/train.log
+    log_pattern: "epoch (\\d+) loss ([\\d.naN]+)"
+
+  # 4. 可 import 入口：preflight / 独立评估需要，缺失只关闭这两项
+  buildable_entry:
+    model_fn: "train:build_model"
+    dataloader_fn: "train:get_dataloaders"
+
+  # 重启改写的传参依据：未声明映射的路径在 sidecar 下不可调
+  cli_mappings:
+    optimizer.lr: "--lr"
+    dataloader.batch_size: "--batch_size"
+    dataloader.num_workers: "--num_workers"
+
+  launcher: python            # torchrun/accelerate 时需同时声明 batch_semantics
+  batch_semantics: null       # per_gpu | global | null(未声明 -> v0 不调 batch)

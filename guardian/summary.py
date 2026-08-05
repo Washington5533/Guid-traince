@@ -48,6 +48,8 @@ class SummaryGenerator:
         summary["anomaly_events"] = self._collect_anomalies()
         summary["restarts"] = self._collect_restarts()
         summary["checkpoints"] = self._collect_checkpoints()
+        summary["resources"] = self._collect_resource_usage()
+        summary["lr_schedule"] = self._collect_lr_schedule()
 
         narrative = self._generate_ai_narrative(summary)
         if narrative:
@@ -88,6 +90,75 @@ class SummaryGenerator:
         if self.ckpt_analyzer is None:
             return {}
         return self.ckpt_analyzer.report()
+
+    def _collect_resource_usage(self) -> dict[str, Any]:
+        """GPU 平均利用率、显存峰值、GPU 时数。"""
+        gpu_hist = getattr(self.monitor, "get_gpu_history", None)
+        if gpu_hist is None:
+            return {}
+        records = gpu_hist()
+        if not records:
+            return {}
+        valid = [r for r in records if "error" not in r]
+        if not valid:
+            return {"note": "GPU 采样全部失败"}
+
+        # GPU 名称取第一次成功采样的
+        gpu_name = "GPU"
+        utils = []
+        mem_used = []
+        temps = []
+        for r in valid:
+            utils.append(r.get("util_pct"))
+            mem_used.append(r.get("mem_used_mb"))
+            temps.append(r.get("temperature_c"))
+
+        out: dict[str, Any] = {}
+        clean_utils = [u for u in utils if u is not None]
+        clean_mem = [m for m in mem_used if m is not None]
+        clean_temps = [t for t in temps if t is not None]
+
+        if clean_utils:
+            out["gpu_util_avg"] = round(sum(clean_utils) / len(clean_utils), 1)
+            # GPU 时数：平均利用率 * 训练时长 / 100（利用率是百分比）
+            if self.start_time:
+                hours = (time.time() - self.start_time) / 3600
+                out["gpu_hours"] = round(sum(clean_utils) / len(clean_utils) / 100 * hours, 2)
+
+        if clean_mem:
+            out["gpu_mem_peak_mb"] = round(max(clean_mem), 1)
+            # 显存峰值 GB
+            out["gpu_mem_peak_gb"] = round(max(clean_mem) / 1024, 2)
+
+        if clean_temps:
+            out["gpu_temp_avg"] = round(sum(clean_temps) / len(clean_temps), 1)
+            out["gpu_temp_max"] = round(max(clean_temps), 1)
+
+        # 多卡统计
+        indices = {r.get("index") for r in valid if r.get("index") is not None}
+        out["gpu_count"] = len(indices) if indices else 1
+
+        if gpu_name:
+            out["gpu_name"] = gpu_name
+
+        return out
+
+    def _collect_lr_schedule(self) -> list[dict[str, Any]]:
+        """学习率调度历史：从指标通道提取 lr 变化点，跨重启拼接。"""
+        if self.monitor is None:
+            return []
+        hist = self.monitor.get_metrics_history()
+        schedule: list[dict[str, Any]] = []
+        last_lr = None
+        for r in hist:
+            lr = r.get("lr")
+            if lr is not None and lr != last_lr:
+                schedule.append({
+                    "step": r.get("step"),
+                    "lr": lr,
+                })
+                last_lr = lr
+        return schedule
 
     def _generate_ai_narrative(self, summary: dict) -> str | None:
         """v1：advisor 基于结构化摘要生成自然语言解读。失败/未配置则省略。"""
@@ -149,6 +220,26 @@ class SummaryGenerator:
         ck = summary.get("checkpoints") or {}
         if ck.get("total"):
             lines.append(f"  Checkpoint: 共 {ck['total']} 个，最新 {ck.get('latest')}")
+
+        # GPU 资源统计
+        res = summary.get("resources") or {}
+        if res and res.get("gpu_util_avg") is not None:
+            parts = [f"GPU 均值 {res['gpu_util_avg']}%"]
+            if res.get("gpu_mem_peak_gb"):
+                parts.append(f"显存峰值 {res['gpu_mem_peak_gb']}GB")
+            if res.get("gpu_hours"):
+                parts.append(f"{res['gpu_hours']} GPU·h")
+            lines.append(f"  资源: {', '.join(parts)}")
+
+        # 学习率调度
+        lr_hist = summary.get("lr_schedule") or []
+        if len(lr_hist) > 1:
+            changes = ", ".join(
+                f"step {p['step']}→{p['lr']:g}" for p in lr_hist[:5]
+            )
+            if len(lr_hist) > 5:
+                changes += f" ... 共 {len(lr_hist)} 次变化"
+            lines.append(f"  LR 调度: {changes}")
 
         if summary.get("failure"):
             f = summary["failure"]

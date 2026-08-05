@@ -1,0 +1,9 @@
+# Training Guardian Agent — MCP 接入叠加层（可选）
+# 安装: pip install -r requirements-mcp.txt
+#
+# 在 core 装完之后，任何时候都可以补装，不需要重启训练。
+# 不装这份文件，guardian 的其余全部能力（预检/监控/恢复/摘要/agent 决策）
+# 都不受影响——--with-mcp 或 run.py serve 检测到 mcp 包不存在时，
+# 只打印一条警告并跳过 MCP 启动，不会报错退出。
+
+mcp>=1.0

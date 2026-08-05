@@ -110,10 +110,20 @@ def test_log_file_without_pattern_degrades(workdir, contract_file):
     assert mon.enabled is False
 
 
-def test_wandb_channel_not_yet_supported(workdir, contract_file):
-    """wandb 通道属于 v0 之后，现在应明确降级而非假装支持。"""
-    mon = _monitor(contract_file(metrics_channel={"type": "wandb", "path": "./wandb"}))
-    assert mon.enabled is False
+def test_wandb_channel_is_supported(workdir, contract_file):
+    """wandb 通道已支持——读本地 run 目录。"""
+    import shutil
+    wdir = workdir / "wandb" / "run-test"
+    (wdir / "files").mkdir(parents=True)
+    (wdir / "files" / "wandb-events.jsonl").write_text(
+        '{"_timestamp": 1, "loss": 0.5, "_step": 0}\n', encoding="utf-8")
+    (wdir / "files" / "wandb-summary.json").write_text(
+        '{"loss": 0.5, "accuracy": 0.9, "_runtime": 10}', encoding="utf-8")
+    mon = _monitor(contract_file(metrics_channel={"type": "wandb", "path": str(wdir)}))
+    assert mon.enabled is True
+    results = mon.poll_metrics()
+    assert len(results) >= 0  # 至少不报错
+    assert len(mon.history) >= 1  # 从 events 读到了数据
 
 
 # ---------- 端到端：监控与守护同时工作 ----------

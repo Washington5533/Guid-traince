@@ -276,3 +276,231 @@ class TaskContract:
         if launcher in ("python", "python3"):
             return True
         return self.script.get("batch_semantics") is not None
+
+    # ------------------------------------------------------------------
+    # v1: 指标选择（agent 在注册表内自适应）
+    # ------------------------------------------------------------------
+
+    def select_metric(self, task_context: dict | None = None) -> dict[str, Any]:
+        """从注册表选出本次训练的'最优模型判定指标'。
+
+        Returns: {"metric": name, "direction": "max"/"min", "source": "config_explicit"/"agent_inferred"/"fallback"}
+        """
+        ctx = task_context or {}
+        registry = self.metric_registry
+        fallback_name = "val_loss"
+        fallback_dir = "min"
+        if isinstance(registry, dict) and "_fallback" in registry:
+            fb = registry["_fallback"]
+            fallback_name = fb.get("name", fallback_name)
+            fallback_dir = fb.get("direction", fallback_dir)
+
+        # 1. 显式声明 task_type → 直接用
+        task_type = self.script.get("task_type")
+        if task_type and isinstance(registry, dict) and task_type in registry:
+            entries = registry[task_type]
+            if isinstance(entries, list) and entries:
+                first = entries[0]
+                return {"metric": first["name"], "direction": first.get("direction", "max"),
+                        "source": "config_explicit", "task_type": task_type}
+
+        # 2. agent 推断（在注册表条目中选择）
+        if self.advisor is not None:
+            registered = self._flatten_registry(registry)
+            if registered:
+                context = {
+                    "metrics_seen": ctx.get("metrics_seen", []),
+                    "checkpoint_keys": ctx.get("checkpoint_keys", []),
+                    "log_snippets": ctx.get("log_snippets", []),
+                }
+                result = self.advisor.decide(
+                    "select_metric", context, registered,
+                    {"metric": fallback_name, "direction": fallback_dir},
+                )
+                action = result.get("action", {})
+                if isinstance(action, dict) and "metric" in action:
+                    return {"metric": action["metric"],
+                            "direction": action.get("direction", fallback_dir),
+                            "source": result.get("source", "agent_inferred"),
+                            "task_type": action.get("task_type")}
+
+        # 3. 规则推断：从指标键名推断任务类型
+        inferred = self._infer_from_keys(ctx.get("metrics_seen", []))
+        if inferred:
+            return {**inferred, "source": "agent_inferred"}
+
+        # 4. fallback
+        return {"metric": fallback_name, "direction": fallback_dir, "source": "fallback"}
+
+    @staticmethod
+    def _flatten_registry(registry: dict) -> list:
+        """把分组注册表展开为 agent 可选的条目列表。"""
+        out = []
+        if not isinstance(registry, dict):
+            return out
+        for task_type, entries in registry.items():
+            if task_type.startswith("_"):
+                continue
+            if isinstance(entries, list):
+                for e in entries:
+                    if isinstance(e, dict):
+                        out.append({"action": {**e, "task_type": task_type}})
+        return out
+
+    @staticmethod
+    def _infer_from_keys(keys: list[str]) -> dict | None:
+        """从指标键名推断任务类型和最优指标。"""
+        joined = " ".join(keys).lower()
+        # 检测任务专用指标
+        if any(k in joined for k in ("map", "ap50", "ap75", "coco")):
+            return {"metric": "mAP50", "direction": "max", "task_type": "detection"}
+        if any(k in joined for k in ("miou", "dice", "iou")):
+            return {"metric": "mIoU", "direction": "max", "task_type": "segmentation"}
+        if any(k in joined for k in ("rmse", "mae", "mse")):
+            return {"metric": "rmse", "direction": "min", "task_type": "regression"}
+        if any(k in joined for k in ("accuracy", "acc", "f1")):
+            return {"metric": "accuracy", "direction": "max", "task_type": "classification"}
+        return None
+
+    # ------------------------------------------------------------------
+    # v1: 可调路径选择
+    # ------------------------------------------------------------------
+
+    def select_adjust_path(
+        self, decision_point: str, context: dict | None = None,
+    ) -> list:
+        """从白名单选出当前决策点可用的调整路径及幅度范围。
+
+        sidecar 下多一道过滤：路径必须能映射到命令行参数。
+        返回可直接作为 cp_9 action_space 的列表。
+        """
+        ctx = context or {}
+        paths = list(self.adjustable_paths or [])
+
+        # sidecar 过滤：只保留有 cli_mappings 的路径
+        cli = self.script.get("cli_mappings") or {}
+        reachable = [p for p in paths if isinstance(p, dict)
+                     and p.get("path", "") in cli]
+        if not reachable:
+            # 无可调路径 → action_space 只有无参动作
+            return ["resume_unchanged", "alert_only"]
+
+        # 构建候选动作列表
+        candidates = []
+        for p in reachable:
+            name = p["path"]
+            flag = cli[name]
+            entry: dict[str, Any] = {"action": f"adjust:{name}"}
+            if "max_delta_ratio" in p:
+                entry["ratio"] = {"min": -p["max_delta_ratio"], "max": p["max_delta_ratio"]}
+            if "min_value" in p:
+                entry["min_value"] = p["min_value"]
+            entry["_flag"] = flag
+            entry["_path"] = name
+            candidates.append(entry)
+
+        # agent 选择
+        if self.advisor is not None and len(candidates) > 1:
+            result = self.advisor.decide(
+                "select_adjust_path",
+                {"decision_point": decision_point, **ctx},
+                candidates + ["keep_default"],
+                "keep_default",
+            )
+            if result.get("action") != "keep_default" and isinstance(result.get("action"), dict):
+                chosen = result["action"]
+                return [chosen]
+
+        return candidates
+
+    # ------------------------------------------------------------------
+    # v1: 提议审核系统
+    # ------------------------------------------------------------------
+
+    def propose_registry_entry(
+        self, kind: str, draft_entry: dict, evidence: str = "",
+    ) -> dict | None:
+        """agent 生成一条注册表扩展提议（不生效），写入 proposal_log。"""
+        if not self.agent_can_propose:
+            return None
+
+        import uuid as _uuid
+        proposal = {
+            "id": _uuid.uuid4().hex[:12],
+            "kind": kind,           # "metric" / "adjustable_path"
+            "entry": draft_entry,
+            "evidence": evidence,
+            "status": "pending",
+            "timestamp": time.time(),
+        }
+        proposals = self._read_proposals()
+        proposals.append(proposal)
+        self._write_proposals(proposals)
+        return proposal
+
+    def approve_proposal(self, proposal_id: str) -> dict:
+        """批准一条提议，写入正式注册表。"""
+        proposals = self._read_proposals()
+        for p in proposals:
+            if p.get("id") == proposal_id and p.get("status") == "pending":
+                p["status"] = "approved"
+                p["approved_at"] = time.time()
+                self._write_proposals(proposals)
+                self._apply_proposal(p)
+                return {"status": "approved", "id": proposal_id}
+        return {"status": "not_found", "id": proposal_id}
+
+    def reject_proposal(self, proposal_id: str, reason: str = "") -> dict:
+        """拒绝一条提议并归档。"""
+        proposals = self._read_proposals()
+        for p in proposals:
+            if p.get("id") == proposal_id and p.get("status") == "pending":
+                p["status"] = "rejected"
+                p["rejected_at"] = time.time()
+                p["reject_reason"] = reason
+                self._write_proposals(proposals)
+                return {"status": "rejected", "id": proposal_id}
+        return {"status": "not_found", "id": proposal_id}
+
+    def list_proposals(self, status: str | None = None) -> list[dict]:
+        """列出提议，可按状态筛选。"""
+        proposals = self._read_proposals()
+        if status:
+            return [p for p in proposals if p.get("status") == status]
+        return list(proposals)
+
+    def _read_proposals(self) -> list[dict]:
+        try:
+            if self.proposal_log_path.exists():
+                data = json.loads(self.proposal_log_path.read_text(encoding="utf-8"))
+                return data if isinstance(data, list) else []
+        except (ValueError, OSError):
+            pass
+        return []
+
+    def _write_proposals(self, proposals: list) -> None:
+        self.proposal_log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.proposal_log_path.write_text(
+            json.dumps(proposals, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+    def _apply_proposal(self, proposal: dict) -> None:
+        """批准后把提议条目写入正式注册表/白名单。"""
+        kind = proposal.get("kind", "")
+        entry = proposal.get("entry") or {}
+        if kind == "metric" and isinstance(self.metric_registry, dict):
+            task_type = entry.get("task_type", "inferred")
+            if task_type not in self.metric_registry:
+                self.metric_registry[task_type] = []
+            self.metric_registry[task_type].append({
+                "name": entry.get("name", ""),
+                "direction": entry.get("direction", "max"),
+            })
+        elif kind == "adjustable_path":
+            if not isinstance(self.adjustable_paths, list):
+                self.adjustable_paths = []
+            self.adjustable_paths.append({
+                "path": entry.get("path", ""),
+                "max_delta_ratio": entry.get("max_delta_ratio", 0.5),
+            })

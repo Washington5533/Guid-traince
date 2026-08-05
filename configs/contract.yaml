@@ -35,3 +35,29 @@ script_contract:
 
   launcher: python            # torchrun/accelerate 时需同时声明 batch_semantics
   batch_semantics: null       # per_gpu | global | null(未声明 -> v0 不调 batch)
+
+# ---- v1: 指标注册表（agent 在其中选择最优模型判定指标）----
+metric_registry:
+  classification:
+    - {name: accuracy, direction: max}
+    - {name: f1_macro, direction: max}
+  detection:
+    - {name: mAP50, direction: max}
+    - {name: mAP, direction: max}
+  segmentation:
+    - {name: mIoU, direction: max}
+    - {name: dice, direction: max}
+  regression:
+    - {name: rmse, direction: min}
+    - {name: mae, direction: min}
+  _fallback: {name: val_loss, direction: min}
+
+# ---- v1: 可调路径白名单（agent 在其中选择调整幅度）----
+adjustable_paths:
+  - path: "optimizer.lr"
+    max_delta_ratio: 0.5        # 单次最多调整 ±50%
+  - path: "dataloader.batch_size"
+    min_value: 8
+    max_delta_ratio: 0.5
+  - path: "dataloader.num_workers"
+    max_delta_ratio: 0.5

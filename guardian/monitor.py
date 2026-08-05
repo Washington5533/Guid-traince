@@ -10,6 +10,7 @@ v0 只到 alert_only：检测 + 告警，不做任何重启式干预（那属于
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
@@ -106,7 +107,7 @@ def _to_float(raw: Any) -> float | None:
         return None
 
 
-def build_channel(metrics_channel: dict) -> LogFileChannel | None:
+def build_channel(metrics_channel: dict):
     """按契约声明构造指标通道。不支持的类型返回 None（降级为进程级看护）。"""
     ch_type = (metrics_channel or {}).get("type")
     path = (metrics_channel or {}).get("path")
@@ -117,8 +118,91 @@ def build_channel(metrics_channel: dict) -> LogFileChannel | None:
         if not pattern:
             return None
         return LogFileChannel(path, pattern)
-    # wandb / tensorboard 属于 v0 之后：需要各自的读取实现
+    if ch_type == "wandb":
+        return WandbChannel(path)
+    # tensorboard 需要各自的读取实现
     return None
+
+
+# ---------------------------------------------------------------------------
+# wandb 通道：读本地 run 目录（进程外，训练脚本不需要改动）
+# ---------------------------------------------------------------------------
+
+class WandbChannel:
+    """增量读取 wandb 本地 run 目录。
+
+    读 wandb-summary.json 取聚合值 + 增量读 wandb-events.jsonl 取时序。
+    """
+
+    def __init__(self, run_dir: str | Path):
+        self.run_dir = Path(run_dir)
+        self._events_offset = 0
+        self._events_path = self._find_events()
+        self._summary_path = self.run_dir / "files" / "wandb-summary.json"
+        self._last_summary_mtime: float | None = None
+        self._last_summary: dict[str, Any] = {}
+
+    def _find_events(self) -> Path | None:
+        """在 files/ 下找 wandb-events.jsonl。"""
+        files_dir = self.run_dir / "files"
+        if not files_dir.exists():
+            return None
+        # 优先找 exactly wandb-events.jsonl
+        exact = files_dir / "wandb-events.jsonl"
+        if exact.exists():
+            return exact
+        # 回退：找任意 *events*.jsonl
+        for cand in sorted(files_dir.glob("*events*.jsonl")):
+            return cand
+        return None
+
+    def poll(self) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+
+        # 1. 读 wandb-summary.json（只在新写入时读一次）
+        if self._summary_path.exists():
+            mtime = self._summary_path.stat().st_mtime
+            if self._last_summary_mtime is None or mtime > self._last_summary_mtime:
+                self._last_summary_mtime = mtime
+                try:
+                    data = json.loads(self._summary_path.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        self._last_summary = data
+                        # summary 里去掉 _ 前缀的元数据键
+                        clean = {k: v for k, v in data.items()
+                                 if not k.startswith("_") and isinstance(v, (int, float, str))}
+                        if clean:
+                            out.append({"_type": "summary", **clean})
+                except (ValueError, OSError):
+                    pass
+
+        # 2. 增量读 wandb-events.jsonl
+        if self._events_path is not None and self._events_path.exists():
+            try:
+                size = self._events_path.stat().st_size
+                if size < self._events_offset:
+                    self._events_offset = 0
+                if size > self._events_offset:
+                    with self._events_path.open("r", encoding="utf-8") as fh:
+                        fh.seek(self._events_offset)
+                        for line in fh:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                rec = json.loads(line)
+                            except json.JSONDecodeError:
+                                continue
+                            # wandb events 格式：{"_timestamp": ..., "loss": ..., ...}
+                            clean = {k: v for k, v in rec.items()
+                                     if not k.startswith("_") and isinstance(v, (int, float))}
+                            if clean:
+                                out.append(clean)
+                        self._events_offset = fh.tell()
+            except OSError:
+                pass
+
+        return out
 
 
 # ---------------------------------------------------------------------------

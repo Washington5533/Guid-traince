@@ -178,7 +178,46 @@ class CheckpointAnalyzer:
 
     # --- 报告 -------------------------------------------------------
 
-    def report(self, metric: str = "val/accuracy", higher_better: bool = True) -> dict[str, Any]:
+    def report(self, metric: str = "", higher_better: bool | None = None) -> dict[str, Any]:
+        """生成 checkpoint 分析报告。
+
+        未指定 metric 时，尝试从 contract.select_metric() 获取最优判定指标；
+        仍未取得则回退 val/accuracy。
+        """
+        metric_source: dict[str, Any] = {"name": metric or "val/accuracy",
+                                          "direction": "max", "source": "hardcoded"}
+
+        if (not metric or higher_better is None) and self.contract is not None:
+            try:
+                # 从已知 checkpoint 的 metrics 键名中收集线索
+                seen_keys: list[str] = []
+                for info in self.known.values():
+                    seen_keys.extend(info.metrics.keys())
+                selected = self.contract.select_metric({
+                    "metrics_seen": list(set(seen_keys)),
+                })
+                if not metric:
+                    metric = selected.get("metric", "val/accuracy")
+                if higher_better is None:
+                    higher_better = selected.get("direction", "max") == "max"
+                metric_source = {
+                    "name": metric,
+                    "direction": "max" if higher_better else "min",
+                    "source": selected.get("source", "fallback"),
+                }
+                if selected.get("task_type"):
+                    metric_source["task_type"] = selected["task_type"]
+            except Exception:
+                if not metric:
+                    metric = "val/accuracy"
+                if higher_better is None:
+                    higher_better = True
+
+        if not metric:
+            metric = "val/accuracy"
+        if higher_better is None:
+            higher_better = True
+
         best = self.best(metric, higher_better)
         epochs = sorted(self.known)
         return {
@@ -186,6 +225,7 @@ class CheckpointAnalyzer:
             "latest": f"cp_{epochs[-1]}" if epochs else None,
             "best": best.to_dict() if best else None,
             "metric": metric,
+            "metric_source": metric_source,
             "checkpoints": [self.known[e].to_dict() for e in epochs],
         }
 

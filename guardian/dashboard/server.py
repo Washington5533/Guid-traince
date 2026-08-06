@@ -136,9 +136,11 @@ class DashboardServer:
                     "command": payload.get("command", ""),
                     "model_entry": payload.get("model_entry", ""),
                     "project_dir": payload.get("project_dir", ""),
+                    "log_file": payload.get("log_file", ""),
                     "registered_at": time.time(),
                     "_metrics_history": [],
                     "_gpu_history": [],
+                    "_log_lines": [],
                 }
             return JSONResponse({"ok": True, "process_id": pid})
 
@@ -150,6 +152,9 @@ class DashboardServer:
                 s = self._processes[process_id]
                 patch = payload.get("patch", {})
                 s.update(patch)
+                # 处理 log_file（可能是注册后补传的）
+                if "log_file" in patch:
+                    s["log_file"] = patch["log_file"]
                 # 累积 metrics 历史
                 mdata = payload.get("data")
                 if mdata:
@@ -169,7 +174,12 @@ class DashboardServer:
             if mtype == "metrics" and payload.get("data"):
                 await self._broadcast_process(process_id, {"type": "metrics", "data": payload["data"]})
             elif mtype == "log_line" and payload.get("line"):
-                await self._broadcast_process(process_id, {"type": "log_line", "line": payload["line"]})
+                line = payload["line"]
+                logs = s.setdefault("_log_lines", [])
+                logs.append(line)
+                if len(logs) > 2000:
+                    s["_log_lines"] = logs[-2000:]
+                await self._broadcast_process(process_id, {"type": "log_line", "line": line})
             return JSONResponse({"ok": True})
 
         # ---- 静态文件 ----
@@ -262,11 +272,14 @@ class DashboardServer:
             s = _get_state(process_id)
             if not s:
                 return JSONResponse({"error": "not found"}, 404)
+            # 优先读文件，回退到存储的日志行
             log_path = s.get("log_file")
-            if not log_path or not Path(log_path).exists():
-                return JSONResponse({"lines": [], "total": 0})
-            text = Path(log_path).read_text(encoding="utf-8", errors="replace")
-            all_lines = text.splitlines()
+            all_lines = []
+            if log_path and Path(log_path).exists():
+                text = Path(log_path).read_text(encoding="utf-8", errors="replace")
+                all_lines = text.splitlines()
+            else:
+                all_lines = s.get("_log_lines", [])
             total = len(all_lines)
             result = all_lines[-offset-lines:total-offset] if offset else all_lines[-lines:]
             return JSONResponse({"lines": result, "total": total, "offset": offset})

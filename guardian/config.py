@@ -119,6 +119,10 @@ DEFAULTS: dict[str, Any] = {
         "default_batch_size": 32,
         "device": "cuda",
     },
+    "dashboard": {
+        "port": 8765,
+        "host": "127.0.0.1",
+    },
 }
 
 

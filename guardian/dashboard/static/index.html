@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guardian Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+:root {
+  --bg: #0d1117; --card: #161b22; --border: #30363d; --hover: #21262d;
+  --text: #e6edf3; --muted: #8b949e; --dim: #484f58;
+  --blue: #58a6ff; --green: #3fb950; --orange: #d2991d; --red: #f85149;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+a { color: var(--blue); text-decoration: none; }
+
+/* Header */
+header {
+  background: var(--card); border-bottom: 1px solid var(--border);
+  padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top:0; z-index: 10;
+}
+header h1 { font-size: 16px; font-weight: 600; }
+header .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+header .status-dot.running { background: var(--green); }
+header .status-dot.failed  { background: var(--red); }
+header .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--hover); color: var(--muted); margin-left: 8px; }
+
+/* Main */
+main { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
+#view-process-list, #view-process-detail, #view-compare { display: none; }
+#view-process-list.active, #view-process-detail.active, #view-compare.active { display: block; }
+
+/* Cards */
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 14px; color: var(--blue); margin-bottom: 12px; }
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+
+/* Process grid */
+.process-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
+.process-card { cursor: pointer; transition: border-color 0.15s; }
+.process-card:hover { border-color: var(--blue); }
+.process-card .title { font-size: 15px; font-weight: 600; }
+.process-card .meta { font-size: 12px; color: var(--muted); margin: 6px 0; }
+.process-card .progress { height: 4px; background: var(--border); border-radius: 2px; margin: 8px 0; overflow: hidden; }
+.process-card .progress-bar { height: 100%; background: var(--green); border-radius: 2px; transition: width 0.3s; }
+.process-card .stats { display: flex; gap: 16px; font-size: 12px; flex-wrap: wrap; }
+.process-card .stat-val { font-weight: 600; color: var(--text); }
+.process-card .stat-label { color: var(--muted); }
+.process-card .actions { display: flex; gap: 6px; margin-top: 10px; }
+
+/* Buttons */
+.btn { padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--hover); color: var(--text);
+  font-size: 12px; cursor: pointer; transition: background 0.15s; }
+.btn:hover { background: var(--border); }
+.btn.primary { background: var(--blue); color: #000; border-color: var(--blue); }
+.btn.danger { border-color: var(--red); color: var(--red); }
+.btn.small { padding: 3px 10px; font-size: 11px; }
+
+/* Tabs */
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.tab { padding: 8px 16px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent;
+  color: var(--muted); transition: all 0.15s; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+
+/* Metric cards row */
+.metrics-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.metric-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center; }
+.metric-card .value { font-size: 22px; font-weight: 700; }
+.metric-card .label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.metric-card .trend { font-size: 11px; }
+.metric-card .trend.up { color: var(--green); }
+.metric-card .trend.down { color: var(--red); }
+
+/* Chart */
+.chart-container { width: 100%; height: 360px; margin-bottom: 16px; }
+
+/* Log viewer */
+.log-viewer { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  max-height: 500px; overflow-y: auto; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 12px; }
+.log-viewer .line { padding: 2px 12px; white-space: pre-wrap; border-bottom: 1px solid rgba(48,54,61,0.5); }
+.log-viewer .line.error { color: var(--red); background: rgba(248,81,73,0.08); }
+.log-viewer .line.warning { color: var(--orange); }
+
+/* Model tree */
+.model-tree { font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 13px; }
+.model-tree ul { list-style: none; padding-left: 20px; }
+.model-tree li { padding: 2px 0; position: relative; }
+.model-tree li::before { content: "├─"; color: var(--dim); margin-right: 4px; }
+.model-tree li:last-child::before { content: "└─"; }
+.model-tree .node-type { color: var(--blue); }
+.model-tree .node-params { color: var(--muted); margin-left: 8px; font-size: 11px; }
+.model-tree .node-flops { color: var(--orange); margin-left: 4px; font-size: 11px; }
+.model-tree .node-repeat { color: var(--green); margin-left: 4px; font-size: 11px; }
+.model-tree .bar { display: inline-block; height: 4px; border-radius: 2px; margin-left: 6px; vertical-align: middle; }
+
+/* AI panel */
+.ai-response { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px;
+  font-size: 13px; line-height: 1.6; min-height: 60px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
+.ai-chat { display: flex; gap: 8px; margin-top: 8px; }
+.ai-chat input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 12px; color: var(--text); font-size: 13px; }
+
+/* Gallery grid */
+.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+.gallery-item { position: relative; background: var(--card); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; cursor: pointer; }
+.gallery-item img { width: 100%; height: 120px; object-fit: cover; }
+.gallery-item .info { padding: 6px 8px; font-size: 11px; }
+.gallery-item .info .conf { font-weight: 600; }
+.gallery-item .info .label { color: var(--muted); }
+.gallery-item.selected { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(88,166,255,0.3); }
+
+/* Compare view */
+.compare-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.compare-card .metric { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+
+/* Back link */
+.back-link { font-size: 13px; color: var(--muted); cursor: pointer; margin-bottom: 16px; display: inline-block; }
+.back-link:hover { color: var(--text); }
+
+/* Empty state */
+.empty { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
+.empty .icon { font-size: 36px; margin-bottom: 12px; }
+
+/* New-guardian form */
+.new-form { display: flex; gap: 8px; margin-top: 16px; }
+.new-form input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px 14px; color: var(--text); font-size: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 onclick="showProcessList()" style="cursor:pointer">🛡️ Guardian Dashboard</h1>
+  <div>
+    <span id="ws-status" style="font-size:11px;color:var(--muted)">● 连接中...</span>
+    <span id="global-badge" class="badge" style="display:none"></span>
+  </div>
+</header>
+
+<main>
+  <!-- ========== Process List ========== -->
+  <div id="view-process-list" class="active">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 style="margin:0">训练进程</h2>
+        <button class="btn small" onclick="refreshProcesses()">🔄 刷新</button>
+      </div>
+      <div id="process-grid" class="process-grid"></div>
+      <div style="margin-top:16px">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:6px">新建守护</div>
+        <div class="new-form">
+          <input id="new-command" value="python train.py --epochs 20" placeholder="训练命令...">
+          <button class="btn primary" onclick="alert('请在终端运行: python run.py watch --with-dashboard -- <命令>')">启动</button>
+        </div>
+      </div>
+    </div>
+    <div id="compare-bar" style="display:none" class="card">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:13px">已选: <b id="compare-count">0</b>/5</span>
+        <button class="btn primary small" onclick="runCompare()">开始对比</button>
+        <button class="btn small" onclick="clearCompare()">清除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== Process Detail ========== -->
+  <div id="view-process-detail">
+    <div class="back-link" onclick="showProcessList()">← 返回进程列表</div>
+    <div id="detail-header" class="card"></div>
+    <div id="detail-metrics" class="metrics-row"></div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="overview" onclick="switchTab('overview')">📊 训练曲线</div>
+      <div class="tab" data-tab="logs" onclick="switchTab('logs')">📋 日志</div>
+      <div class="tab" data-tab="ai" onclick="switchTab('ai')">🧠 AI 分析</div>
+      <div class="tab" data-tab="model" onclick="switchTab('model')">🏗️ 模型结构</div>
+      <div class="tab" data-tab="gallery" onclick="switchTab('gallery')">🖼️ 图库</div>
+    </div>
+
+    <div id="tab-overview" class="tab-panel active">
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <span style="font-size:13px;color:var(--muted)">显示指标:</span>
+          <div id="metric-toggles"></div>
+        </div>
+        <div id="chart-main" class="chart-container"></div>
+        <div id="chart-gpu" class="chart-container" style="height:200px"></div>
+      </div>
+    </div>
+
+    <div id="tab-logs" class="tab-panel">
+      <div class="card">
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button class="btn small" onclick="toggleAutoScroll()" id="btn-autoscroll">⏸ 暂停滚动</button>
+          <input placeholder="搜索..." oninput="filterLogs(this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:12px;flex:1">
+          <button class="btn small" onclick="refreshLogs()">🔄</button>
+        </div>
+        <div id="log-viewer" class="log-viewer"></div>
+      </div>
+    </div>
+
+    <div id="tab-ai" class="tab-panel">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:13px;color:var(--muted)">AI 模型: 点击按钮触发分析</span>
+          <button class="btn primary small" onclick="runAIAnalysis()" id="btn-ai-analyze">🔮 分析当前状态</button>
+        </div>
+        <div id="ai-output" class="ai-response">点击上方按钮开始分析...</div>
+        <div class="ai-chat" style="margin-top:12px">
+          <input id="ai-question" placeholder="追问...（如：为什么 loss 在第 8 epoch 突增？）" onkeydown="if(event.key==='Enter')askAI()">
+          <button class="btn small" onclick="askAI()">发送</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-model" class="tab-panel">
+      <div class="card">
+        <div id="model-tree" class="model-tree"></div>
+      </div>
+    </div>
+
+    <div id="tab-gallery" class="tab-panel">
+      <div class="card">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:8px">
+          图库需先在 CLI 中生成，或在训练完成后从详情页触发
+        </div>
+        <div id="gallery-grid" class="gallery-grid"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== Compare ========== -->
+  <div id="view-compare">
+    <div class="back-link" onclick="showProcessList()">← 返回进程列表</div>
+    <div class="card"><h2>对比结果</h2><div id="compare-content"></div></div>
+  </div>
+</main>
+
+<script>
+// ===================== State =====================
+let currentProcessId = null;
+let currentDetail = null;
+let autoscroll = true;
+let compareSet = new Set();
+let wsGlobal = null;
+let wsProcess = null;
+let chartMain = null;
+let chartGpu = null;
+
+// ===================== Init =====================
+function init() {
+  chartMain = echarts.init(document.getElementById('chart-main'));
+  chartGpu = echarts.init(document.getElementById('chart-gpu'));
+  connectWS();
+  refreshProcesses();
+  window.addEventListener('resize', () => { chartMain?.resize(); chartGpu?.resize(); });
+}
+document.addEventListener('DOMContentLoaded', init);
+
+// ===================== WebSocket =====================
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const url = `${proto}://${location.host}/ws`;
+  wsGlobal = new WebSocket(url);
+  wsGlobal.onopen = () => setWSStatus('● 已连接', 'var(--green)');
+  wsGlobal.onclose = () => { setWSStatus('● 断开 · 3s 后重连', 'var(--red)'); setTimeout(connectWS, 3000); };
+  wsGlobal.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'process_update') refreshProcesses();
+    if (msg.type === 'metrics' && currentProcessId === msg.process_id) liveUpdateMetrics(msg.data);
+    if (msg.type === 'log_line' && currentProcessId === msg.process_id) liveLogLine(msg.line);
+  };
+}
+
+function setWSStatus(text, color) {
+  const el = document.getElementById('ws-status');
+  el.textContent = text; el.style.color = color;
+}
+
+function subProcessWS(pid) {
+  if (wsProcess) wsProcess.close();
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  wsProcess = new WebSocket(`${proto}://${location.host}/ws/process/${pid}`);
+  wsProcess.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'metrics') liveUpdateMetrics(msg.data);
+    if (msg.type === 'log_line') liveLogLine(msg.line);
+    if (msg.type === 'state_patch') { if (currentDetail) Object.assign(currentDetail, msg.patch); }
+  };
+}
+
+// ===================== API helpers =====================
+async function api(url) { const r = await fetch(url); return r.json(); }
+
+// ===================== Process List =====================
+async function refreshProcesses() {
+  const data = await api('/api/processes');
+  const grid = document.getElementById('process-grid');
+  if (!data.processes || !data.processes.length) {
+    grid.innerHTML = `<div class="empty"><div class="icon">📭</div>暂无训练进程<br><span style="font-size:12px">在终端运行 python run.py watch --with-dashboard -- &lt;训练命令&gt;</span></div>`;
+    return;
+  }
+  document.getElementById('global-badge').style.display = 'inline';
+  document.getElementById('global-badge').textContent = `${data.processes.filter(p=>p.status==='running').length} running`;
+  grid.innerHTML = data.processes.map(p => {
+    const epochStr = p.epoch ? `Epoch ${p.epoch}${p.max_epoch ? '/'+p.max_epoch : ''}` : '';
+    const pct = p.max_epoch && p.epoch ? Math.round(p.epoch/p.max_epoch*100) : 0;
+    const m = p.latest_metrics || {};
+    const g = p.latest_gpu || {};
+    const checked = compareSet.has(p.process_id) ? 'checked' : '';
+    return `<div class="card process-card" onclick="showDetail('${p.process_id}')">
+      <div class="title">
+        <span class="status-dot ${p.status}"></span>${p.name || p.process_id}
+        <span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:8px">${p.status}</span>
+      </div>
+      <div class="meta">${epochStr} ${p.command ? '· '+p.command.slice(0,60) : ''}</div>
+      ${p.max_epoch ? `<div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>` : ''}
+      <div class="stats">
+        ${m.loss !== undefined ? `<span><span class="stat-val">${m.loss.toFixed(4)}</span> <span class="stat-label">loss</span></span>` : ''}
+        ${m.val_acc !== undefined ? `<span><span class="stat-val">${(m.val_acc*100).toFixed(1)}%</span> <span class="stat-label">acc</span></span>` : ''}
+        ${m.lr !== undefined ? `<span><span class="stat-val">${m.lr}</span> <span class="stat-label">lr</span></span>` : ''}
+        ${g.util_pct !== undefined ? `<span><span class="stat-val">${g.util_pct}%</span> <span class="stat-label">GPU</span></span>` : ''}
+        ${p.anomaly_count > 0 ? `<span style="color:var(--orange)">⚠ ${p.anomaly_count} events</span>` : ''}
+      </div>
+      <div class="actions" onclick="event.stopPropagation()">
+        <label class="btn small" style="cursor:pointer"><input type="checkbox" ${checked} onchange="toggleCompare('${p.process_id}', this.checked)" style="margin-right:4px">对比</label>
+      </div>
+    </div>`;
+  }).join('');
+  updateCompareBar();
+}
+
+function toggleCompare(pid, on) {
+  if (on) { if (compareSet.size >=5) { alert('最多对比5个'); return; } compareSet.add(pid); }
+  else compareSet.delete(pid);
+  updateCompareBar();
+}
+function updateCompareBar() {
+  const bar = document.getElementById('compare-bar');
+  bar.style.display = compareSet.size >= 2 ? 'block' : 'none';
+  document.getElementById('compare-count').textContent = compareSet.size;
+}
+function clearCompare() { compareSet.clear(); refreshProcesses(); }
+
+async function runCompare() {
+  const ids = [...compareSet];
+  const data = await fetch('/api/compare', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({process_ids: ids}) }).then(r=>r.json());
+  document.getElementById('view-process-list').classList.remove('active');
+  document.getElementById('view-process-detail').classList.remove('active');
+  document.getElementById('view-compare').classList.add('active');
+  document.getElementById('compare-content').innerHTML = `<div class="compare-grid">${
+    (data.comparisons||[]).map(c => `<div class="card compare-card">
+      <h2>${c.name}</h2>
+      <div>状态: ${c.status}</div>
+      ${Object.entries(c.latest_metrics||{}).slice(0,10).map(([k,v]) => `<div class="metric"><span>${k}</span><span>${typeof v==='number'?v.toFixed(4):v}</span></div>`).join('')}
+    </div>`).join('')
+  }</div>`;
+}
+
+// ===================== Process Detail =====================
+async function showDetail(pid) {
+  currentProcessId = pid;
+  document.getElementById('view-process-list').classList.remove('active');
+  document.getElementById('view-compare').classList.remove('active');
+  document.getElementById('view-process-detail').classList.add('active');
+  subProcessWS(pid);
+
+  const data = await api(`/api/process/${pid}`);
+  if (data.error) { alert(data.error); return; }
+  currentDetail = data;
+
+  // Header
+  document.getElementById('detail-header').innerHTML = `
+    <div class="title" style="font-size:16px">${data.name || pid} <span style="font-size:12px;color:var(--muted)">${data.status}</span></div>
+    <div style="font-size:12px;color:var(--muted);margin-top:4px">${data.command||''} · ${data.metrics_count||0} records</div>`;
+
+  // Metric cards
+  const m = data.latest_metrics || {};
+  const g = data.latest_gpu || {};
+  document.getElementById('detail-metrics').innerHTML = [
+    m.loss !== undefined ? {v: m.loss.toFixed(4), l: 'Loss', t: 'down'} : null,
+    m.val_acc !== undefined ? {v: (m.val_acc*100).toFixed(1)+'%', l: 'Val Acc', t: 'up'} : null,
+    m.lr !== undefined ? {v: m.lr, l: 'LR'} : null,
+    g.util_pct !== undefined ? {v: g.util_pct+'%', l: 'GPU Util'} : null,
+    g.mem_used_mb !== undefined ? {v: (g.mem_used_mb/1024).toFixed(1)+'GB', l: 'GPU Mem'} : null,
+    g.temperature_c !== undefined ? {v: g.temperature_c+'°C', l: 'GPU Temp'} : null,
+    {v: data.metrics_count||0, l: 'Records'},
+    {v: data.anomaly_count||0, l: 'Anomalies', t: data.anomaly_count>0?'warn':''},
+  ].filter(Boolean).map(c => `<div class="metric-card"><div class="value">${c.v}</div><div class="label">${c.l}</div>${c.t==='down'?'<div class="trend down">↓</div>':c.t==='up'?'<div class="trend up">↑</div>':c.t==='warn'?'<div style="color:var(--orange);font-size:11px">⚠</div>':''}</div>`).join('');
+
+  // Metric toggles
+  const disc = data.discovered_metrics || {};
+  let toggles = '';
+  for (const [cat, keys] of Object.entries(disc)) {
+    for (const k of (keys||[]).slice(0,5)) {
+      toggles += `<label style="font-size:11px;cursor:pointer;margin-right:8px"><input type="checkbox" checked onchange="redrawChart()" class="metric-cb" data-key="${k}"> ${k}</label>`;
+    }
+  }
+  document.getElementById('metric-toggles').innerHTML = toggles || '<span style="font-size:11px;color:var(--muted)">自动检测中...</span>';
+
+  // Load sub-views
+  loadMetricsChart(pid);
+  refreshLogs();
+  document.getElementById('ai-output').textContent = '点击上方按钮开始分析...';
+  document.getElementById('model-tree').innerHTML = '<span style="color:var(--muted)">加载中...</span>';
+  document.getElementById('gallery-grid').innerHTML = '';
+  switchTab('overview');
+}
+
+function showProcessList() {
+  document.getElementById('view-process-list').classList.add('active');
+  document.getElementById('view-process-detail').classList.remove('active');
+  document.getElementById('view-compare').classList.remove('active');
+  if (wsProcess) wsProcess.close();
+  currentProcessId = null;
+  refreshProcesses();
+}
+
+// ===================== Tabs =====================
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`[data-tab="${name}"]`)?.classList.add('active');
+  document.getElementById(`tab-${name}`)?.classList.add('active');
+  if (name === 'model') loadModelTree(currentProcessId);
+  if (name === 'gallery') loadGallery(currentProcessId);
+}
+
+// ===================== Metrics Chart =====================
+async function loadMetricsChart(pid) {
+  const data = await api(`/api/process/${pid}/metrics?limit=500`);
+  const metrics = data.metrics || [];
+  window._allMetrics = metrics;
+  redrawChart();
+}
+
+function redrawChart() {
+  const metrics = window._allMetrics || [];
+  if (!metrics.length) return;
+  const cbs = document.querySelectorAll('.metric-cb:checked');
+  const keys = [...cbs].map(c => c.dataset.key).filter(k => _isNumeric(metrics, k));
+  if (!keys.length) keys.push(...Object.keys(metrics[0]).filter(k => _isNumeric(metrics, k)).slice(0, 4));
+
+  const steps = metrics.map((_,i) => i);
+  const series = keys.map(k => ({
+    name: k, type: 'line', data: metrics.map(m => m[k] ?? null),
+    smooth: true, symbol: 'none', lineStyle: { width: 1.5 },
+  }));
+
+  chartMain.setOption({
+    darkMode: true, backgroundColor: '#161b22',
+    tooltip: { trigger: 'axis' },
+    legend: { textStyle: { color: '#8b949e', fontSize: 11 }, top: 0 },
+    grid: { left: 50, right: 20, top: 30, bottom: 30 },
+    xAxis: { type: 'category', data: metrics.map(m => m.step || m.epoch || ''), axisLabel: { color: '#484f58', fontSize: 10 } },
+    yAxis: { type: 'value', axisLabel: { color: '#484f58', fontSize: 10 }, splitLine: { lineStyle: { color: '#21262d' } } },
+    series,
+  }, true);
+
+  // GPU chart
+  const gpuKeys = keys.filter(k => k.startsWith('gpu') || ['gpu_util_pct','mem_used_mb'].includes(k));
+  if (gpuKeys.length) {
+    chartGpu.setOption({
+      darkMode: true, backgroundColor: '#161b22',
+      tooltip: { trigger: 'axis' },
+      legend: { textStyle: { color: '#8b949e', fontSize: 11 }, top: 0 },
+      grid: { left: 50, right: 20, top: 30, bottom: 20 },
+      xAxis: { type: 'category', data: metrics.map(m => m.step || m.epoch || ''), axisLabel: { color: '#484f58', fontSize: 10 } },
+      yAxis: { type: 'value', axisLabel: { color: '#484f58', fontSize: 10 }, splitLine: { lineStyle: { color: '#21262d' } } },
+      series: gpuKeys.map(k => ({ name: k, type: 'line', data: metrics.map(m => m[k] ?? null), smooth: true, symbol: 'none' })),
+    }, true);
+  }
+}
+
+function _isNumeric(metrics, key) {
+  for (const m of metrics.slice(-10)) if (typeof m[key] === 'number') return true;
+  return false;
+}
+
+function liveUpdateMetrics(m) {
+  if (!window._allMetrics) window._allMetrics = [];
+  window._allMetrics.push(m);
+  if (window._allMetrics.length > 500) window._allMetrics = window._allMetrics.slice(-500);
+  redrawChart();
+}
+
+// ===================== Logs =====================
+async function refreshLogs() {
+  if (!currentProcessId) return;
+  const data = await api(`/api/process/${currentProcessId}/log?lines=200`);
+  const viewer = document.getElementById('log-viewer');
+  window._allLogLines = data.lines || [];
+  renderLogs();
+}
+
+function renderLogs(filter = '') {
+  const lines = (window._allLogLines || []).filter(l => !filter || l.toLowerCase().includes(filter.toLowerCase()));
+  const viewer = document.getElementById('log-viewer');
+  viewer.innerHTML = lines.map(l => {
+    let cls = '';
+    if (/error|traceback|exception/i.test(l)) cls = 'error';
+    else if (/warn|warning/i.test(l)) cls = 'warning';
+    return `<div class="line ${cls}">${escapeHtml(l)}</div>`;
+  }).join('');
+  if (autoscroll) viewer.scrollTop = viewer.scrollHeight;
+}
+
+function filterLogs(q) { renderLogs(q); }
+function toggleAutoScroll() {
+  autoscroll = !autoscroll;
+  document.getElementById('btn-autoscroll').textContent = autoscroll ? '⏸ 暂停滚动' : '▶ 恢复滚动';
+}
+function liveLogLine(line) {
+  if (!window._allLogLines) window._allLogLines = [];
+  window._allLogLines.push(line);
+  if (window._allLogLines.length > 1000) window._allLogLines = window._allLogLines.slice(-1000);
+  renderLogs();
+}
+
+// ===================== AI =====================
+async function runAIAnalysis() {
+  if (!currentProcessId) return;
+  document.getElementById('ai-output').textContent = '分析中...';
+  try {
+    const r = await fetch(`/api/process/${currentProcessId}/ai/analyze`, { method: 'POST' });
+    const d = await r.json();
+    document.getElementById('ai-output').textContent = d.analysis || '无响应';
+  } catch(e) {
+    document.getElementById('ai-output').textContent = '分析失败: ' + e;
+  }
+}
+
+async function askAI() {
+  const q = document.getElementById('ai-question').value.trim();
+  if (!q || !currentProcessId) return;
+  document.getElementById('ai-output').textContent += '\n\n❓ ' + q + '\n⏳ 思考中...';
+  try {
+    const r = await fetch(`/api/process/${currentProcessId}/ai/chat?question=${encodeURIComponent(q)}`, { method: 'POST' });
+    const d = await r.json();
+    document.getElementById('ai-output').textContent = document.getElementById('ai-output').textContent.replace('⏳ 思考中...', '💬 ' + (d.answer || '...'));
+  } catch(e) {
+    document.getElementById('ai-output').textContent += '\n错误: ' + e;
+  }
+  document.getElementById('ai-question').value = '';
+}
+
+// ===================== Model Tree =====================
+async function loadModelTree(pid) {
+  const el = document.getElementById('model-tree');
+  try {
+    const data = await api(`/api/process/${pid}/model`);
+    if (data.error) { el.innerHTML = `<span style="color:var(--muted)">${data.error}</span>`; return; }
+    const nodes = data.nodes || [];
+    const totalP = data.total_params || 1;
+    const totalF = data.total_flops_est || 1;
+    el.innerHTML = `<div style="margin-bottom:8px;font-size:12px;color:var(--muted)">
+      ${data.model_name || 'Model'} · ${totalP.toLocaleString()} params · ${(totalF/1e6).toFixed(1)}M FLOPs · ${data.module_count||nodes.length} modules
+    </div><ul>${renderTreeNodes(nodes, totalP, totalF)}</ul>`;
+  } catch(e) {
+    el.innerHTML = `<span style="color:var(--red)">加载失败</span>`;
+  }
+}
+
+function renderTreeNodes(nodes, totalP, totalF) {
+  return nodes.map(n => {
+    const pct = totalP > 0 ? (n.params||0)/totalP*100 : 0;
+    const barW = Math.max(1, pct * 2);
+    const color = pct > 25 ? 'var(--red)' : pct > 5 ? 'var(--orange)' : 'var(--green)';
+    const repeat = n.repeat > 1 ? `<span class="node-repeat">×${n.repeat}</span>` : '';
+    const params = n.params ? `<span class="node-params">${fmtParams(n.params)}</span>` : '';
+    const flops = n.flops ? `<span class="node-flops">${fmtParams(n.flops)} FLOPs</span>` : '';
+    const bar = pct > 0.1 ? `<span class="bar" style="width:${barW}px;background:${color}"></span>` : '';
+    const children = n.children && n.children.length ? `<ul>${renderTreeNodes(n.children, totalP, totalF)}</ul>` : '';
+    return `<li><span class="node-type">${n.type||'?'}</span> ${n.name.split('.').pop()}${repeat}${params}${flops}${bar}${children}</li>`;
+  }).join('');
+}
+
+function fmtParams(p) {
+  if (!p) return '0';
+  if (p >= 1e6) return (p/1e6).toFixed(1)+'M';
+  if (p >= 1e3) return Math.round(p/1e3)+'K';
+  return p.toString();
+}
+
+// ===================== Gallery =====================
+async function loadGallery(pid) {
+  const data = await api(`/api/process/${pid}/gallery`);
+  const el = document.getElementById('gallery-grid');
+  if (!data.galleries || !Object.keys(data.galleries).length) {
+    el.innerHTML = `<div class="empty"><div class="icon">🖼️</div>暂无图库数据<br><span style="font-size:12px">在 CLI 运行 gallery 命令或等训练完成后触发</span></div>`;
+    return;
+  }
+  let html = '';
+  for (const [name, images] of Object.entries(data.galleries)) {
+    html += `<div style="grid-column:1/-1;font-size:13px;font-weight:600;margin-top:8px">${name} (${images.length})</div>`;
+    for (const img of (images||[]).slice(0, 30)) {
+      html += `<div class="gallery-item">
+        <div style="height:120px;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:24px">🖼️</div>
+        <div class="info"><span class="conf">${img.confidence?.toFixed(3)||'?'}</span> <span class="label">${img.predicted_class||img.true_label||''}</span></div>
+      </div>`;
+    }
+  }
+  el.innerHTML = html || '<div class="empty">无图片数据</div>';
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+</script>
+</body>
+</html>

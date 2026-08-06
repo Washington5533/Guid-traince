@@ -54,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--max-retries", type=int, default=None)
     w.add_argument("--agent", action="store_true", help="启用 agent 决策层（需配置 API key）")
     w.add_argument("--with-mcp", action="store_true", help="watch 的同时后台启动 MCP server")
+    w.add_argument("--with-dashboard", action="store_true", help="watch 的同时后台启动 Web 控制面板")
 
     c = sub.add_parser("contract", help="契约校验与审核")
     c.add_argument("action", choices=["check", "review"])
@@ -119,6 +120,10 @@ def build_parser() -> argparse.ArgumentParser:
     inf.add_argument("--project-dir", default=None, help="项目根目录")
 
     # ---- project 子命令 ----
+    dash = sub.add_parser("dashboard", help="启动 Web 控制面板（独立进程）")
+    dash.add_argument("--port", type=int, default=8765, help="HTTP 端口，默认 8765")
+    dash.add_argument("--host", default="127.0.0.1")
+
     proj = sub.add_parser("project", help="项目上下文管理（自动探测路径）")
     proj.add_argument("action", choices=["init", "show", "scan", "fill"],
                       help="init=自动探测并保存 | show=显示当前 | scan=仅扫描 | fill=AI补全")
@@ -355,12 +360,53 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
             if mcp_thread is not None:
                 print("[MCP] 已在后台线程启动，外部 agent 客户端可接入。", flush=True)
         # 不可用时已在上面打印过提示，此处不再重复
+
+    # --with-dashboard：后台启动 Web 控制面板
+    dash_server = None
+    dash_thread = None
+    if args.with_dashboard:
+        from guardian.dashboard import DashboardServer
+        try:
+            dash_server = DashboardServer(port=8765, host="127.0.0.1")
+            # 注册当前进程
+            process_id = project.get("name", "guardian-run")
+            dash_server.register_process(process_id, {
+                "name": project.get("name", "guardian-run"),
+                "status": "starting",
+                "command": " ".join(train_cmd),
+                "max_epoch": None,
+            })
+            dash_thread = dash_server.start(blocking=False)
+            if dash_thread:
+                print(f"[Dashboard] http://127.0.0.1:8765", flush=True)
+        except Exception as exc:
+            print(f"[Dashboard] 启动失败: {exc}", flush=True)
+
     summary_gen = SummaryGenerator(project, monitor, analyzer, watchdog, advisor=advisor)
 
     def on_tick(_wd, _proc) -> None:
         if monitor is not None:
             monitor.poll_metrics()
+            # Dashboard: push latest metrics
+            if dash_server and monitor.enabled:
+                hist = monitor.get_metrics_history()
+                if hist:
+                    dash_server.update_process(process_id, {
+                        "latest_metrics": hist[-1],
+                        "epoch": hist[-1].get("epoch") or hist[-1].get("step"),
+                        "anomaly_count": len(monitor.get_anomaly_history()),
+                    })
+                    dash_server.push_metrics(process_id, hist[-1])
+                gpu_hist = getattr(monitor, "get_gpu_history", lambda: [])()
+                if gpu_hist:
+                    dash_server.update_process(process_id, {"latest_gpu": gpu_hist[-1]})
         analyzer.poll()
+
+    if dash_server:
+        dash_server.update_process(process_id, {"status": "running"})
+        dash_server.bind_guardian(process_id, monitor=monitor, watchdog=watchdog,
+                                  advisor=advisor, analyzer=analyzer,
+                                  summary=None, contract=contract)
 
     print(f"[守护] {' '.join(train_cmd)}", flush=True)
     try:
@@ -374,6 +420,11 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
         monitor.poll_metrics()
     analyzer.poll()
 
+    if dash_server:
+        dash_server.update_process(process_id, {
+            "status": "completed" if result.get("status") == "completed" else "failed",
+            "latest_metrics": result.get("metrics", {}),
+        })
     summary = summary_gen.generate(result)
     print(flush=True)
     summary_gen.print_summary(summary)
@@ -813,6 +864,15 @@ def cmd_infer(args) -> int:
         return 1
 
 
+def cmd_dashboard(args) -> int:
+    """启动 Web 控制面板（独立进程）。"""
+    from guardian.dashboard import DashboardServer
+    ds = DashboardServer(port=args.port, host=args.host)
+    print(f"Dashboard: http://{args.host}:{args.port}", flush=True)
+    ds.start(blocking=True)
+    return 0
+
+
 def cmd_project(args) -> int:
     """项目上下文管理。"""
     from guardian.project_context import ProjectContext
@@ -929,6 +989,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_infer(args)
         if args.command == "project":
             return cmd_project(args)
+        if args.command == "dashboard":
+            return cmd_dashboard(args)
     except (ConfigError, ContractError) as exc:
         print(f"错误: {exc}", flush=True)
         return 1

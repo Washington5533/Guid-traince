@@ -380,10 +380,8 @@ class DashboardServer:
                 self._subscribers.setdefault(process_id, []).append(ws)
             try:
                 while True:
-                    await ws.receive_text()  # keepalive
-            except WebSocketDisconnect:
-                pass
-            except Exception:
+                    await ws.receive_text()
+            except (WebSocketDisconnect, ConnectionResetError, OSError):
                 pass
             finally:
                 with self._lock:
@@ -398,7 +396,7 @@ class DashboardServer:
             try:
                 while True:
                     await ws.receive_text()
-            except WebSocketDisconnect:
+            except (WebSocketDisconnect, ConnectionResetError, OSError):
                 pass
             finally:
                 self._global_subs.remove(ws)

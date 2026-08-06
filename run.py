@@ -49,6 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command", required=True)
 
     w = sub.add_parser("watch", help="守护任意训练命令（默认主路径）")
+    w.add_argument("--config", default="configs/guardian.yaml", help="guardian 配置文件路径")
+    w.add_argument("--contract", default=None, help="契约文件路径")
     w.add_argument("--strict-contract", action="store_true", help="契约缺项即拒绝启动")
     w.add_argument("--no-monitor", action="store_true")
     w.add_argument("--max-retries", type=int, default=None)

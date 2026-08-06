@@ -18,12 +18,18 @@
 
 from __future__ import annotations
 
+import enum
 import json
 import os
 import threading
 import time
 from pathlib import Path
 from typing import Any
+
+
+class GuardianMode(enum.Enum):
+    STANDALONE = "standalone"       # agent 自主决策
+    MCP_DELEGATED = "mcp"           # 外部 Claude Code 决策，agent 让位
 
 # ---------------------------------------------------------------------------
 # MCP SDK 可选导入
@@ -210,6 +216,139 @@ READONLY_TOOLS: list[dict[str, Any]] = [
 ]
 
 
+# ---- v2 新增只读工具 (F3/F4/F7/F10) ----
+
+READONLY_TOOLS_V2: list[dict[str, Any]] = [
+    {
+        "name": "list_experiments",
+        "description": "列出所有历史实验摘要（experiment_id, status, best_metric, timestamp）。只读。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "返回条数上限，默认 50"},
+            },
+            "required": [],
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+    },
+    {
+        "name": "query_experiment",
+        "description": (
+            "自然语言查询实验记录。例如：'上次 mAP 最高的那次，lr 和 batch_size 是多少'。"
+            "只读推理，不修改任何数据。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "description": "自然语言问题"},
+            },
+            "required": ["question"],
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+    },
+    {
+        "name": "compare_experiments",
+        "description": "对比两个实验的指标、参数、异常事件。只读。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id_a": {"type": "string", "description": "第一个实验 ID"},
+                "id_b": {"type": "string", "description": "第二个实验 ID"},
+            },
+            "required": ["id_a", "id_b"],
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+    },
+    {
+        "name": "get_model_structure",
+        "description": (
+            "返回模型结构 JSON：节点列表（含 type/params/FLOPs/input_shape/output_shape）、"
+            "边列表、总参数量、总 FLOPs。供外部 agent 分析模型瓶颈使用。只读。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "model_entry": {"type": "string", "description": "模型入口，如 'train:build_model'"},
+            },
+            "required": [],
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+    },
+    {
+        "name": "get_guardian_mode",
+        "description": (
+            "当前 guardian 模式：standalone（agent 自主决策）或 "
+            "mcp_delegated（外部 Claude Code 决策，内置 agent 已让位）。只读。"
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+    },
+    {
+        "name": "get_gallery_config",
+        "description": "当前图片筛选策略配置（如已生成）。只读。",
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+    },
+]
+
+# ---- v2 新增写工具（训练后可写） ----
+
+WRITE_TOOLS_V2: list[dict[str, Any]] = [
+    {
+        "name": "run_visualization",
+        "description": (
+            "触发生成模型管线可视化 HTML。【仅在训练结束后可用】。"
+            "需要 write_token 鉴权。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "model_entry": {"type": "string", "description": "模型入口，如 'train:build_model'"},
+                "output_path": {"type": "string", "description": "输出 HTML 路径，默认 ./logs/model_viz.html"},
+                "request_id": {"type": "string", "description": "幂等键"},
+            },
+            "required": [],
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+    },
+    {
+        "name": "set_gallery_config",
+        "description": (
+            "更新图片筛选策略配置，触发重新筛选。【仅在训练结束后可用】。"
+            "需要 write_token 鉴权。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "strategies": {"description": "筛选策略 JSON（与 propose_strategies 输出格式一致）"},
+                "checkpoint_epoch": {"type": "integer", "description": "用于推理的 checkpoint epoch"},
+                "data_source": {"type": "string", "description": "数据源路径"},
+                "request_id": {"type": "string", "description": "幂等键"},
+            },
+            "required": ["strategies", "checkpoint_epoch", "data_source"],
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
+    },
+    {
+        "name": "run_inference",
+        "description": (
+            "使用指定 checkpoint 对输入数据跑推理（固定脚本，不生成代码）。"
+            "【仅在训练结束后可用】。需要 write_token 鉴权。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "checkpoint_epoch": {"type": "integer", "description": "checkpoint epoch"},
+                "task_type": {"type": "string", "description": "classification | detection | segmentation"},
+                "inputs": {"type": "string", "description": "输入数据路径"},
+                "request_id": {"type": "string", "description": "幂等键"},
+            },
+            "required": ["checkpoint_epoch", "task_type", "inputs"],
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
+    },
+]
+
 WRITE_TOOLS: list[dict[str, Any]] = [
     {
         "name": "trigger_recovery",
@@ -367,6 +506,11 @@ class GuardianMCPServer:
         self._last_snapshot = 0.0
         self._snapshot_cache: dict[str, Any] = {}
 
+        # 双模式架构
+        self.mode_state = GuardianMode.STANDALONE
+        self._training_active = True  # 默认训练进行中
+        self._gallery_config: dict | None = None  # 缓存的图集配置
+
     # ------------------------------------------------------------------
     # 可用性检查
     # ------------------------------------------------------------------
@@ -389,6 +533,77 @@ class GuardianMCPServer:
             return False, "未配置 write_token_env 环境变量"
         if token != self.write_token:
             return False, "鉴权失败：token 不匹配"
+        return True, "ok"
+
+    # ------------------------------------------------------------------
+    # 双模式管理
+    # ------------------------------------------------------------------
+
+    def set_mode(self, new_mode: GuardianMode) -> None:
+        """切换 guardian 模式，同步通知 advisor 让位/恢复。"""
+        prev = self.mode_state
+        self.mode_state = new_mode
+        if prev != new_mode:
+            if self.advisor is not None and hasattr(self.advisor, "set_delegated"):
+                self.advisor.set_delegated(new_mode == GuardianMode.MCP_DELEGATED)
+            self._log_access("set_guardian_mode", None,
+                           {"from": prev.value, "to": new_mode.value},
+                           {"status": "ok"}, True)
+
+    def on_client_connect(self) -> None:
+        """MCP 客户端连接时调用：切换为让位模式。"""
+        self.set_mode(GuardianMode.MCP_DELEGATED)
+
+    def on_client_disconnect(self) -> None:
+        """MCP 客户端断开时调用：恢复自主决策。"""
+        self.set_mode(GuardianMode.STANDALONE)
+
+    def get_mode(self) -> dict[str, str]:
+        """返回当前模式信息。"""
+        return {
+            "mode": self.mode_state.value,
+            "description": (
+                "外部 Claude Code 决策中，内置 agent 已让位"
+                if self.mode_state == GuardianMode.MCP_DELEGATED
+                else "agent 自主决策中"
+            ),
+        }
+
+    # ------------------------------------------------------------------
+    # 训练阶段感知
+    # ------------------------------------------------------------------
+
+    @property
+    def training_active(self) -> bool:
+        return self._training_active
+
+    @training_active.setter
+    def training_active(self, value: bool) -> None:
+        self._training_active = bool(value)
+
+    def _check_post_training(self, tool_name: str) -> tuple[bool, str]:
+        """检查工具是否仅在训练后可用的约束。"""
+        if self._training_active:
+            return False, (
+                f"工具 {tool_name!r} 仅在训练结束后可用。"
+                f"当前训练仍在进行中。"
+            )
+        return True, "ok"
+
+    # ------------------------------------------------------------------
+    # 授权（扩展版：阶段 + token 双重检查）
+    # ------------------------------------------------------------------
+
+    def _authorize_post_training(
+        self, tool_name: str, token: str | None = None,
+    ) -> tuple[bool, str]:
+        """写工具鉴权 + 训练后检查。"""
+        ok, msg = self._authorize(tool_name, token)
+        if not ok:
+            return False, msg
+        ok, msg = self._check_post_training(tool_name)
+        if not ok:
+            return False, msg
         return True, "ok"
 
     # ------------------------------------------------------------------
@@ -627,6 +842,197 @@ class GuardianMCPServer:
         return json.dumps(result, ensure_ascii=False)
 
     # ------------------------------------------------------------------
+    # 工具处理器 —— v2 只读 (F3/F4/F7/F10)
+    # ------------------------------------------------------------------
+
+    def _handle_list_experiments(self, limit: int = 50, **kwargs) -> str:
+        from .experiment_query import ExperimentQuery
+        eq = ExperimentQuery({"log_dir": str(self.state_dir)}, advisor=self.advisor)
+        exps = eq.list_experiments(limit=limit)
+        return json.dumps({
+            "total": len(exps),
+            "experiments": exps,
+        }, ensure_ascii=False, indent=2)
+
+    def _handle_query_experiment(self, question: str, **kwargs) -> str:
+        from .experiment_query import ExperimentQuery
+        eq = ExperimentQuery({"log_dir": str(self.state_dir)}, advisor=self.advisor)
+        result = eq.query(question)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    def _handle_compare_experiments(self, id_a: str, id_b: str, **kwargs) -> str:
+        from .experiment_query import ExperimentQuery
+        eq = ExperimentQuery({"log_dir": str(self.state_dir)}, advisor=self.advisor)
+        result = eq.compare(id_a, id_b)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    def _handle_get_model_structure(self, model_entry: str | None = None, **kwargs) -> str:
+        from .model_viz import ModelVisualizer
+        mv = ModelVisualizer(advisor=self.advisor)
+
+        model_fn = None
+        if model_entry:
+            try:
+                mod_path, fn_name = model_entry.split(":", 1)
+                import importlib
+                mod = importlib.import_module(mod_path)
+                model_fn = getattr(mod, fn_name)
+            except Exception as exc:
+                return json.dumps({"error": f"无法 import {model_entry}: {exc}"}, ensure_ascii=False)
+
+        if model_fn is None:
+            return json.dumps({"error": "需要 model_entry 参数，如 'train:build_model'"}, ensure_ascii=False)
+
+        graph = mv.parse_model(model_fn)
+        if "error" in graph:
+            return json.dumps(graph, ensure_ascii=False)
+        stats = mv.compute_stats(graph)
+        return json.dumps({**graph, "layer_stats": stats.get("layer_stats", [])},
+                         ensure_ascii=False, indent=2)
+
+    def _handle_get_guardian_mode(self, **kwargs) -> str:
+        return json.dumps(self.get_mode(), ensure_ascii=False, indent=2)
+
+    def _handle_get_gallery_config(self, **kwargs) -> str:
+        if self._gallery_config is None:
+            return json.dumps({"error": "尚未生成图集配置"}, ensure_ascii=False)
+        return json.dumps(self._gallery_config, ensure_ascii=False, indent=2)
+
+    # ------------------------------------------------------------------
+    # 工具处理器 —— v2 受限写 (F3/F10/F7)
+    # ------------------------------------------------------------------
+
+    def _handle_run_visualization(self, model_entry: str | None = None,
+                                  output_path: str | None = None,
+                                  request_id: str | None = None, **kwargs) -> str:
+        ok, msg = self._authorize_post_training("run_visualization", kwargs.get("_token"))
+        if not ok:
+            return json.dumps({"error": msg}, ensure_ascii=False)
+        dup = self.idem.check(request_id)
+        if dup is not None:
+            return json.dumps(dup, ensure_ascii=False)
+
+        from .model_viz import ModelVisualizer
+        mv = ModelVisualizer(advisor=self.advisor)
+
+        model_fn = None
+        if model_entry:
+            try:
+                mod_path, fn_name = model_entry.split(":", 1)
+                import importlib
+                mod = importlib.import_module(mod_path)
+                model_fn = getattr(mod, fn_name)
+            except Exception as exc:
+                result = {"error": f"无法 import {model_entry}: {exc}"}
+                self.idem.record(request_id, result)
+                return json.dumps(result, ensure_ascii=False)
+
+        if model_fn is None:
+            result = {"error": "需要 model_entry 参数，如 'train:build_model'"}
+            self.idem.record(request_id, result)
+            return json.dumps(result, ensure_ascii=False)
+
+        out = output_path or str(self.state_dir / "model_viz.html")
+        viz_result = mv.visualize(model_fn, output_path=out)
+        if "error" in viz_result:
+            result = viz_result
+        else:
+            result = {
+                "status": "completed",
+                "output_path": viz_result["output_path"],
+                "total_params": viz_result["stats"].get("total_params"),
+                "total_flops": viz_result["stats"].get("total_flops"),
+                "bottleneck_count": len(viz_result["viz_config"].get("bottlenecks", [])),
+            }
+        self.idem.record(request_id, result)
+        return json.dumps(result, ensure_ascii=False)
+
+    def _handle_set_gallery_config(self, strategies: Any,
+                                   checkpoint_epoch: int,
+                                   data_source: str,
+                                   request_id: str | None = None, **kwargs) -> str:
+        ok, msg = self._authorize_post_training("set_gallery_config", kwargs.get("_token"))
+        if not ok:
+            return json.dumps({"error": msg}, ensure_ascii=False)
+        dup = self.idem.check(request_id)
+        if dup is not None:
+            return json.dumps(dup, ensure_ascii=False)
+
+        if isinstance(strategies, str):
+            try:
+                strategies = json.loads(strategies)
+            except json.JSONDecodeError:
+                result = {"error": "strategies 必须为 JSON 对象"}
+                self.idem.record(request_id, result)
+                return json.dumps(result, ensure_ascii=False)
+
+        self._gallery_config = strategies
+
+        from .gallery import GalleryManager
+        from .inference import InferenceRunner
+
+        gm = GalleryManager(advisor=self.advisor, ckpt_analyzer=self.ckpt_analyzer)
+        ir = InferenceRunner()
+
+        ckpt_dir = self.cfg.get("project", {}).get("ckpt_dir", "./checkpoints")
+        ckpt_path = Path(ckpt_dir) / f"cp_{checkpoint_epoch}" / "model.pth"
+        if not ckpt_path.exists():
+            result = {"error": f"checkpoint 不存在: {ckpt_path}"}
+            self.idem.record(request_id, result)
+            return json.dumps(result, ensure_ascii=False)
+
+        try:
+            gallery_result = gm.execute(ckpt_path, strategies, data_source, inference_runner=ir)
+        except Exception as exc:
+            result = {"error": f"执行失败: {exc}"}
+            self.idem.record(request_id, result)
+            return json.dumps(result, ensure_ascii=False)
+
+        if "error" in gallery_result:
+            result = gallery_result
+        else:
+            result = {
+                "status": "completed",
+                "galleries": {name: len(imgs) for name, imgs in gallery_result.items()},
+            }
+        self.idem.record(request_id, result)
+        return json.dumps(result, ensure_ascii=False)
+
+    def _handle_run_inference(self, checkpoint_epoch: int, task_type: str, inputs: str,
+                              request_id: str | None = None, **kwargs) -> str:
+        ok, msg = self._authorize_post_training("run_inference", kwargs.get("_token"))
+        if not ok:
+            return json.dumps({"error": msg}, ensure_ascii=False)
+        dup = self.idem.check(request_id)
+        if dup is not None:
+            return json.dumps(dup, ensure_ascii=False)
+
+        from .inference import InferenceRunner
+
+        ir = InferenceRunner()
+        ckpt_dir = self.cfg.get("project", {}).get("ckpt_dir", "./checkpoints")
+        ckpt_path = Path(ckpt_dir) / f"cp_{checkpoint_epoch}" / "model.pth"
+        if not ckpt_path.exists():
+            result = {"error": f"checkpoint 不存在: {ckpt_path}"}
+            self.idem.record(request_id, result)
+            return json.dumps(result, ensure_ascii=False)
+
+        try:
+            infer_result = ir.run(
+                checkpoint_path=ckpt_path,
+                task_type=task_type,
+                inputs=inputs,
+                output_dir=str(self.state_dir / "inference"),
+            )
+        except Exception as exc:
+            result = {"error": f"推理失败: {exc}"}
+            self.idem.record(request_id, result)
+            return json.dumps(result, ensure_ascii=False)
+
+        self.idem.record(request_id, infer_result)
+        return json.dumps(infer_result, ensure_ascii=False, indent=2)
+
+    # ------------------------------------------------------------------
     # 工具路由
     # ------------------------------------------------------------------
 
@@ -645,6 +1051,13 @@ class GuardianMCPServer:
             "get_agent_decision_log": self._handle_agent_decision_log,
             "get_contract_status": self._handle_contract_status,
             "list_contract_proposals": self._handle_contract_proposals,
+            # v2
+            "list_experiments": self._handle_list_experiments,
+            "query_experiment": self._handle_query_experiment,
+            "compare_experiments": self._handle_compare_experiments,
+            "get_model_structure": self._handle_get_model_structure,
+            "get_guardian_mode": self._handle_get_guardian_mode,
+            "get_gallery_config": self._handle_get_gallery_config,
         }
         self._WRITE_HANDLERS = {
             "trigger_recovery": self._handle_trigger_recovery,
@@ -653,6 +1066,10 @@ class GuardianMCPServer:
             "trigger_full_validate": self._handle_trigger_full_validate,
             "approve_contract_proposal": self._handle_approve_proposal,
             "reject_contract_proposal": self._handle_reject_proposal,
+            # v2
+            "run_visualization": self._handle_run_visualization,
+            "set_gallery_config": self._handle_set_gallery_config,
+            "run_inference": self._handle_run_inference,
         }
 
     def call_tool(self, name: str, arguments: dict) -> str:
@@ -734,7 +1151,7 @@ class GuardianMCPServer:
                         description=tdef["description"],
                         input_schema=tdef.get("inputSchema"),
                     )
-                    async def _ro_tool(**kwargs, _name=name):
+                    async def _ro_tool(_name=name, **kwargs):
                         result = self.call_tool(_name, kwargs)
                         return result
 
@@ -746,7 +1163,31 @@ class GuardianMCPServer:
                         description=tdef["description"],
                         input_schema=tdef.get("inputSchema"),
                     )
-                    async def _rw_tool(**kwargs, _name=name):
+                    async def _rw_tool(_name=name, **kwargs):
+                        result = self.call_tool(_name, kwargs)
+                        return result
+
+                # 注册 v2 只读工具
+                for tdef in READONLY_TOOLS_V2:
+                    name = tdef["name"]
+                    @server.tool(
+                        name=name,
+                        description=tdef["description"],
+                        input_schema=tdef.get("inputSchema"),
+                    )
+                    async def _ro_tool_v2(_name=name, **kwargs):
+                        result = self.call_tool(_name, kwargs)
+                        return result
+
+                # 注册 v2 写工具
+                for tdef in WRITE_TOOLS_V2:
+                    name = tdef["name"]
+                    @server.tool(
+                        name=name,
+                        description=tdef["description"],
+                        input_schema=tdef.get("inputSchema"),
+                    )
+                    async def _rw_tool_v2(_name=name, **kwargs):
                         result = self.call_tool(_name, kwargs)
                         return result
 

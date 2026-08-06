@@ -40,10 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
             "  python run.py watch -- python train.py --epochs 20   # 默认路径\n"
             "  python run.py contract check\n"
             "  python run.py analyze\n"
+            "  python run.py project init    # 自动探测项目路径"
         ),
     )
     p.add_argument("--config", default="configs/guardian.yaml")
     p.add_argument("--contract", default=None, help="默认取 config 里的 contract.path")
+    p.add_argument("--project-dir", default=None, help="项目根目录（自动探测 checkpoints/logs/data 路径）")
     sub = p.add_subparsers(dest="command", required=True)
 
     w = sub.add_parser("watch", help="守护任意训练命令（默认主路径）")
@@ -68,6 +70,60 @@ def build_parser() -> argparse.ArgumentParser:
 
     sv = sub.add_parser("serve", help="单独启动 MCP server（独立进程，跨进程读盘）")
     sv.add_argument("--transport", default="stdio", choices=["stdio", "tcp"])
+
+    # ---- v2 子命令 (F3/F4/F7/F10) ----
+
+    q = sub.add_parser("query", help="自然语言查询实验记录")
+    q.add_argument("question", nargs="+", help="自然语言问题")
+    q.add_argument("--agent", action="store_true", help="启用 AI 翻译")
+    q.add_argument("--log-dir", default="./logs", help="日志目录（summary_*.json 所在位置）")
+    q.add_argument("--name", default=None, help="手动设置实验名称前缀")
+    q.add_argument("--project-dir", default=None, help="项目根目录")
+
+    cmp = sub.add_parser("compare", help="对比两个实验")
+    cmp.add_argument("id_a", help="第一个实验 ID")
+    cmp.add_argument("id_b", help="第二个实验 ID")
+    cmp.add_argument("--agent", action="store_true")
+    cmp.add_argument("--log-dir", default="./logs", help="日志目录")
+    cmp.add_argument("--name", default=None, help="手动设置实验名称前缀")
+    cmp.add_argument("--project-dir", default=None, help="项目根目录")
+
+    exp = sub.add_parser("experiments", help="列出所有历史实验")
+    exp.add_argument("--limit", type=int, default=20)
+    exp.add_argument("--log-dir", default="./logs", help="日志目录")
+    exp.add_argument("--name", default=None, help="手动设置实验名称（覆盖 summary 自带名称）")
+    exp.add_argument("--project-dir", default=None, help="项目根目录（自动读 .guardian-project.yaml）")
+
+    viz = sub.add_parser("visualize", help="模型管线可视化（解析模型结构 → 生成 HTML）")
+    viz.add_argument("--ckpt", type=int, help="checkpoint epoch")
+    viz.add_argument("--model", help="模型入口，如 train:build_model")
+    viz.add_argument("--output", default="./logs/model_viz.html")
+    viz.add_argument("--agent", action="store_true", help="启用 AI 瓶颈分析和建议")
+
+    gal = sub.add_parser("gallery", help="图片筛选与展示")
+    gal.add_argument("--ckpt", type=int, required=True, help="checkpoint epoch")
+    gal.add_argument("--data", default="./data/test", help="数据源路径")
+    gal.add_argument("--config", help="复用已有 gallery_config.json")
+    gal.add_argument("--output", default="./logs/gallery")
+    gal.add_argument("--agent", action="store_true", help="启用 AI 策略提议")
+    gal.add_argument("--ckpt-dir", default="./checkpoints", help="checkpoint 目录")
+    gal.add_argument("--project-dir", default=None, help="项目根目录")
+
+    inf = sub.add_parser("infer", help="模型推理测试（固定脚本，不生成代码）")
+    inf.add_argument("--ckpt", type=int, help="checkpoint epoch（不指定则用 best）")
+    inf.add_argument("--inputs", default=None, help="输入数据路径（默认取项目的 data_dir）")
+    inf.add_argument("--task", choices=["classification", "detection", "segmentation"])
+    inf.add_argument("--output", default="./logs/inference")
+    inf.add_argument("--agent", action="store_true")
+    inf.add_argument("--ckpt-dir", default="./checkpoints", help="checkpoint 目录")
+    inf.add_argument("--project-dir", default=None, help="项目根目录")
+
+    # ---- project 子命令 ----
+    proj = sub.add_parser("project", help="项目上下文管理（自动探测路径）")
+    proj.add_argument("action", choices=["init", "show", "scan", "fill"],
+                      help="init=自动探测并保存 | show=显示当前 | scan=仅扫描 | fill=AI补全")
+    proj.add_argument("path", nargs="?", default=".", help="项目路径（默认当前目录）")
+    proj.add_argument("--agent", action="store_true", help="启用 AI 补全缺失项")
 
     return p
 
@@ -330,6 +386,515 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
     return 0 if result.get("status") == "completed" else 1
 
 
+# ---------------------------------------------------------------------------
+# v2 子命令 (F3/F4/F7/F10)
+# ---------------------------------------------------------------------------
+
+def _get_log_dir(args) -> str:
+    """智能获取 log_dir：CLI 参数 > 项目配置 > 默认。"""
+    from guardian.project_context import ProjectContext
+    start = getattr(args, "project_dir", None) or "."
+    ctx = ProjectContext(start)
+    cli_val = getattr(args, "log_dir", "./logs")
+    # CLI 显式覆盖或非默认值时优先
+    if cli_val != "./logs":
+        return cli_val
+    if ctx.log_dir and ctx.log_dir not in ("./checkpoints", "./logs"):
+        return ctx.log_dir
+    if ctx.detected_by != "none":
+        return ctx.log_dir
+    return cli_val
+
+
+def _get_ckpt_dir(args) -> str:
+    """智能获取 ckpt_dir。"""
+    from guardian.project_context import ProjectContext
+    start = getattr(args, "project_dir", None) or "."
+    ctx = ProjectContext(start)
+    cli_val = getattr(args, "ckpt_dir", "./checkpoints")
+    if cli_val != "./checkpoints":
+        return cli_val
+    if ctx.ckpt_dir and ctx.ckpt_dir not in ("./checkpoints", "./logs"):
+        return ctx.ckpt_dir
+    if ctx.detected_by != "none":
+        return ctx.ckpt_dir
+    return cli_val
+
+
+def cmd_experiments(args) -> int:
+    """列出所有历史实验。"""
+    from guardian.experiment_query import ExperimentQuery
+    log_dir = _get_log_dir(args)
+    cfg = {"log_dir": log_dir}
+    if args.name:
+        cfg["name"] = args.name
+    eq = ExperimentQuery(cfg)
+    exps = eq.list_experiments(limit=args.limit)
+    if not exps:
+        print("暂无实验记录。", flush=True)
+        return 0
+    print(f"{'ID':<30} {'状态':<12} {'最佳指标':<20} {'用时':<12}")
+    print("-" * 74)
+    for e in exps:
+        metric = ""
+        if e.get("best_metric_name") and e.get("best_metric_value") is not None:
+            metric = f"{e['best_metric_name']}={e['best_metric_value']}"
+        print(f"{e['experiment_id']:<30} {e['status']:<12} {metric:<20} {e.get('duration', '-'):<12}")
+    return 0
+
+
+def cmd_query(args) -> int:
+    """自然语言查询实验记录。"""
+    from guardian.experiment_query import ExperimentQuery
+    from guardian.agent_advisor import AgentAdvisor
+
+    question = " ".join(args.question)
+
+    advisor = None
+    if args.agent:
+        cfg = load_config(args.config)
+        cfg["agent"]["enabled"] = True
+        advisor = AgentAdvisor(cfg["agent"])
+        if not advisor.is_enabled():
+            print("[agent] AI 未启用（无凭据），使用模板查询。", flush=True)
+            advisor = None
+
+    log_dir = _get_log_dir(args)
+    cfg = {"log_dir": log_dir}
+    if args.name:
+        cfg["name"] = args.name
+    eq = ExperimentQuery(cfg, advisor=advisor)
+    result = eq.query(question)
+
+    print(f"问题: {result['question']}", flush=True)
+    if result.get("interpretation"):
+        print(f"理解: {result['interpretation']}", flush=True)
+    print(f"来源: {result['source']}", flush=True)
+    print(flush=True)
+    print(result["answer"], flush=True)
+
+    if result.get("results"):
+        print(flush=True)
+        for r in result["results"]:
+            print(json.dumps(r, ensure_ascii=False, indent=2), flush=True)
+
+    return 0
+
+
+def cmd_compare(args) -> int:
+    """对比两个实验。"""
+    from guardian.experiment_query import ExperimentQuery
+    from guardian.agent_advisor import AgentAdvisor
+
+    advisor = None
+    if args.agent:
+        cfg = load_config(args.config)
+        cfg["agent"]["enabled"] = True
+        advisor = AgentAdvisor(cfg["agent"])
+        if not advisor.is_enabled():
+            advisor = None
+
+    log_dir = _get_log_dir(args)
+    cfg = {"log_dir": log_dir}
+    if args.name:
+        cfg["name"] = args.name
+    eq = ExperimentQuery(cfg, advisor=advisor)
+    result = eq.compare(args.id_a, args.id_b)
+
+    if "error" in result:
+        print(f"错误: {result['error']}", flush=True)
+        return 1
+
+    print(f"实验 A: {result['experiment_a']}", flush=True)
+    print(f"实验 B: {result['experiment_b']}", flush=True)
+    print(flush=True)
+
+    if result.get("diffs"):
+        print("指标差异:", flush=True)
+        for d in result["diffs"]:
+            direction = "↑" if d["delta"] > 0 else "↓" if d["delta"] < 0 else "="
+            print(f"  {d['field']}: {d['a']} → {d['b']} ({direction}{abs(d['delta'])})", flush=True)
+
+    if result.get("param_diffs"):
+        print(flush=True)
+        print("参数差异:", flush=True)
+        for k, v in result["param_diffs"].items():
+            print(f"  {k}: {v['a']} → {v['b']}", flush=True)
+
+    if result.get("analysis"):
+        print(flush=True)
+        print(f"AI 分析: {result['analysis']}", flush=True)
+
+    return 0
+
+
+def cmd_visualize(args) -> int:
+    """模型管线可视化。"""
+    from guardian.model_viz import ModelVisualizer
+    from guardian.agent_advisor import AgentAdvisor
+
+    advisor = None
+    if args.agent:
+        cfg = load_config(args.config)
+        cfg["agent"]["enabled"] = True
+        advisor = AgentAdvisor(cfg["agent"])
+        if not advisor.is_enabled():
+            print("[agent] AI 未启用，使用默认可视化配置。", flush=True)
+            advisor = None
+
+    mv = ModelVisualizer(advisor=advisor)
+
+    # 获取 model_fn
+    model_fn = None
+    if args.model:
+        try:
+            mod_path, fn_name = args.model.split(":", 1)
+            # 确保 scripts/ 在 sys.path 中
+            import sys as _sys
+            _scripts_dir = str(Path(mod_path).parent) if "/" in mod_path or "\\" in mod_path else None
+            if _scripts_dir and _scripts_dir not in _sys.path:
+                _sys.path.insert(0, _scripts_dir)
+            # 将路径转为模块名（如 scripts/clip_adapter → clip_adapter）
+            if "/" in mod_path or "\\" in mod_path:
+                mod_path = mod_path.replace("\\", "/").replace("/", ".").removesuffix(".py")
+            import importlib
+            mod = importlib.import_module(mod_path)
+            model_fn = getattr(mod, fn_name)
+        except Exception as exc:
+            print(f"错误: 无法 import {args.model}: {exc}", flush=True)
+            return 1
+    else:
+        # 尝试从 train.py 加载
+        try:
+            from train import build_model
+            model_fn = build_model
+        except Exception:
+            print("错误: 需要 --model 参数指定模型入口，如 --model train:build_model", flush=True)
+            return 1
+
+    # 解析 + 统计
+    graph = mv.parse_model(model_fn)
+    if "error" in graph:
+        print(f"错误: {graph['error']}", flush=True)
+        return 1
+
+    stats = mv.compute_stats(graph)
+
+    # AI 提议
+    viz_config = mv.propose_config(graph, stats)
+    improvements = mv.propose_improvements(stats, viz_config)
+    print(mv.print_proposal(viz_config, stats, improvements), flush=True)
+
+    # 用户确认
+    print(flush=True)
+    try:
+        user_input = input("> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print("\n已取消。", flush=True)
+        return 0
+
+    if user_input.lower() in ("cancel", "c", "no", "n"):
+        print("已取消。", flush=True)
+        return 0
+
+    if user_input and user_input.lower() not in ("", "y", "yes", "ok"):
+        # NL 修正 → 重新提议
+        print(f"[agent] 根据反馈重新生成配置 ...", flush=True)
+        viz_config = mv.propose_config(graph, stats, user_feedback=user_input)
+        print(flush=True)
+        print(mv.print_proposal(viz_config, stats), flush=True)
+        try:
+            user_input2 = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n已取消。", flush=True)
+            return 0
+        if user_input2.lower() in ("cancel", "c", "no", "n"):
+            print("已取消。", flush=True)
+            return 0
+
+    # 渲染
+    output = mv.render_html(graph, stats, viz_config, args.output)
+    print(f"HTML 已生成: {output}", flush=True)
+
+    # 尝试打开浏览器
+    try:
+        import webbrowser
+        webbrowser.open(f"file://{output.resolve()}")
+    except Exception:
+        pass
+
+    return 0
+
+
+def cmd_gallery(args) -> int:
+    """图片筛选与展示。"""
+    from guardian.gallery import GalleryManager
+    from guardian.inference import InferenceRunner
+    from guardian.agent_advisor import AgentAdvisor
+
+    advisor = None
+    if args.agent:
+        cfg = load_config(args.config)
+        cfg["agent"]["enabled"] = True
+        advisor = AgentAdvisor(cfg["agent"])
+        if not advisor.is_enabled():
+            print("[agent] AI 未启用，使用默认筛选策略。", flush=True)
+            advisor = None
+
+    gm = GalleryManager(advisor=advisor)
+
+    # 加载或生成策略
+    if args.config:
+        strategies = gm.load_config(args.config)
+        if strategies is None:
+            print(f"错误: 配置文件不存在或无效: {args.config}", flush=True)
+            return 1
+        print(f"已加载配置: {args.config}", flush=True)
+    else:
+        task_type = gm.infer_task_type()
+        print(f"推断任务类型: {task_type}", flush=True)
+        strategies = gm.propose_strategies(task_type)
+        print(flush=True)
+        print(gm.render_proposal(strategies), flush=True)
+
+        # 确认交互
+        try:
+            user_input = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n已取消。", flush=True)
+            return 0
+
+        if user_input.lower() in ("cancel", "c"):
+            print("已取消。", flush=True)
+            return 0
+
+        if user_input.lower() in ("export", "e"):
+            path = args.output + "/gallery_config.json"
+            gm.export_config(strategies, path)
+            print(f"配置已导出: {path}", flush=True)
+            return 0
+
+        if user_input and user_input.lower() not in ("", "y", "yes"):
+            # NL 修正
+            print(f"[agent] 根据反馈重新生成策略 ...", flush=True)
+            strategies = gm.propose_strategies(
+                task_type, user_feedback=user_input,
+            )
+            print(flush=True)
+            print(gm.render_proposal(strategies), flush=True)
+            try:
+                user_input2 = input("> ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\n已取消。", flush=True)
+                return 0
+            if user_input2.lower() in ("cancel", "c"):
+                print("已取消。", flush=True)
+                return 0
+            if user_input2.lower() in ("export", "e"):
+                path = args.output + "/gallery_config.json"
+                gm.export_config(strategies, path)
+                print(f"配置已导出: {path}", flush=True)
+                return 0
+
+    # 保存配置
+    config_path = args.output + "/gallery_config.json"
+    gm.export_config(strategies, config_path)
+
+    # 执行
+    print(flush=True)
+    print("正在执行推理 + 筛选 ...", flush=True)
+
+    ckpt_path = f"{args.ckpt_dir}/cp_{args.ckpt}/model.pth"
+    if not Path(ckpt_path).exists():
+        print(f"错误: checkpoint 不存在: {ckpt_path}", flush=True)
+        return 1
+
+    ir = InferenceRunner()
+    results = gm.execute(ckpt_path, strategies, args.data, inference_runner=ir)
+
+    if "error" in results:
+        print(f"错误: {results['error']}", flush=True)
+        return 1
+
+    # 摘要
+    print(flush=True)
+    print("=" * 56)
+    print("  筛选完成")
+    for name, images in results.items():
+        print(f"  {name}: {len(images)} 张")
+    print("=" * 56)
+
+    # 保存结果
+    result_path = Path(args.output) / "gallery_results.json"
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(
+        json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8",
+    )
+    print(f"结果已保存: {result_path}", flush=True)
+    print(f"配置已保存: {config_path}", flush=True)
+
+    return 0
+
+
+def cmd_infer(args) -> int:
+    """推理测试（固定脚本）。"""
+    from guardian.inference import InferenceRunner
+    from guardian.checkpoint_analyzer import CheckpointAnalyzer
+    from guardian.agent_advisor import AgentAdvisor
+
+    advisor = None
+    if args.agent:
+        cfg = load_config(args.config)
+        cfg["agent"]["enabled"] = True
+        advisor = AgentAdvisor(cfg["agent"])
+        if not advisor.is_enabled():
+            advisor = None
+
+    ir = InferenceRunner()
+
+    # 确定 checkpoint
+    ckpt_epoch = args.ckpt
+    ckpt_dir = Path(_get_ckpt_dir(args))
+
+    # inputs 默认取项目 data_dir
+    inputs = args.inputs
+    if inputs is None:
+        from guardian.project_context import ProjectContext
+        ctx = ProjectContext(getattr(args, "project_dir", None) or ".")
+        inputs = ctx.data_dir
+        print(f"输入路径（自动）: {inputs}", flush=True)
+
+    if ckpt_epoch is None:
+        # 自动选 best
+        analyzer = CheckpointAnalyzer({}, ckpt_dir=str(ckpt_dir))
+        analyzer.poll()
+        best_epoch = ir.recommend_checkpoint(analyzer, advisor)
+        if best_epoch is None:
+            print("错误: 无法确定 checkpoint。请用 --ckpt 指定。", flush=True)
+            return 1
+        ckpt_epoch = best_epoch
+        print(f"使用 best checkpoint: cp_{ckpt_epoch}", flush=True)
+
+    ckpt_path = f"{args.ckpt_dir}/cp_{ckpt_epoch}/model.pth"
+    if not Path(ckpt_path).exists():
+        print(f"错误: checkpoint 不存在: {ckpt_path}", flush=True)
+        return 1
+
+    # 确定任务类型
+    task_type = args.task
+    if task_type is None:
+        # 尝试自动检测
+        try:
+            from train import build_model
+            task_type = ir.detect_task_type(build_model)
+        except Exception:
+            task_type = "classification"
+        print(f"推断任务类型: {task_type}", flush=True)
+
+    print(f"Checkpoint: cp_{ckpt_epoch}", flush=True)
+    print(f"任务类型: {task_type}", flush=True)
+    print(f"输入路径: {inputs}", flush=True)
+    print(flush=True)
+
+    result = ir.run(
+        checkpoint_path=ckpt_path,
+        task_type=task_type,
+        inputs=inputs,
+        output_dir=args.output,
+    )
+
+    if result.get("status") == "completed":
+        print(f"推理完成: {result.get('num_inputs', '?')} 张图片", flush=True)
+        if result.get("results_file"):
+            print(f"结果文件: {result['results_file']}", flush=True)
+        return 0
+    else:
+        print(f"推理失败: {result.get('error', result.get('stderr', '未知错误'))}", flush=True)
+        return 1
+
+
+def cmd_project(args) -> int:
+    """项目上下文管理。"""
+    from guardian.project_context import ProjectContext
+    from guardian.agent_advisor import AgentAdvisor
+
+    start_dir = args.path or "."
+
+    if args.action == "show":
+        ctx = ProjectContext(start_dir)
+        print(ctx.status(), flush=True)
+        return 0
+
+    if args.action == "scan":
+        ctx = ProjectContext(start_dir)
+        detected = ctx._scan(Path(start_dir))
+        if detected:
+            print("自动探测结果:", flush=True)
+            print(yaml.safe_dump(detected, allow_unicode=True), flush=True)
+        else:
+            print("未发现标准项目结构（无 checkpoints/logs/data 目录）。", flush=True)
+        return 0
+
+    if args.action == "init":
+        ctx = ProjectContext(start_dir)
+
+        # AI 补全
+        if args.agent:
+            advisor = _make_advisor(args)
+            if advisor:
+                ctx.advisor = advisor
+                filled = ctx.fill_with_agent()
+                if filled:
+                    print("[agent] AI 已补全缺失字段", flush=True)
+
+        # 保存
+        if ctx.detected_by == "none":
+            print("未发现项目结构，创建最小配置 ...", flush=True)
+            ctx.data["project"] = {"name": Path(start_dir).resolve().name,
+                                    "ckpt_dir": "./checkpoints",
+                                    "log_dir": "./logs",
+                                    "data_dir": "./data"}
+            ctx.data["_detected_by"] = "user"
+
+        path = ctx.save()
+        print(f"项目配置已保存: {path}", flush=True)
+        print(ctx.status(), flush=True)
+        return 0
+
+    if args.action == "fill":
+        ctx = ProjectContext(start_dir)
+        advisor = _make_advisor(args) if args.agent else None
+        if advisor:
+            ctx.advisor = advisor
+            if ctx.fill_with_agent():
+                print("[agent] AI 已补全:\n" + ctx.status(), flush=True)
+            else:
+                print("无缺失项或 AI 不可用。", flush=True)
+        else:
+            print("需要 --agent 且配置 API key。", flush=True)
+        return 0
+
+    return 2
+
+
+def _make_advisor(args):
+    """从 args 构建 advisor（复用 watch 的模式）。"""
+    from guardian.agent_advisor import AgentAdvisor
+    cfg = load_config(args.config)
+    cfg["agent"]["enabled"] = True
+    advisor = AgentAdvisor(cfg["agent"])
+    if not advisor.is_enabled():
+        print("[agent] 未检测到 API 凭据，AI 不可用。", flush=True)
+        return None
+    print(f"[agent] 已启用（provider={advisor.provider}）", flush=True)
+    return advisor
+
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
+
 def main(argv: list[str] | None = None) -> int:
     ensure_utf8_stdout()
     raw = list(sys.argv[1:] if argv is None else argv)
@@ -349,6 +914,21 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_preflight(args)
         if args.command == "serve":
             return cmd_serve(args)
+        # v2
+        if args.command == "experiments":
+            return cmd_experiments(args)
+        if args.command == "query":
+            return cmd_query(args)
+        if args.command == "compare":
+            return cmd_compare(args)
+        if args.command == "visualize":
+            return cmd_visualize(args)
+        if args.command == "gallery":
+            return cmd_gallery(args)
+        if args.command == "infer":
+            return cmd_infer(args)
+        if args.command == "project":
+            return cmd_project(args)
     except (ConfigError, ContractError) as exc:
         print(f"错误: {exc}", flush=True)
         return 1

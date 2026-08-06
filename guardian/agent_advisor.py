@@ -43,14 +43,20 @@ class AgentAdvisor:
         # 彼此的调用方（完整校验表"并发调用安全"）。
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="advisor")
 
+        # MCP 让位机制：外部 Claude Code 接入时，内置 agent 让出决策权
+        self.delegate_to_mcp: bool = False
+        self._delegation_since: float | None = None
+
     # --- 开关状态 -----------------------------------------------------
 
     def is_enabled(self, decision_point: str | None = None) -> bool:
-        """配置检查 + 熔断状态 + 单点开关。"""
+        """配置检查 + 熔断状态 + 单点开关 + MCP 让位。"""
         if not self.enabled_cfg:
             return False
         if not self._has_credentials():
             return False
+        if self.delegate_to_mcp:
+            return False  # MCP 模式下 agent 让位
         if decision_point is not None and self.decision_points.get(decision_point, True) is False:
             return False
         if self._breaker_until is not None:
@@ -60,6 +66,36 @@ class AgentAdvisor:
             self._breaker_until = None
             self._consecutive_failures = 0
         return True
+
+    def set_delegated(self, mcp_active: bool) -> None:
+        """MCP 客户端接入/断开时切换让位状态。
+
+        mcp_active=True:  外部 Claude Code 决策，内置 agent 让位
+        mcp_active=False: 恢复自主决策
+        """
+        prev = self.delegate_to_mcp
+        self.delegate_to_mcp = mcp_active
+        if mcp_active and not prev:
+            self._delegation_since = time.time()
+            self.decision_log.append({
+                "decision_point": "mcp_delegation",
+                "action": "delegated",
+                "source": "system",
+                "latency_ms": 0,
+                "timestamp": self._delegation_since,
+                "context_summary": "MCP 客户端已连接，agent 决策权让位给外部 Claude Code",
+            })
+        elif not mcp_active and prev:
+            duration = (time.time() - (self._delegation_since or time.time()))
+            self._delegation_since = None
+            self.decision_log.append({
+                "decision_point": "mcp_delegation",
+                "action": "resumed",
+                "source": "system",
+                "latency_ms": 0,
+                "timestamp": time.time(),
+                "context_summary": f"MCP 客户端已断开，恢复自主决策（让位持续 {duration:.0f}s）",
+            })
 
     def _has_credentials(self) -> bool:
         """有任一形式的 API 凭据即返回 True。

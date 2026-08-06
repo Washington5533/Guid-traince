@@ -43,3 +43,20 @@ mcp:
 contract:
   path: configs/contract.yaml
   strict_mode: false
+
+# v2 训练后功能
+gallery:
+  default_max_images: 50
+  streamlit_port: 8501
+
+visualization:
+  color_map_default: flops
+  bottleneck_threshold_pct: 25
+
+experiment_query:
+  log_dir: ./logs
+
+inference:
+  scripts_dir: ./scripts
+  default_batch_size: 32
+  device: cuda

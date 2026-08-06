@@ -100,6 +100,25 @@ DEFAULTS: dict[str, Any] = {
         "agent_can_propose": True,
         "proposal_log": "logs/contract_proposals.json",
     },
+    "gallery": {
+        "default_max_images": 50,
+        "streamlit_port": 8501,
+        "supported_tasks": ["classification", "detection", "segmentation"],
+    },
+    "visualization": {
+        "color_map_default": "flops",
+        "bottleneck_threshold_pct": 25,
+        "output_format": "html",
+    },
+    "experiment_query": {
+        "log_dir": "./logs",
+        "max_compare_experiments": 5,
+    },
+    "inference": {
+        "scripts_dir": "./scripts",
+        "default_batch_size": 32,
+        "device": "cuda",
+    },
 }
 
 

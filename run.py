@@ -401,24 +401,30 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
 
     # --with-dashboard：后台启动 Web 控制面板
     dash_server = None
-    dash_thread = None
     if args.with_dashboard:
-        from guardian.dashboard import DashboardServer
-        try:
-            dash_server = DashboardServer(port=8765, host="127.0.0.1")
-            # 注册当前进程
-            process_id = project.get("name", "guardian-run")
-            dash_server.register_process(process_id, {
-                "name": project.get("name", "guardian-run"),
-                "status": "starting",
-                "command": " ".join(train_cmd),
-                "max_epoch": None,
-            })
-            dash_thread = dash_server.start(blocking=False)
-            if dash_thread:
-                print(f"[Dashboard] http://127.0.0.1:8765", flush=True)
-        except Exception as exc:
-            print(f"[Dashboard] 启动失败: {exc}", flush=True)
+        import socket as _socket
+        dash_port = 8765
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        port_in_use = s.connect_ex(('127.0.0.1', dash_port)) == 0
+        s.close()
+        if port_in_use:
+            print(f"[Dashboard] 端口 {dash_port} 已被占用，复用已有面板", flush=True)
+        else:
+            try:
+                from guardian.dashboard import DashboardServer
+                dash_server = DashboardServer(port=dash_port, host="127.0.0.1")
+                process_id = project.get("name", "guardian-run")
+                dash_server.register_process(process_id, {
+                    "name": project.get("name", "guardian-run"),
+                    "status": "starting",
+                    "command": " ".join(train_cmd),
+                    "max_epoch": None,
+                })
+                dash_server.start(blocking=False)
+                print(f"[Dashboard] http://127.0.0.1:{dash_port}", flush=True)
+            except Exception as exc:
+                print(f"[Dashboard] 启动失败: {exc}", flush=True)
+                dash_server = None
 
     summary_gen = SummaryGenerator(project, monitor, analyzer, watchdog, advisor=advisor)
 

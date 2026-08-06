@@ -79,34 +79,31 @@ class DashboardServer:
         state.setdefault("registered_at", time.time())
         with self._lock:
             self._processes[process_id] = state
-        asyncio.run_coroutine_threadsafe(
-            self._broadcast_global({"type": "process_update", "process_id": process_id, "status": state.get("status")}),
-            self._loop,
-        ) if hasattr(self, "_loop") else None
+        self._safe_broadcast_global({"type": "process_update", "process_id": process_id, "status": state.get("status")})
+
+    def _safe_broadcast_process(self, process_id: str, msg: dict) -> None:
+        if hasattr(self, "_loop") and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast_process(process_id, msg), self._loop)
+
+    def _safe_broadcast_global(self, msg: dict) -> None:
+        if hasattr(self, "_loop") and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                self._broadcast_global(msg), self._loop)
 
     def update_process(self, process_id: str, patch: dict) -> None:
         with self._lock:
             if process_id in self._processes:
                 self._processes[process_id].update(patch)
-                state = dict(self._processes[process_id])
             else:
                 return
-        asyncio.run_coroutine_threadsafe(
-            self._broadcast_process(process_id, {"type": "state_patch", "patch": patch}),
-            self._loop,
-        ) if hasattr(self, "_loop") else None
+        self._safe_broadcast_process(process_id, {"type": "state_patch", "patch": patch})
 
     def push_metrics(self, process_id: str, metrics: dict) -> None:
-        asyncio.run_coroutine_threadsafe(
-            self._broadcast_process(process_id, {"type": "metrics", "data": metrics}),
-            self._loop,
-        ) if hasattr(self, "_loop") else None
+        self._safe_broadcast_process(process_id, {"type": "metrics", "data": metrics})
 
     def push_log_line(self, process_id: str, line: str) -> None:
-        asyncio.run_coroutine_threadsafe(
-            self._broadcast_process(process_id, {"type": "log_line", "line": line}),
-            self._loop,
-        ) if hasattr(self, "_loop") else None
+        self._safe_broadcast_process(process_id, {"type": "log_line", "line": line})
 
     def bind_guardian(self, process_id: str, *, monitor=None, watchdog=None, advisor=None,
                       analyzer=None, summary=None, contract=None):
@@ -412,7 +409,13 @@ class DashboardServer:
             return self._start_in_thread()
 
     def _start_in_thread(self):
-        t = threading.Thread(target=self.start, kwargs={"blocking": True}, daemon=True, name="dashboard")
+        def _run():
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+            config = uvicorn.Config(self.app, host=self.host, port=self.port, log_level="warning")
+            server = uvicorn.Server(config)
+            self._loop.run_until_complete(server.serve())
+        t = threading.Thread(target=_run, daemon=True, name="dashboard")
         t.start()
         return t
 

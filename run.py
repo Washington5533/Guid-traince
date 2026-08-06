@@ -439,6 +439,7 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
                     "name": project.get("name", "guardian-run"),
                     "status": "starting",
                     "command": " ".join(train_cmd),
+                    "model_entry": contract.script.get("buildable_entry", {}).get("model_fn", ""),
                 }).encode(),
                 headers={"Content-Type": "application/json"},
             )

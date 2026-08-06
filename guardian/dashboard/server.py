@@ -134,20 +134,41 @@ class DashboardServer:
                     "name": payload.get("name", pid),
                     "status": payload.get("status", "starting"),
                     "command": payload.get("command", ""),
+                    "model_entry": payload.get("model_entry", ""),
                     "registered_at": time.time(),
+                    "_metrics_history": [],
+                    "_gpu_history": [],
                 }
             return JSONResponse({"ok": True, "process_id": pid})
 
         @app.post("/api/process/{process_id}/push")
         async def push_update(process_id: str, payload: dict):
             with self._lock:
-                if process_id in self._processes:
-                    self._processes[process_id].update(payload.get("patch", {}))
+                if process_id not in self._processes:
+                    return JSONResponse({"error": "unknown process"}, 404)
+                s = self._processes[process_id]
+                patch = payload.get("patch", {})
+                s.update(patch)
+                # 累积 metrics 历史
+                mdata = payload.get("data")
+                if mdata:
+                    hist = s.setdefault("_metrics_history", [])
+                    hist.append(mdata)
+                    if len(hist) > 2000:
+                        s["_metrics_history"] = hist[-2000:]
+                    s["latest_metrics"] = mdata
+                # 累积 GPU 历史
+                gpu = payload.get("gpu")
+                if gpu:
+                    gh = s.setdefault("_gpu_history", [])
+                    gh.append(gpu)
+                    if len(gh) > 500:
+                        s["_gpu_history"] = gh[-500:]
             mtype = payload.get("type")
-            if mtype == "metrics":
-                await self._broadcast_process(process_id, {"type": "metrics", "data": payload.get("data", {})})
-            elif mtype == "log_line":
-                await self._broadcast_process(process_id, {"type": "log_line", "line": payload.get("line", "")})
+            if mtype == "metrics" and payload.get("data"):
+                await self._broadcast_process(process_id, {"type": "metrics", "data": payload["data"]})
+            elif mtype == "log_line" and payload.get("line"):
+                await self._broadcast_process(process_id, {"type": "log_line", "line": payload["line"]})
             return JSONResponse({"ok": True})
 
         # ---- 静态文件 ----
@@ -187,19 +208,11 @@ class DashboardServer:
             s = _get_state(process_id)
             if not s:
                 return JSONResponse({"error": "not found"}, 404)
-            monitor = s.get("_monitor")
-            analyzer = s.get("_analyzer")
-            watchdog = s.get("_watchdog")
 
-            hist = monitor.get_metrics_history() if monitor else []
-            gpu_hist = getattr(monitor, "get_gpu_history", lambda: [])() if monitor else []
-            anomalies = monitor.get_anomaly_history() if monitor else []
-            restarts = [r.to_dict() for r in (watchdog.restarts if watchdog else [])]
-
+            hist = s.get("_metrics_history", [])
+            gpu_hist = s.get("_gpu_history", [])
             latest_metrics = hist[-1] if hist else {}
             latest_gpu = gpu_hist[-1] if gpu_hist else {}
-
-            # 自动发现指标
             discovered = _discover_metrics(hist)
 
             return JSONResponse(content={
@@ -207,16 +220,16 @@ class DashboardServer:
                 "name": s.get("name", process_id),
                 "status": s.get("status", "unknown"),
                 "command": s.get("command", ""),
-                "epoch": latest_metrics.get("epoch") or latest_metrics.get("step"),
+                "epoch": s.get("epoch") or latest_metrics.get("epoch") or latest_metrics.get("step"),
                 "max_epoch": s.get("max_epoch"),
                 "latest_metrics": latest_metrics,
                 "latest_gpu": latest_gpu,
-                "anomaly_count": len(anomalies),
-                "restart_count": len(restarts),
+                "anomaly_count": s.get("anomaly_count", 0),
+                "restart_count": s.get("restart_count", 0),
                 "discovered_metrics": discovered,
                 "metrics_count": len(hist),
-                "anomalies": anomalies[-20:],
-                "restarts": restarts,
+                "anomalies": s.get("_anomalies", [])[-20:],
+                "restarts": s.get("_restarts", []),
             })
 
         # ---- API: 指标历史（分页+倒查） ----
@@ -225,18 +238,12 @@ class DashboardServer:
             process_id: str,
             limit: int = Query(200, ge=10, le=2000),
             cursor: int = Query(0, ge=0),
-            since_step: int = Query(None),
         ):
             s = _get_state(process_id)
             if not s:
                 return JSONResponse({"error": "not found"}, 404)
-            monitor = s.get("_monitor")
-            if not monitor:
-                return JSONResponse({"metrics": [], "total": 0})
-            hist = monitor.get_metrics_history()
+            hist = s.get("_metrics_history", [])
             total = len(hist)
-            if since_step is not None:
-                hist = [h for h in hist if h.get("step", 0) >= since_step]
             start = max(0, total - limit - cursor)
             end = total - cursor if cursor else total
             return JSONResponse(content={
@@ -272,70 +279,59 @@ class DashboardServer:
             result = s.get("_model_graph")
             if result:
                 return JSONResponse(content=result)
-            # 尝试用 model_viz 解析
             model_fn_ref = s.get("model_entry")
-            if model_fn_ref:
-                try:
-                    from ..model_viz import ModelVisualizer
-                    mod_path, fn_name = model_fn_ref.split(":", 1)
-                    import importlib
-                    mod = importlib.import_module(mod_path)
-                    model_fn = getattr(mod, fn_name)
-                    mv = ModelVisualizer()
-                    graph = mv.parse_model(model_fn)
-                    stats = mv.compute_stats(graph)
-                    result = {**graph, "layer_stats": stats.get("layer_stats", [])}
-                    with self._lock:
-                        self._processes[process_id]["_model_graph"] = result
-                    return JSONResponse(content=result)
-                except Exception as e:
-                    return JSONResponse({"error": str(e)}, 500)
-            return JSONResponse({"error": "no model_entry configured"}, 400)
+            if not model_fn_ref:
+                return JSONResponse({"error": "no model_entry configured"}, 400)
+            try:
+                from ..model_viz import ModelVisualizer
+                mod_parts = model_fn_ref.split(":", 1)
+                if len(mod_parts) != 2:
+                    return JSONResponse({"error": f"invalid model_entry: {model_fn_ref}"}, 400)
+                import importlib
+                mod = importlib.import_module(mod_parts[0])
+                model_fn = getattr(mod, mod_parts[1])
+                mv = ModelVisualizer()
+                graph = mv.parse_model(model_fn)
+                stats = mv.compute_stats(graph)
+                result = {**graph, "layer_stats": stats.get("layer_stats", [])}
+                with self._lock:
+                    self._processes[process_id]["_model_graph"] = result
+                return JSONResponse(content=result)
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, 500)
 
         # ---- API: 异常事件 ----
         @app.get("/api/process/{process_id}/anomalies")
         async def anomalies(process_id: str):
             s = _get_state(process_id)
             if not s: return JSONResponse({"error": "not found"}, 404)
-            m = s.get("_monitor")
-            return JSONResponse(content={"anomalies": m.get_anomaly_history() if m else []})
+            return JSONResponse(content={"anomalies": s.get("_anomalies", [])})
 
         # ---- API: AI 分析 ----
         @app.post("/api/process/{process_id}/ai/analyze")
         async def ai_analyze(process_id: str):
             s = _get_state(process_id)
             if not s: return JSONResponse({"error": "not found"}, 404)
-            advisor = s.get("_advisor")
-            if not advisor or not advisor.is_enabled():
-                return JSONResponse({"analysis": "AI 未启用（无 API key 或在 MCP 让位模式）", "source": "disabled"})
-            monitor = s.get("_monitor")
-            hist = monitor.get_metrics_history() if monitor else []
-            ctx = {
-                "process_id": process_id,
-                "status": s.get("status"),
-                "latest_metrics": hist[-1] if hist else {},
-                "metrics_summary": _summarize_metrics(hist),
-                "anomalies": (monitor.get_anomaly_history() if monitor else [])[-10:],
-            }
-            try:
-                text = advisor.narrate({"type": "dashboard_analysis", **ctx})
-                return JSONResponse({"analysis": text or "AI 无响应", "source": "agent"})
-            except Exception:
-                return JSONResponse({"analysis": "AI 调用失败", "source": "error"})
+            hist = s.get("_metrics_history", [])
+            summary = _summarize_metrics(hist)
+            # 无 advisor 实例时返回结构化信息供外部 AI 使用
+            return JSONResponse({
+                "analysis": f"Dashboard 独立模式下无 AI 实例。训练状态: {s.get('status')}, "
+                           f"最新 loss: {summary.get('loss_last', '?')}, "
+                           f"异常数: {s.get('anomaly_count', 0)}",
+                "source": "summary",
+                "context": {
+                    "status": s.get("status"),
+                    "latest_metrics": hist[-1] if hist else {},
+                    "metrics_summary": summary,
+                    "anomaly_count": s.get("anomaly_count", 0),
+                    "restart_count": s.get("restart_count", 0),
+                }
+            })
 
         @app.post("/api/process/{process_id}/ai/chat")
         async def ai_chat(process_id: str, question: str = ""):
-            s = _get_state(process_id)
-            advisor = s.get("_advisor") if s else None
-            if not advisor or not advisor.is_enabled():
-                return JSONResponse({"answer": "AI 不可用"})
-            try:
-                ans = advisor.narrate({"type": "chat", "question": question,
-                                       "context": _summarize_metrics(
-                                           (s.get("_monitor").get_metrics_history() if s.get("_monitor") else []))})
-                return JSONResponse({"answer": ans or "..."})
-            except Exception:
-                return JSONResponse({"answer": "调用失败"})
+            return JSONResponse({"answer": "AI 对话仅在训练终端（--agent）或 MCP 模式中可用"})
 
         # ---- API: 图库（最小可用） ----
         @app.get("/api/process/{process_id}/gallery")

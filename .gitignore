@@ -25,6 +25,9 @@ data/
 .DS_Store
 Thumbs.db
 
+# Credentials (API keys, tokens)
+.guardian-credentials.json
+
 # Environment
 .env
 .venv/

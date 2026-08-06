@@ -340,6 +340,9 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
     print(status.render(), flush=True)
     print(flush=True)
 
+    # 加载凭据（JSON 文件或环境变量）
+    _load_creds(args)
+
     # agent 决策层（v1）
     advisor = None
     if args.agent:
@@ -1018,8 +1021,20 @@ def cmd_project(args) -> int:
     return 2
 
 
+def _load_creds(args):
+    """加载凭据文件并写入环境变量。"""
+    from guardian.credentials import load_credentials, apply_credentials
+    start = getattr(args, "project_dir", None) or "."
+    cred = load_credentials(start)
+    if cred:
+        apply_credentials(cred)
+        return True
+    return False
+
+
 def _make_advisor(args):
     """从 args 构建 advisor（复用 watch 的模式）。"""
+    _load_creds(args)
     from guardian.agent_advisor import AgentAdvisor
     cfg = load_config(args.config)
     cfg["agent"]["enabled"] = True

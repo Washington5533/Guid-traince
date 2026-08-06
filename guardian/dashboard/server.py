@@ -135,6 +135,7 @@ class DashboardServer:
                     "status": payload.get("status", "starting"),
                     "command": payload.get("command", ""),
                     "model_entry": payload.get("model_entry", ""),
+                    "project_dir": payload.get("project_dir", ""),
                     "registered_at": time.time(),
                     "_metrics_history": [],
                     "_gpu_history": [],
@@ -284,6 +285,10 @@ class DashboardServer:
                 return JSONResponse({"error": "no model_entry configured"}, 400)
             try:
                 from ..model_viz import ModelVisualizer
+                # 确保项目目录在 sys.path 中
+                proj_dir = s.get("project_dir", "")
+                if proj_dir and proj_dir not in sys.path:
+                    sys.path.insert(0, proj_dir)
                 mod_parts = model_fn_ref.split(":", 1)
                 if len(mod_parts) != 2:
                     return JSONResponse({"error": f"invalid model_entry: {model_fn_ref}"}, 400)
@@ -314,19 +319,24 @@ class DashboardServer:
             if not s: return JSONResponse({"error": "not found"}, 404)
             hist = s.get("_metrics_history", [])
             summary = _summarize_metrics(hist)
-            # 无 advisor 实例时返回结构化信息供外部 AI 使用
+            # 尝试自建 advisor
+            try:
+                from ..credentials import load_credentials, apply_credentials
+                apply_credentials(load_credentials())
+                from ..agent_advisor import AgentAdvisor
+                advisor = AgentAdvisor({"enabled": True, "provider": "anthropic",
+                                        "decision_timeout": 15})
+                if advisor.is_enabled():
+                    ctx = {"status": s.get("status"), "latest_metrics": hist[-1] if hist else {},
+                           "metrics_summary": summary, "anomaly_count": s.get("anomaly_count", 0)}
+                    text = advisor.narrate({"type": "dashboard_analysis", **ctx})
+                    if text:
+                        return JSONResponse({"analysis": text, "source": "agent"})
+            except Exception:
+                pass
             return JSONResponse({
-                "analysis": f"Dashboard 独立模式下无 AI 实例。训练状态: {s.get('status')}, "
-                           f"最新 loss: {summary.get('loss_last', '?')}, "
-                           f"异常数: {s.get('anomaly_count', 0)}",
-                "source": "summary",
-                "context": {
-                    "status": s.get("status"),
-                    "latest_metrics": hist[-1] if hist else {},
-                    "metrics_summary": summary,
-                    "anomaly_count": s.get("anomaly_count", 0),
-                    "restart_count": s.get("restart_count", 0),
-                }
+                "analysis": f"训练状态: {s.get('status')}, 最新 loss: {summary.get('loss_last', '?')}, 异常数: {s.get('anomaly_count', 0)}",
+                "source": "summary", "context": {"status": s.get("status"), "metrics_summary": summary}
             })
 
         @app.post("/api/process/{process_id}/ai/chat")

@@ -440,6 +440,7 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
                     "status": "starting",
                     "command": " ".join(train_cmd),
                     "model_entry": contract.script.get("buildable_entry", {}).get("model_fn", ""),
+                    "project_dir": str(contract.path.parent.resolve()) if contract.path else "",
                 }).encode(),
                 headers={"Content-Type": "application/json"},
             )

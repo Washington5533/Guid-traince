@@ -386,6 +386,8 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
     if monitor is not None and advisor is not None:
         monitor.on_intervention = watchdog.request_intervention
 
+    summary_gen = SummaryGenerator(project, monitor, analyzer, watchdog, advisor=advisor)
+
     # --with-mcp：在 watchdog 就绪后后台启动
     if args.with_mcp:
         from guardian.mcp_server import GuardianMCPServer
@@ -393,7 +395,7 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
         if _avail:
             mcp_srv = GuardianMCPServer(
                 cfg, monitor=monitor, ckpt_analyzer=analyzer,
-                watchdog=watchdog, summary_gen=None, advisor=advisor,
+                watchdog=watchdog, summary_gen=summary_gen, advisor=advisor,
                 task_contract=contract,
                 mode="shared",
             )
@@ -448,8 +450,6 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
             _ur.urlopen(req, timeout=3)
         except Exception:
             pass  # 面板不可达，不影响训练
-
-    summary_gen = SummaryGenerator(project, monitor, analyzer, watchdog, advisor=advisor)
 
     def on_tick(_wd, _proc) -> None:
         if monitor is not None:

@@ -871,8 +871,15 @@ class GuardianMCPServer:
         mv = ModelVisualizer(advisor=self.advisor)
 
         model_fn = None
+        # 尝试从合约获取 model_entry
+        if not model_entry and self.task_contract:
+            model_entry = self.task_contract.script.get("buildable_entry", {}).get("model_fn")
         if model_entry:
             try:
+                # 加入项目目录到 sys.path
+                proj_dir = str(self.state_dir.parent) if self.state_dir else ""
+                if proj_dir and proj_dir not in sys.path:
+                    sys.path.insert(0, proj_dir)
                 mod_path, fn_name = model_entry.split(":", 1)
                 import importlib
                 mod = importlib.import_module(mod_path)
@@ -881,7 +888,7 @@ class GuardianMCPServer:
                 return json.dumps({"error": f"无法 import {model_entry}: {exc}"}, ensure_ascii=False)
 
         if model_fn is None:
-            return json.dumps({"error": "需要 model_entry 参数，如 'train:build_model'"}, ensure_ascii=False)
+            return json.dumps({"error": "需要 model_entry 参数，或在 contract 中声明 buildable_entry.model_fn"}, ensure_ascii=False)
 
         graph = mv.parse_model(model_fn)
         if "error" in graph:

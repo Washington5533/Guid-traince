@@ -399,58 +399,90 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
                 print("[MCP] 已在后台线程启动，外部 agent 客户端可接入。", flush=True)
         # 不可用时已在上面打印过提示，此处不再重复
 
-    # --with-dashboard：后台启动 Web 控制面板
+    # --with-dashboard：后台启动面板（如未运行）并注册当前进程
     dash_server = None
+    dash_url = None
     if args.with_dashboard:
         import socket as _socket
+        import urllib.request as _ur
         dash_port = 8765
+        # 检测面板是否已在运行
         s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
         port_in_use = s.connect_ex(('127.0.0.1', dash_port)) == 0
         s.close()
-        if port_in_use:
-            print(f"[Dashboard] 端口 {dash_port} 已被占用，复用已有面板", flush=True)
-        else:
+        if not port_in_use:
             try:
                 from guardian.dashboard import DashboardServer
                 dash_server = DashboardServer(port=dash_port, host="127.0.0.1")
-                process_id = project.get("name", "guardian-run")
-                dash_server.register_process(process_id, {
-                    "name": project.get("name", "guardian-run"),
-                    "status": "starting",
-                    "command": " ".join(train_cmd),
-                    "max_epoch": None,
-                })
                 dash_server.start(blocking=False)
+                import time as _time
+                _time.sleep(0.5)  # 等面板启动
                 print(f"[Dashboard] http://127.0.0.1:{dash_port}", flush=True)
             except Exception as exc:
                 print(f"[Dashboard] 启动失败: {exc}", flush=True)
                 dash_server = None
+        else:
+            print(f"[Dashboard] 复用已有面板 http://127.0.0.1:{dash_port}", flush=True)
+
+        # 向面板注册当前进程（无论面板是新启动还是已有）
+        dash_url = f"http://127.0.0.1:{dash_port}"
+        process_id = project.get("name", "guardian-run")
+        try:
+            import json as _json
+            req = _ur.Request(
+                f"{dash_url}/api/register",
+                data=_json.dumps({
+                    "process_id": process_id,
+                    "name": project.get("name", "guardian-run"),
+                    "status": "starting",
+                    "command": " ".join(train_cmd),
+                }).encode(),
+                headers={"Content-Type": "application/json"},
+            )
+            _ur.urlopen(req, timeout=3)
+        except Exception:
+            pass  # 面板不可达，不影响训练
 
     summary_gen = SummaryGenerator(project, monitor, analyzer, watchdog, advisor=advisor)
 
     def on_tick(_wd, _proc) -> None:
         if monitor is not None:
             monitor.poll_metrics()
-            # Dashboard: push latest metrics
-            if dash_server and monitor.enabled:
-                hist = monitor.get_metrics_history()
-                if hist:
-                    dash_server.update_process(process_id, {
-                        "latest_metrics": hist[-1],
-                        "epoch": hist[-1].get("epoch") or hist[-1].get("step"),
-                        "anomaly_count": len(monitor.get_anomaly_history()),
-                    })
-                    dash_server.push_metrics(process_id, hist[-1])
-                gpu_hist = getattr(monitor, "get_gpu_history", lambda: [])()
-                if gpu_hist:
-                    dash_server.update_process(process_id, {"latest_gpu": gpu_hist[-1]})
+            # Dashboard: push via HTTP
+            if dash_url and monitor.enabled:
+                try:
+                    import json as _json, urllib.request as _ur
+                    hist = monitor.get_metrics_history()
+                    if hist:
+                        _ur.urlopen(_ur.Request(
+                            f"{dash_url}/api/process/{process_id}/push",
+                            data=_json.dumps({"type": "metrics", "data": hist[-1],
+                                "patch": {"latest_metrics": hist[-1],
+                                    "epoch": hist[-1].get("epoch") or hist[-1].get("step"),
+                                    "anomaly_count": len(monitor.get_anomaly_history())}}).encode(),
+                            headers={"Content-Type": "application/json"},
+                        ), timeout=2)
+                    gpu_hist = getattr(monitor, "get_gpu_history", lambda: [])()
+                    if gpu_hist:
+                        _ur.urlopen(_ur.Request(
+                            f"{dash_url}/api/process/{process_id}/push",
+                            data=_json.dumps({"patch": {"latest_gpu": gpu_hist[-1]}}).encode(),
+                            headers={"Content-Type": "application/json"},
+                        ), timeout=2)
+                except Exception:
+                    pass
         analyzer.poll()
 
-    if dash_server:
-        dash_server.update_process(process_id, {"status": "running"})
-        dash_server.bind_guardian(process_id, monitor=monitor, watchdog=watchdog,
-                                  advisor=advisor, analyzer=analyzer,
-                                  summary=None, contract=contract)
+    if dash_url:
+        try:
+            import json as _json, urllib.request as _ur
+            _ur.urlopen(_ur.Request(
+                f"{dash_url}/api/process/{process_id}/push",
+                data=_json.dumps({"patch": {"status": "running"}}).encode(),
+                headers={"Content-Type": "application/json"},
+            ), timeout=3)
+        except Exception:
+            pass
 
     print(f"[守护] {' '.join(train_cmd)}", flush=True)
     try:
@@ -464,11 +496,16 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
         monitor.poll_metrics()
     analyzer.poll()
 
-    if dash_server:
-        dash_server.update_process(process_id, {
-            "status": "completed" if result.get("status") == "completed" else "failed",
-            "latest_metrics": result.get("metrics", {}),
-        })
+        if dash_url:
+            try:
+                import json as _json, urllib.request as _ur
+                _ur.urlopen(_ur.Request(
+                    f"{dash_url}/api/process/{process_id}/push",
+                    data=_json.dumps({"patch": {"status": "completed" if result.get("status") == "completed" else "failed"}}).encode(),
+                    headers={"Content-Type": "application/json"},
+                ), timeout=3)
+            except Exception:
+                pass
     summary = summary_gen.generate(result)
     print(flush=True)
     summary_gen.print_summary(summary)

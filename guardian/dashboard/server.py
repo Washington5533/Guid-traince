@@ -124,6 +124,32 @@ class DashboardServer:
     def _build_app(self):
         app = FastAPI(title="Guardian Dashboard", docs_url=None, redoc_url=None)
 
+        # ---- 进程注册（HTTP，供 watch --with-dashboard 调用） ----
+        @app.post("/api/register")
+        async def register(payload: dict):
+            pid = payload.get("process_id", f"proc_{len(self._processes)}")
+            with self._lock:
+                self._processes[pid] = {
+                    "process_id": pid,
+                    "name": payload.get("name", pid),
+                    "status": payload.get("status", "starting"),
+                    "command": payload.get("command", ""),
+                    "registered_at": time.time(),
+                }
+            return JSONResponse({"ok": True, "process_id": pid})
+
+        @app.post("/api/process/{process_id}/push")
+        async def push_update(process_id: str, payload: dict):
+            with self._lock:
+                if process_id in self._processes:
+                    self._processes[process_id].update(payload.get("patch", {}))
+            mtype = payload.get("type")
+            if mtype == "metrics":
+                await self._broadcast_process(process_id, {"type": "metrics", "data": payload.get("data", {})})
+            elif mtype == "log_line":
+                await self._broadcast_process(process_id, {"type": "log_line", "line": payload.get("line", "")})
+            return JSONResponse({"ok": True})
+
         # ---- 静态文件 ----
         @app.get("/", response_class=HTMLResponse)
         async def index():

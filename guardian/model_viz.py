@@ -648,17 +648,78 @@ node.append("circle")
   .attr("r", d => Math.max(3, Math.min(12, Math.sqrt((d.data.params||0) / Math.max(1,maxParams)) * 15)))
   .attr("fill", d => nodeColor(d));
 
+// --- 参数格式化 ---
+function fmtParams(p) {{
+  if (!p) return "0";
+  if (p >= 1e6) return (p/1e6).toFixed(1) + "M";
+  if (p >= 1e3) return (p/1e3).toFixed(0) + "K";
+  return p.toString();
+}}
+function fmtFLOPs(f) {{
+  if (!f) return "";
+  if (f >= 1e6) return (f/1e6).toFixed(1) + "M";
+  if (f >= 1e3) return (f/1e3).toFixed(0) + "K";
+  return f.toString();
+}}
+
+// --- 名称标签 ---
 node.append("text")
-  .attr("dy", "0.32em")
+  .attr("class", "node-name")
+  .attr("dy", "-0.5em")
   .attr("x", d => (d.children && d.children.length ? -10 : 10))
   .attr("text-anchor", d => (d.children && d.children.length ? "end" : "start"))
+  .attr("fill", "#e6edf3")
+  .style("font-size", "10px")
+  .style("font-weight", "600")
   .text(d => {{
     let name = d.data.name.split(".").pop();
     if (name.length > 22) name = name.slice(0,20) + "..";
     return name;
+  }});
+
+// --- 参数标签 ---
+node.filter(d => d.data.params > 0).append("text")
+  .attr("class", "node-params")
+  .attr("dy", "1.1em")
+  .attr("x", d => (d.children && d.children.length ? -10 : 10))
+  .attr("text-anchor", d => (d.children && d.children.length ? "end" : "start"))
+  .attr("fill", "#8b949e")
+  .style("font-size", "9px")
+  .text(d => fmtParams(d.data.params));
+
+// --- FLOPs 标签 ---
+node.filter(d => d.data.flops > 0).append("text")
+  .attr("class", "node-flops")
+  .attr("dy", "2.3em")
+  .attr("x", d => (d.children && d.children.length ? -10 : 10))
+  .attr("text-anchor", d => (d.children && d.children.length ? "end" : "start"))
+  .attr("fill", "#d2991d")
+  .style("font-size", "8px")
+  .text(d => fmtFLOPs(d.data.flops) + " FLOPs");
+
+// --- 背景（名称 + 参数） ---
+node.filter(d => d.data.params > 0).append("rect")
+  .attr("class", "label-bg")
+  .attr("x", function() {{
+    const t = d3.select(this.parentNode).select(".node-name");
+    const bbox = t.node() ? t.node().getBBox() : {{x:0, y:-8, width:60, height:16}};
+    const anchor = d.children && d.children.length ? "end" : "start";
+    const x0 = anchor === "end" ? bbox.x - 4 : bbox.x - 2;
+    return x0;
   }})
-  .clone(true).lower().attr("class", "label-bg")
+  .attr("y", -16)
+  .attr("width", 80)
+  .attr("height", 42)
+  .attr("fill", "#161b22")
+  .attr("rx", 3)
+  .attr("opacity", 0.85)
+  .lower();
+
+// --- 标签克隆（描边模拟背景） ---
+node.selectAll(".node-name").clone(true).lower()
   .attr("stroke", "#161b22").attr("stroke-width", 3).attr("stroke-linejoin", "round");
+node.filter(d => d.data.params > 0).selectAll(".node-params").clone(true).lower()
+  .attr("stroke", "#161b22").attr("stroke-width", 2).attr("stroke-linejoin", "round");
 
 // Repeat badge
 node.filter(d => d.data.repeat > 1).append("text")

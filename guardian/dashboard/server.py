@@ -341,7 +341,26 @@ class DashboardServer:
 
         @app.post("/api/process/{process_id}/ai/chat")
         async def ai_chat(process_id: str, question: str = ""):
-            return JSONResponse({"answer": "AI 对话仅在训练终端（--agent）或 MCP 模式中可用"})
+            if not question:
+                return JSONResponse({"answer": "请输入问题"})
+            s = _get_state(process_id)
+            if not s: return JSONResponse({"error": "not found"}, 404)
+            hist = s.get("_metrics_history", [])
+            try:
+                from ..credentials import load_credentials, apply_credentials
+                apply_credentials(load_credentials())
+                from ..agent_advisor import AgentAdvisor
+                advisor = AgentAdvisor({"enabled": True, "provider": "anthropic", "decision_timeout": 15})
+                if advisor.is_enabled():
+                    ctx = {"status": s.get("status"), "question": question,
+                           "latest_metrics": hist[-1] if hist else {},
+                           "metrics_summary": _summarize_metrics(hist)}
+                    ans = advisor.narrate({"type": "chat", "question": question, "context": ctx})
+                    if ans:
+                        return JSONResponse({"answer": ans})
+            except Exception:
+                pass
+            return JSONResponse({"answer": "AI 调用失败，请检查凭据配置"})
 
         # ---- API: 图库（最小可用） ----
         @app.get("/api/process/{process_id}/gallery")

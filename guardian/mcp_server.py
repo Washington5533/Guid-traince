@@ -876,8 +876,10 @@ class GuardianMCPServer:
             model_entry = self.task_contract.script.get("buildable_entry", {}).get("model_fn")
         if model_entry:
             try:
-                # 加入项目目录到 sys.path
-                proj_dir = str(self.state_dir.parent) if self.state_dir else ""
+                # 加入项目目录到 sys.path（log_dir 可能在项目根下或 logs/ 子目录）
+                proj_dir = str(self.state_dir)
+                if proj_dir.endswith(("logs", "log")):
+                    proj_dir = str(Path(proj_dir).parent)
                 if proj_dir and proj_dir not in sys.path:
                     sys.path.insert(0, proj_dir)
                 mod_path, fn_name = model_entry.split(":", 1)

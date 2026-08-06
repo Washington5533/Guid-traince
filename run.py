@@ -303,14 +303,19 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
         print("=" * 56, flush=True)
         return 1
 
+    project = cfg["project"]
+
     # 项目上下文自动补全路径
     if has_project_file:
         if ctx.ckpt_dir and project.get("ckpt_dir") == "./checkpoints":
             project["ckpt_dir"] = ctx.ckpt_dir
         if ctx.log_dir and project.get("log_dir") == "./logs":
             project["log_dir"] = ctx.log_dir
+        # 项目有 contract 配置则优先
+        proj_contract = ctx.data.get("contract", {}).get("path")
+        if proj_contract and not args.contract:
+            cfg["contract"]["path"] = proj_contract
 
-    project = cfg["project"]
     ckpt_dir = project["ckpt_dir"]
 
     # --with-mcp：后台启动 MCP server

@@ -499,16 +499,17 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
         monitor.poll_metrics()
     analyzer.poll()
 
-        if dash_url:
-            try:
-                import json as _json, urllib.request as _ur
-                _ur.urlopen(_ur.Request(
-                    f"{dash_url}/api/process/{process_id}/push",
-                    data=_json.dumps({"patch": {"status": "completed" if result.get("status") == "completed" else "failed"}}).encode(),
-                    headers={"Content-Type": "application/json"},
-                ), timeout=3)
-            except Exception:
-                pass
+    if dash_url:
+        try:
+            import json as _json, urllib.request as _ur
+            _ur.urlopen(_ur.Request(
+                f"{dash_url}/api/process/{process_id}/push",
+                data=_json.dumps({"patch": {"status": "completed" if result.get("status") == "completed" else "failed"}}).encode(),
+                headers={"Content-Type": "application/json"},
+            ), timeout=3)
+        except Exception:
+            pass
+
     summary = summary_gen.generate(result)
     print(flush=True)
     summary_gen.print_summary(summary)

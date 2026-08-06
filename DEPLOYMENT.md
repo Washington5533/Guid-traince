@@ -31,8 +31,16 @@ python run.py watch -- python train.py --epochs 20
 # Agent 智能决策（需 API key）
 python run.py watch --agent -- python train.py --epochs 20
 
+# Agent + Dashboard 控制面板
+python run.py watch --with-dashboard --agent -- python train.py --epochs 20
+
 # Agent + MCP 外部接入
 python run.py watch --agent --with-mcp -- python train.py --epochs 20
+
+# 带项目配置（自动读取 .guardian-project.yaml 中的路径）
+python run.py watch --with-dashboard --agent \
+  --config ../my-project/configs/guardian.yaml \
+  -- python ../my-project/train_clip.py --epochs 20
 ```
 
 ### 2.3 训练脚本需要满足什么？

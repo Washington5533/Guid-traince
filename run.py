@@ -279,6 +279,37 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
         return 2
 
     cfg, contract = _load(args)
+
+    # ---- 启动前守卫：必须有显式配置或项目上下文 ----
+    from guardian.project_context import ProjectContext
+    ctx = ProjectContext(args.project_dir or ".")
+    has_explicit_config = args.config != "configs/guardian.yaml" or args.contract is not None
+    has_project_file = ctx.detected_by != "none"
+
+    if not has_explicit_config and not has_project_file:
+        print("=" * 56, flush=True)
+        print("  错误: 未找到配置，无法启动守护训练。", flush=True)
+        print("", flush=True)
+        print("  请选择以下方式之一：", flush=True)
+        print("", flush=True)
+        print("  1. 初始化项目（推荐）：", flush=True)
+        print("     python run.py project init <项目路径>", flush=True)
+        print("", flush=True)
+        print("  2. 显式指定配置：", flush=True)
+        print("     python run.py watch --config <config.yaml> --contract <contract.yaml> -- <训练命令>", flush=True)
+        print("", flush=True)
+        print("  3. 在已有项目目录中运行：", flush=True)
+        print("     cd <项目目录> && python ../guarftrain/run.py watch -- <训练命令>", flush=True)
+        print("=" * 56, flush=True)
+        return 1
+
+    # 项目上下文自动补全路径
+    if has_project_file:
+        if ctx.ckpt_dir and project.get("ckpt_dir") == "./checkpoints":
+            project["ckpt_dir"] = ctx.ckpt_dir
+        if ctx.log_dir and project.get("log_dir") == "./logs":
+            project["log_dir"] = ctx.log_dir
+
     project = cfg["project"]
     ckpt_dir = project["ckpt_dir"]
 

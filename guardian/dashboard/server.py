@@ -302,6 +302,9 @@ class DashboardServer:
                 proj_dir = s.get("project_dir", "")
                 if proj_dir and proj_dir not in sys.path:
                     sys.path.insert(0, proj_dir)
+                for ep in s.get("extra_paths", []):
+                    if ep not in sys.path:
+                        sys.path.insert(0, ep)
                 mod_parts = model_fn_ref.split(":", 1)
                 if len(mod_parts) != 2:
                     return JSONResponse({"error": f"invalid model_entry: {model_fn_ref}"}, 400)

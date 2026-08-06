@@ -443,6 +443,7 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
                     "command": " ".join(train_cmd),
                     "model_entry": contract.script.get("buildable_entry", {}).get("model_fn", ""),
                     "project_dir": str(contract.path.parent.parent.resolve()) if contract.path else "",
+                    "extra_paths": getattr(ctx, 'extra_paths', []),
                     "log_file": str(Path(project["log_dir"]) / "train.log"),
                 }).encode(),
                 headers={"Content-Type": "application/json"},
@@ -984,7 +985,11 @@ def cmd_project(args) -> int:
         return 0
 
     if args.action == "init":
+        # 强制重扫（不用已有配置）
         ctx = ProjectContext(start_dir)
+        scanned = ctx._scan(Path(start_dir).resolve())
+        if scanned:
+            ctx.data = scanned
 
         # AI 补全
         if args.agent:
@@ -1034,6 +1039,17 @@ def _load_creds(args):
         apply_credentials(cred)
         return True
     return False
+
+
+def _apply_project_paths(args):
+    """加载项目上下文并补全 sys.path（使 model_entry 可导入）。"""
+    from guardian.project_context import ProjectContext
+    start = getattr(args, "project_dir", None) or "."
+    ctx = ProjectContext(start)
+    if ctx.detected_by != "none":
+        ctx.apply_paths()
+        return ctx
+    return None
 
 
 def _make_advisor(args):

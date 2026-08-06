@@ -29,6 +29,10 @@ PROJECT_TEMPLATE = {
         "entry": "",
         "task_type": "classification",
     },
+    "paths": {
+        "extra_sys_paths": [],     # 需要额外加入 sys.path 的目录（如 CLIP 源码）
+        "contract_path": "",        # contract.yaml 位置
+    },
     "_detected_by": "",  # "user" | "scanner" | "agent" | "none"
 }
 
@@ -89,10 +93,13 @@ class ProjectContext:
 
     @staticmethod
     def _scan(root: Path) -> dict | None:
-        """扫描目录，自动探测项目结构。空目录也算（用户可能刚建好）。"""
+        """扫描目录，自动探测项目结构。包括模型入口和额外路径。"""
         ckpt_dir = None
         log_dir = None
         data_dir = None
+        extra_paths = []
+        model_entries = []
+        contract_path = None
 
         for pattern in ["checkpoints", "checkpoint"]:
             p = root / pattern
@@ -112,7 +119,45 @@ class ProjectContext:
                 data_dir = str(p)
                 break
 
-        if ckpt_dir or log_dir or data_dir:
+        # 扫描 contract.yaml
+        for loc in ["configs/contract.yaml", "contract.yaml"]:
+            p = root / loc
+            if p.exists():
+                contract_path = str(p)
+                break
+
+        # 扫描 Python 文件，找 build_model 和 sys.path.insert
+        for py_file in sorted(root.glob("*.py")):
+            try:
+                text = py_file.read_text(encoding="utf-8", errors="replace")
+                lines = text.splitlines()
+            except Exception:
+                continue
+
+            # 找 build_model / get_dataloaders 函数
+            for i, line in enumerate(lines):
+                if "def build_model" in line or "def get_model" in line:
+                    fn_name = line.strip().split("(")[0].replace("def ", "")
+                    model_entries.append(f"{py_file.stem}:{fn_name}")
+
+            # 找 sys.path.insert 调用 → 推断额外路径
+            for line in lines:
+                if "sys.path.insert" in line or "sys.path.append" in line:
+                    # 尝试提取路径字符串
+                    import re
+                    m = re.search(r"""["']([^"']+)["']""", line)
+                    if m:
+                        p_str = m.group(1)
+                        # 解析相对路径
+                        candidate = (py_file.parent / p_str).resolve()
+                        if candidate.exists() and candidate.is_dir():
+                            extra_paths.append(str(candidate))
+
+        # 清理重复
+        extra_paths = list(dict.fromkeys(extra_paths))
+        model_entries = model_entries[:5]  # 最多 5 个候选
+
+        if ckpt_dir or log_dir or data_dir or model_entries:
             return {
                 "project": {
                     "name": root.name,
@@ -120,7 +165,15 @@ class ProjectContext:
                     "log_dir": log_dir or str(root / "logs"),
                     "data_dir": data_dir or str(root / "data"),
                 },
-                "model": {},
+                "model": {
+                    "entry": model_entries[0] if model_entries else "",
+                    "entry_candidates": model_entries,
+                    "task_type": "classification",
+                },
+                "paths": {
+                    "extra_sys_paths": extra_paths,
+                    "contract_path": contract_path or "",
+                },
                 "_detected_by": "scanner",
             }
 
@@ -227,6 +280,23 @@ class ProjectContext:
         return self.data.get("model", {}).get("task_type", "classification")
 
     @property
+    def extra_paths(self) -> list[str]:
+        return self.data.get("paths", {}).get("extra_sys_paths", [])
+
+    @property
+    def contract_path(self) -> str:
+        return self.data.get("paths", {}).get("contract_path", "")
+
+    def apply_paths(self) -> None:
+        """将项目所需路径加入 sys.path（使 model_entry 可导入）。"""
+        proj_root = str(self.start_dir.resolve())
+        if proj_root not in sys.path:
+            sys.path.insert(0, proj_root)
+        for p in self.extra_paths:
+            if p not in sys.path:
+                sys.path.insert(0, p)
+
+    @property
     def detected_by(self) -> str:
         return self.data.get("_detected_by", "none")
 
@@ -242,6 +312,14 @@ class ProjectContext:
         ]
         if self.model_entry:
             lines.append(f"  model:    {self.model_entry}")
+        candidates = self.data.get("model", {}).get("entry_candidates", [])
+        if len(candidates) > 1:
+            lines.append(f"  alt:      {', '.join(candidates[1:4])}")
+        extra = self.extra_paths
+        if extra:
+            lines.append(f"  paths:    {len(extra)} extra sys.path entries")
+        if self.contract_path:
+            lines.append(f"  contract: {self.contract_path}")
         lines.append(f"  task:     {self.task_type}")
         return "\n".join(lines)
 

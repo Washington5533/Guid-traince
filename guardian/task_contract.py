@@ -90,11 +90,15 @@ class TaskContract:
         contract_path: str | Path | None = None,
         base_dir: str | Path | None = None,
         advisor: Any = None,
+        project_root: str | Path | None = None,
     ):
         """base_dir：契约里相对路径的基准目录。
 
         默认取 contract.yaml 所在目录——契约描述的是"这个项目的训练脚本"，
         路径相对契约文件本身最直观，也让同一份契约在任何 cwd 下都能工作。
+
+        project_root：项目根目录，用于解析非契约级路径（如 proposal_log）。
+        默认取 cwd。
 
         advisor：v1 可选注入的 AgentAdvisor，供 select_metric /
         select_adjust_path 使用；None 时（v0 默认）两者恒走规则/fallback 路径。
@@ -115,8 +119,12 @@ class TaskContract:
         self.metric_registry: dict[str, Any] = self.raw.get("metric_registry") or {}
         self.adjustable_paths: list[dict[str, Any]] = list(self.raw.get("adjustable_paths") or [])
 
+        self.project_root = Path(project_root) if project_root else Path.cwd()
+
         proposal_log = self.cfg.get("proposal_log", "logs/contract_proposals.json")
-        self.proposal_log_path = self.resolve_path(proposal_log) or Path(proposal_log)
+        # proposal_log 相对于项目根目录，而非契约文件目录
+        p = Path(proposal_log)
+        self.proposal_log_path = p if p.is_absolute() else (self.project_root / p).resolve()
         self.agent_can_propose = bool(self.cfg.get("agent_can_propose", True))
 
     def resolve_path(self, raw: str | Path | None) -> Path | None:

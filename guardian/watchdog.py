@@ -14,6 +14,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from guardian.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 RECOVERABLE = "recoverable"
 UNRECOVERABLE = "unrecoverable"
 
@@ -186,6 +190,7 @@ def _ckpt_is_valid(path: Path, required_keys: list[str] | None) -> bool:
         try:
             obj = torch.load(cand, map_location="cpu", weights_only=False)
         except Exception:
+            logger.warning("checkpoint 文件损坏，跳过: %s", cand, exc_info=True)
             continue  # 损坏，试下一个文件
         if isinstance(obj, dict) and all(k in obj for k in required_keys):
             return True
@@ -427,6 +432,7 @@ class TrainingWatchdog:
         try:
             current = self.progress_fn()
         except Exception:
+            logger.warning("progress_fn() 调用失败", exc_info=True)
             return None
 
         now = time.monotonic()
@@ -461,6 +467,7 @@ class TrainingWatchdog:
         try:
             current = self.progress_fn()
         except Exception:
+            logger.warning("计算 wasted_epochs 时 progress_fn() 失败", exc_info=True)
             return None
         if current is None:
             return None
@@ -483,7 +490,9 @@ class TrainingWatchdog:
         if self.notifier is not None:
             self.notifier.send(title, msg, alert_type=alert_type, level=level, response=response)
         else:
-            print(f"[{level}] {title}: {msg}", flush=True)
+            log_fn = {"info": logger.info, "warning": logger.warning,
+                       "error": logger.error}.get(level, logger.info)
+            log_fn("%s: %s", title, msg)
 
     def _terminate(self) -> None:
         """先 SIGTERM 给宽限期（避免半截 checkpoint），超时才强杀。"""

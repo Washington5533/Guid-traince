@@ -15,6 +15,7 @@ from pathlib import Path
 
 from guardian.checkpoint_analyzer import CheckpointAnalyzer
 from guardian.config import ConfigError, load_config
+from guardian.logging_config import configure, get_logger
 from guardian.monitor import TrainingMonitor
 from guardian.notifier import Notifier, ensure_utf8_stdout
 from guardian.resource_estimator import ResourceEstimator
@@ -72,7 +73,31 @@ def build_parser() -> argparse.ArgumentParser:
     pf.add_argument("--target-batch-size", type=int, default=None)
 
     sv = sub.add_parser("serve", help="单独启动 MCP server（独立进程，跨进程读盘）")
-    sv.add_argument("--transport", default="stdio", choices=["stdio", "tcp"])
+    sv.add_argument("--transport", default="stdio",
+                    choices=["stdio", "sse", "http", "tcp"],
+                    help="stdio=标准输入输出 | sse=SSE over HTTP | http=Streamable HTTP | tcp=兼容旧名，等同 sse")
+    sv.add_argument("--host", default="127.0.0.1", help="HTTP 监听地址（sse/http/tcp 时生效）")
+    sv.add_argument("--port", type=int, default=None, help="HTTP 端口（默认取配置 mcp.tcp_port=8766）")
+
+    # ---- start：一键启动 ----
+    st = sub.add_parser("start", help="一键启动：Dashboard + MCP server（可选附带训练守护）",
+                        epilog="示例:\n"
+                               "  python run.py start\n"
+                               "  python run.py start -- python train.py --epochs 20\n"
+                               "  python run.py start --dash-port 8767 --mcp-port 8768 -- python train2.py")
+    st.add_argument("--config", default="configs/guardian.yaml")
+    st.add_argument("--contract", default=None)
+    st.add_argument("--strict-contract", action="store_true")
+    st.add_argument("--agent", action="store_true", help="启用 agent 决策层（转发给 watch）")
+    st.add_argument("--no-monitor", action="store_true")
+    st.add_argument("--max-retries", type=int, default=None)
+    st.add_argument("--project-dir", default=None)
+    st.add_argument("--host", default="127.0.0.1", help="服务监听地址")
+    st.add_argument("--dash-port", type=int, default=None, help="面板端口，默认取配置 dashboard.port=8765")
+    st.add_argument("--mcp-port", type=int, default=None, help="MCP HTTP 端口，默认取配置 mcp.tcp_port=8766")
+    st.add_argument("--mcp-transport", choices=["sse", "http"], default="sse")
+    st.add_argument("--no-dashboard", action="store_true")
+    st.add_argument("--no-mcp", action="store_true")
 
     # ---- v2 子命令 (F3/F4/F7/F10) ----
 
@@ -137,6 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _load(args) -> tuple[dict, TaskContract]:
     cfg = load_config(args.config)
+    configure(cfg)  # 初始化全局日志配置（控制台 + 可选文件）
     for warn in cfg.get("_warnings", []):
         print(f"[配置] {warn}", flush=True)
     contract_path = args.contract or cfg["contract"].get("path")
@@ -268,9 +294,156 @@ def cmd_serve(args) -> int:
         state_dir=cfg["project"]["log_dir"],
         task_contract=contract,
     )
-    result = server.start(transport=args.transport)
+    if args.transport in ("sse", "http", "tcp"):
+        _port = args.port or int(cfg["mcp"]["tcp_port"])
+        _path = "/sse" if args.transport in ("sse", "tcp") else "/mcp"
+        print(f"[MCP] 监听 http://{args.host}:{_port}{_path}（Ctrl+C 退出）", flush=True)
+    result = server.start(transport=args.transport, host=args.host, port=args.port)
     if result:
         print(result, flush=True)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# 一键启动（cp_10 + dashboard）
+# ---------------------------------------------------------------------------
+
+def _port_in_use(host: str, port: int) -> bool:
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        return s.connect_ex((host, port)) == 0
+    finally:
+        s.close()
+
+
+def _print_start_banner(host: str, dash_port: int, mcp_port: int,
+                        mcp_started: bool, dash_status: str,
+                        train_cmd: list[str] | None) -> None:
+    """dash_status: "started" | "reused" | "failed" """
+    print("=" * 60, flush=True)
+    print("  Training Guardian", flush=True)
+    print("=" * 60, flush=True)
+    if dash_status == "started":
+        print(f"  Dashboard  : http://{host}:{dash_port}", flush=True)
+    elif dash_status == "reused":
+        print(f"  Dashboard  : http://{host}:{dash_port} （复用已有）", flush=True)
+    else:
+        print(f"  Dashboard  : 未启动（端口被占或依赖缺失）", flush=True)
+    if mcp_started:
+        print(f"  MCP (SSE)  : http://{host}:{mcp_port}/sse", flush=True)
+    else:
+        print(f"  MCP        : 未启动（端口被占或依赖缺失）", flush=True)
+    if train_cmd:
+        print(f"  训练命令    : {' '.join(train_cmd)}", flush=True)
+    print("", flush=True)
+    print("  本地接入（在新终端执行）：", flush=True)
+    print(f"    ssh -L {dash_port}:127.0.0.1:{dash_port} -L {mcp_port}:127.0.0.1:{mcp_port} user@这台机器", flush=True)
+    print("", flush=True)
+    print("  然后：", flush=True)
+    print(f"    浏览器打开  http://127.0.0.1:{dash_port}", flush=True)
+
+    # 自动打开 Dashboard 前端页面
+    if dash_status in ("started", "reused"):
+        import webbrowser
+        webbrowser.open(f"http://{host}:{dash_port}")
+    print(f"    Claude Code 连接 http://127.0.0.1:{mcp_port}/sse", flush=True)
+    print("", flush=True)
+    print("  Ctrl+C 停止所有服务", flush=True)
+    print("=" * 60, flush=True)
+
+
+def cmd_start(args, train_cmd: list[str]) -> int:
+    """一键启动：Dashboard + MCP server（standalone/SSE），可选附带训练守护。"""
+    cfg, contract = _load(args)
+    host = args.host
+    dash_port = args.dash_port or int(cfg.get("dashboard", {}).get("port", 8765))
+    mcp_port = args.mcp_port or int(cfg.get("mcp", {}).get("tcp_port", 8766))
+
+    # ---- 依赖与端口检查（逐项降级，绝不崩溃）----
+    mcp_ok = True
+    if not args.no_mcp:
+        from guardian.mcp_server import GuardianMCPServer
+        mcp_ok, mcp_err = GuardianMCPServer.is_available()
+        if not mcp_ok:
+            print(f"[MCP] {mcp_err}", flush=True)
+            print("[MCP] pip install -r requirements-mcp.txt 后即可启用，本次跳过。", flush=True)
+        elif _port_in_use(host, mcp_port):
+            print(f"[MCP] 端口 {host}:{mcp_port} 已被占用，MCP 未启动。", flush=True)
+            print(f"[MCP] 请停止占用进程，或用 --mcp-port 指定其他端口。", flush=True)
+            mcp_ok = False
+
+    dash_ok = True
+    if not args.no_dashboard:
+        try:
+            import fastapi, uvicorn  # noqa: F401
+        except ImportError:
+            print("[Dashboard] fastapi/uvicorn 未安装，面板跳过。", flush=True)
+            print("[Dashboard] pip install -r requirements-dashboard.txt 后即可启用。", flush=True)
+            dash_ok = False
+        if dash_ok and _port_in_use(host, dash_port):
+            print(f"[Dashboard] 端口 {host}:{dash_port} 已有服务，复用现有面板（不重复启动）。", flush=True)
+
+    if not mcp_ok and not dash_ok and not train_cmd:
+        print("错误: 没有任何服务可启动。请按上述提示安装依赖后重试。", flush=True)
+        return 1
+
+    # ---- 启动 Dashboard（后台线程）----
+    dash_status = "failed"
+    dash_reused = dash_ok and _port_in_use(host, dash_port)
+    if dash_ok and not dash_reused:
+        try:
+            from guardian.dashboard import DashboardServer
+            dash = DashboardServer(config=cfg, port=dash_port, host=host)
+            dash.start(blocking=False)
+            import time as _time
+            _time.sleep(0.5)  # 等面板绑定端口
+            dash_status = "started"
+        except Exception as exc:
+            print(f"[Dashboard] 启动失败: {exc}", flush=True)
+    elif dash_reused:
+        dash_status = "reused"
+
+    # ---- 启动 MCP（standalone 跨进程读盘 + SSE）----
+    mcp_started = False
+    if mcp_ok and not _port_in_use(host, mcp_port):
+        try:
+            from guardian.mcp_server import GuardianMCPServer
+            srv = GuardianMCPServer(
+                cfg, mode="standalone",
+                state_dir=cfg["project"]["log_dir"],
+                task_contract=contract,
+            )
+            th = srv.start_in_background(transport=args.mcp_transport,
+                                         host=host, port=mcp_port)
+            if th is not None:
+                mcp_started = True
+        except Exception as exc:
+            print(f"[MCP] 启动失败: {exc}", flush=True)
+
+    _print_start_banner(host, dash_port, mcp_port, mcp_started, dash_status,
+                        train_cmd if train_cmd else None)
+
+    # ---- 可选：附带训练守护（复用 cmd_watch，面板走"复用+注册"路径）----
+    if train_cmd:
+        import types
+        watch_args = types.SimpleNamespace(
+            config=args.config, contract=args.contract, project_dir=args.project_dir,
+            strict_contract=args.strict_contract, no_monitor=args.no_monitor,
+            max_retries=args.max_retries, agent=args.agent,
+            with_mcp=False,        # 已有独立 SSE MCP，避免第二个 stdio MCP 抢终端
+            with_dashboard=True,   # cmd_watch 检测到端口占用即复用并注册进程
+            dash_port=dash_port,
+        )
+        return cmd_watch(watch_args, train_cmd)
+
+    # ---- 前台常驻，Ctrl+C 优雅退出 ----
+    try:
+        while True:
+            import time as _time
+            _time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n[守护] 收到中断，服务已停止。", flush=True)
     return 0
 
 
@@ -410,7 +583,7 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
     if args.with_dashboard:
         import socket as _socket
         import urllib.request as _ur
-        dash_port = 8765
+        dash_port = getattr(args, "dash_port", 8765)
         # 检测面板是否已在运行
         s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
         port_in_use = s.connect_ex(('127.0.0.1', dash_port)) == 0
@@ -418,7 +591,7 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
         if not port_in_use:
             try:
                 from guardian.dashboard import DashboardServer
-                dash_server = DashboardServer(port=dash_port, host="127.0.0.1")
+                dash_server = DashboardServer(config=cfg, port=dash_port, host="127.0.0.1")
                 dash_server.start(blocking=False)
                 import time as _time
                 _time.sleep(0.5)  # 等面板启动
@@ -956,7 +1129,8 @@ def cmd_infer(args) -> int:
 def cmd_dashboard(args) -> int:
     """启动 Web 控制面板（独立进程）。"""
     from guardian.dashboard import DashboardServer
-    ds = DashboardServer(port=args.port, host=args.host)
+    cfg = load_config(args.config)
+    ds = DashboardServer(config=cfg, port=args.port, host=args.host)
     print(f"Dashboard: http://{args.host}:{args.port}", flush=True)
     ds.start(blocking=True)
     return 0
@@ -1090,6 +1264,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_preflight(args)
         if args.command == "serve":
             return cmd_serve(args)
+        if args.command == "start":
+            return cmd_start(args, train_cmd)
         # v2
         if args.command == "experiments":
             return cmd_experiments(args)

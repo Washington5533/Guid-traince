@@ -20,6 +20,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from guardian.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 # 固定推理脚本映射
 _TASK_SCRIPTS = {
@@ -82,7 +86,7 @@ class InferenceRunner:
                     return "classification"
 
         except Exception:
-            pass
+            logger.warning("规则推断任务类型失败，回退 classification", exc_info=True)
 
         return "classification"  # 默认
 
@@ -124,7 +128,7 @@ class InferenceRunner:
                     if isinstance(recommended, int) and recommended > 0:
                         return recommended
             except Exception:
-                pass
+                logger.warning("AI 推荐 checkpoint 失败，回退规则 best 推荐", exc_info=True)
 
         return best_epoch
 
@@ -263,6 +267,7 @@ class InferenceRunner:
                 elif isinstance(data, dict):
                     result["num_results"] = len(data.get("predictions", data.get("results", [])))
             except (ValueError, OSError):
+                # 结果文件读取失败不阻塞主流程，静默跳过
                 pass
 
         return result

@@ -12,6 +12,10 @@ import sys
 import time
 from typing import Any
 
+from guardian.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 LEVEL_ICON = {"info": "[i]", "warning": "[!]", "error": "[X]"}
 
 
@@ -23,6 +27,7 @@ def ensure_utf8_stdout() -> None:
             try:
                 reconfig(encoding="utf-8", errors="replace")
             except (ValueError, OSError):  # pragma: no cover
+                # UTF-8 重配置失败不影响后续运行，静默跳过
                 pass
 
 
@@ -95,7 +100,7 @@ class Notifier:
                 if wasted is not None:
                     cost += f"，作废约 {wasted} epoch"
                 lines.append(f"    代价: {cost}")
-        print("\n".join(lines), flush=True)
+        logger.info("%s", "\n".join(lines))
 
     def _send_webhook(self, event: dict) -> None:
         url = os.environ.get(str(self.cfg.get("webhook_url_env", "GUARDIAN_WEBHOOK_URL")) or "")
@@ -104,7 +109,7 @@ class Notifier:
         try:
             import requests  # 可选依赖
         except ImportError:
-            print("    (webhook 已配置但未安装 requests，跳过推送)", flush=True)
+            logger.warning("webhook 已配置但未安装 requests，跳过推送")
             return
         try:
             requests.post(
@@ -114,7 +119,7 @@ class Notifier:
                 timeout=float(self.cfg.get("webhook_timeout", 10)),
             )
         except Exception as exc:  # 推送失败绝不影响看护循环
-            print(f"    (webhook 推送失败: {exc})", flush=True)
+            logger.warning("webhook 推送失败: %s", exc, exc_info=True)
 
     def _send_email(self, event: dict) -> None:  # pragma: no cover - 需要 SMTP
-        print("    (email 渠道尚未实现，v0 仅支持 terminal / webhook)", flush=True)
+        logger.info("email 渠道尚未实现，v0 仅支持 terminal / webhook")

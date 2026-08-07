@@ -4,199 +4,778 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Guardian Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
 <style>
+/* ===== Deep Purple Theme ===== */
 :root {
-  --bg: #0d1117; --card: #161b22; --border: #30363d; --hover: #21262d;
-  --text: #e6edf3; --muted: #8b949e; --dim: #484f58;
-  --blue: #58a6ff; --green: #3fb950; --orange: #d2991d; --red: #f85149;
+  --bg-primary: #0f0a1a;
+  --bg-secondary: #1a1128;
+  --bg-elevated: #241a35;
+  --border: #2d2145;
+  --border-glow: rgba(168,85,247,0.25);
+  --text-primary: #e8e0f0;
+  --text-muted: #8b7fa8;
+  --text-dim: #5a4f73;
+  --accent-1: #a855f7;
+  --accent-2: #06b6d4;
+  --accent-gradient: linear-gradient(135deg, #a855f7, #06b6d4);
+  --success: #34d399;
+  --warning: #fbbf24;
+  --error: #f87171;
+  --chart-palette: #a855f7, #06b6d4, #34d399, #fbbf24, #f87171;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow-glow: 0 0 20px rgba(168,85,247,0.15);
+  --transition: 0.2s ease;
 }
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
-a { color: var(--blue); text-decoration: none; }
 
-/* Header */
-header {
-  background: var(--card); border-bottom: 1px solid var(--border);
-  padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top:0; z-index: 10;
+/* ===== Reset ===== */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  min-height: 100vh;
+  line-height: 1.5;
 }
-header h1 { font-size: 16px; font-weight: 600; }
-header .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-header .status-dot.running { background: var(--green); }
-header .status-dot.failed  { background: var(--red); }
-header .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--hover); color: var(--muted); margin-left: 8px; }
+a { color: var(--accent-1); text-decoration: none; }
+a:hover { color: var(--accent-2); }
 
-/* Main */
-main { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
-#view-process-list, #view-process-detail, #view-compare { display: none; }
-#view-process-list.active, #view-process-detail.active, #view-compare.active { display: block; }
+/* ===== Header ===== */
+.site-header {
+  background: linear-gradient(135deg, rgba(168,85,247,0.08), rgba(6,182,212,0.05));
+  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.site-header__title {
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 0 30px rgba(168,85,247,0.3);
+}
+.site-header__status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ws-indicator {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.ws-indicator__dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--warning);
+  transition: background var(--transition);
+}
+.ws-indicator__dot--connected { background: var(--success); box-shadow: 0 0 8px rgba(52,211,153,0.5); }
+.ws-indicator__dot--disconnected { background: var(--error); }
 
-/* Cards */
-.card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-.card h2 { font-size: 14px; color: var(--blue); margin-bottom: 12px; }
-.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+/* Connection banner */
+.conn-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 999;
+  background: linear-gradient(135deg, rgba(251,191,36,0.95), rgba(245,158,11,0.95));
+  color: #1a0e00;
+  text-align: center;
+  padding: 8px 16px;
+  font-size: 13px; font-weight: 600;
+  letter-spacing: 0.02em;
+  animation: connBannerPulse 2s ease-in-out infinite;
+  display: none;
+}
+.conn-banner--show { display: block; }
+@keyframes connBannerPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
 
-/* Process grid */
-.process-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; }
-.process-card { cursor: pointer; transition: border-color 0.15s; }
-.process-card:hover { border-color: var(--blue); }
-.process-card .title { font-size: 15px; font-weight: 600; }
-.process-card .meta { font-size: 12px; color: var(--muted); margin: 6px 0; }
-.process-card .progress { height: 4px; background: var(--border); border-radius: 2px; margin: 8px 0; overflow: hidden; }
-.process-card .progress-bar { height: 100%; background: var(--green); border-radius: 2px; transition: width 0.3s; }
-.process-card .stats { display: flex; gap: 16px; font-size: 12px; flex-wrap: wrap; }
-.process-card .stat-val { font-weight: 600; color: var(--text); }
-.process-card .stat-label { color: var(--muted); }
-.process-card .actions { display: flex; gap: 6px; margin-top: 10px; }
+.global-badge {
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(168,85,247,0.15);
+  color: var(--accent-1);
+  border: 1px solid rgba(168,85,247,0.25);
+  display: none;
+}
 
-/* Buttons */
-.btn { padding: 6px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--hover); color: var(--text);
-  font-size: 12px; cursor: pointer; transition: background 0.15s; }
-.btn:hover { background: var(--border); }
-.btn.primary { background: var(--blue); color: #000; border-color: var(--blue); }
-.btn.danger { border-color: var(--red); color: var(--red); }
-.btn.small { padding: 3px 10px; font-size: 11px; }
+/* ===== Layout ===== */
+.main-content {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 20px 24px;
+}
+.view { display: none; }
+.view.active { display: block; }
 
-/* Tabs */
-.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
-.tab { padding: 8px 16px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent;
-  color: var(--muted); transition: all 0.15s; }
-.tab:hover { color: var(--text); }
-.tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+/* ===== Card ===== */
+.card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.card:hover { border-color: rgba(168,85,247,0.2); }
+.card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-1);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+/* ===== Buttons ===== */
+.btn {
+  padding: 7px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+}
+.btn:hover { background: rgba(168,85,247,0.15); border-color: var(--accent-1); }
+.btn--primary {
+  background: var(--accent-gradient);
+  color: #fff;
+  border: none;
+  font-weight: 600;
+}
+.btn--primary:hover { opacity: 0.9; box-shadow: var(--shadow-glow); }
+.btn--danger { border-color: var(--error); color: var(--error); }
+.btn--danger:hover { background: rgba(248,113,113,0.12); }
+.btn--sm { padding: 4px 12px; font-size: 11px; }
+
+/* ===== Process Grid ===== */
+.process-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 14px;
+}
+.process-card {
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+.process-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+  background: var(--accent-gradient);
+  opacity: 0;
+  transition: opacity var(--transition);
+  z-index: 0;
+  pointer-events: none;
+}
+.process-card:hover::before { opacity: 0.03; }
+.process-card:hover { border-color: var(--accent-1); box-shadow: 0 0 24px rgba(168,85,247,0.1); transform: translateY(-1px); }
+.process-card > * { position: relative; z-index: 1; }
+.process-card__name {
+  font-size: 15px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.process-card__status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.process-card__status-dot--running { background: var(--success); box-shadow: 0 0 8px rgba(52,211,153,0.4); }
+.process-card__status-dot--failed { background: var(--error); }
+.process-card__status-dot--completed { background: var(--accent-2); }
+.process-card__status-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.process-card__meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 6px 0;
+}
+.progress-track {
+  height: 4px;
+  background: var(--border);
+  border-radius: 4px;
+  margin: 10px 0;
+  overflow: hidden;
+}
+.progress-track__bar {
+  height: 100%;
+  background: var(--accent-gradient);
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+.process-card__stats {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.stat-item__value { font-weight: 600; color: var(--text-primary); }
+.stat-item__label { color: var(--text-muted); margin-left: 3px; }
+.process-card__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.process-card__anomaly {
+  color: var(--warning);
+  font-size: 12px;
+}
+
+/* ===== Tabs ===== */
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+  padding: 10px 18px;
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  transition: all var(--transition);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tab:hover { color: var(--text-primary); }
+.tab.active {
+  color: var(--accent-1);
+  border-bottom-color: var(--accent-1);
+}
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 
-/* Metric cards row */
-.metrics-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
-.metric-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center; }
-.metric-card .value { font-size: 22px; font-weight: 700; }
-.metric-card .label { font-size: 11px; color: var(--muted); margin-top: 4px; }
-.metric-card .trend { font-size: 11px; }
-.metric-card .trend.up { color: var(--green); }
-.metric-card .trend.down { color: var(--red); }
+/* ===== Metrics Row ===== */
+.metrics-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.metric-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  text-align: center;
+  transition: border-color var(--transition);
+}
+.metric-card:hover { border-color: rgba(168,85,247,0.3); }
+.metric-card__value { font-size: 22px; font-weight: 700; background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.metric-card__label { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.metric-card__trend { font-size: 11px; }
+.metric-card__trend--up { color: var(--success); }
+.metric-card__trend--down { color: var(--error); }
+.metric-card__trend--warn { color: var(--warning); }
 
-/* Chart */
-.chart-container { width: 100%; height: 360px; margin-bottom: 16px; }
+/* ===== Chart ===== */
+.chart-container {
+  width: 100%;
+  height: 300px;
+  margin-bottom: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+}
+.chart-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 8px 0 4px 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.chart-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.chart-toolbar__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.chart-actions {
+  display: flex;
+  gap: 4px;
+}
+.chart-actions .btn--sm {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+.btn--active {
+  background: var(--accent-1) !important;
+  color: #fff !important;
+  border-color: var(--accent-1) !important;
+}
+.chart-controls__label { font-size: 13px; color: var(--text-muted); }
+.metric-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 3px 8px;
+  border-radius: 6px;
+  transition: all var(--transition);
+}
+.metric-toggle:hover { background: var(--bg-elevated); color: var(--text-primary); }
+.metric-toggle input { accent-color: var(--accent-1); }
+/* Range slider */
+.chart-range-wrap {
+  position: relative;
+  height: 32px;
+  margin-bottom: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+}
+.chart-range-wrap input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  outline: none;
+}
+.chart-range-wrap input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-1);
+  cursor: pointer;
+  border: 2px solid var(--bg-primary);
+}
+.chart-range-wrap input[type=range]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent-1);
+  cursor: pointer;
+  border: 2px solid var(--bg-primary);
+}
+.chart-range-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  min-width: 32px;
+  text-align: center;
+}
+/* uPlot overrides */
+.uplot { width: 100% !important; }
+.uplot .u-legend { font-size: 11px; color: var(--text-muted); }
+.uplot .u-legend .u-marker { width: 12px; height: 3px; border-radius: 2px; }
+.uplot .u-cursor-x, .uplot .u-cursor-y { border-color: rgba(168,85,247,0.3); }
+.uplot .u-select { background: rgba(168,85,247,0.15); }
+/* Event legend */
+.event-legend {
+  display: flex;
+  gap: 12px;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.event-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.event-legend__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
 
-/* Log viewer */
-.log-viewer { background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-  max-height: 500px; overflow-y: auto; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 12px; }
-.log-viewer .line { padding: 2px 12px; white-space: pre-wrap; border-bottom: 1px solid rgba(48,54,61,0.5); }
-.log-viewer .line.error { color: var(--red); background: rgba(248,81,73,0.08); }
-.log-viewer .line.warning { color: var(--orange); }
+/* ===== Log Viewer ===== */
+.log-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.log-search {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  color: var(--text-primary);
+  font-size: 12px;
+  flex: 1;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--transition);
+}
+.log-search:focus { border-color: var(--accent-1); }
+.log-viewer {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  max-height: 500px;
+  overflow-y: auto;
+  font-family: 'Cascadia Code', 'Consolas', 'Fira Code', monospace;
+  font-size: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.log-viewer::-webkit-scrollbar { width: 6px; }
+.log-viewer::-webkit-scrollbar-track { background: transparent; }
+.log-viewer::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.log-line {
+  padding: 3px 14px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  border-bottom: 1px solid rgba(45,33,69,0.4);
+  transition: background var(--transition);
+}
+.log-line:hover { background: rgba(168,85,247,0.04); }
+.log-line--error { color: var(--error); background: rgba(248,113,113,0.06); }
+.log-line--warning { color: var(--warning); }
 
-/* Model tree */
-.model-tree { font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 13px; }
-.model-tree ul { list-style: none; padding-left: 20px; }
-.model-tree li { padding: 2px 0; position: relative; }
-.model-tree li::before { content: "├─"; color: var(--dim); margin-right: 4px; }
+/* ===== Model Tree ===== */
+.model-tree {
+  font-family: 'Cascadia Code', 'Consolas', monospace;
+  font-size: 13px;
+}
+.model-tree ul { list-style: none; padding-left: 22px; }
+.model-tree li { padding: 3px 0; position: relative; }
+.model-tree li::before { content: "├─"; color: var(--text-dim); margin-right: 4px; }
 .model-tree li:last-child::before { content: "└─"; }
-.model-tree .node-type { color: var(--blue); }
-.model-tree .node-params { color: var(--muted); margin-left: 8px; font-size: 11px; }
-.model-tree .node-flops { color: var(--orange); margin-left: 4px; font-size: 11px; }
-.model-tree .node-repeat { color: var(--green); margin-left: 4px; font-size: 11px; }
+.model-tree .node-type { color: var(--accent-1); }
+.model-tree .node-params { color: var(--text-muted); margin-left: 8px; font-size: 11px; }
+.model-tree .node-flops { color: var(--warning); margin-left: 4px; font-size: 11px; }
+.model-tree .node-repeat { color: var(--accent-2); margin-left: 4px; font-size: 11px; font-weight: 600; }
 .model-tree .bar { display: inline-block; height: 4px; border-radius: 2px; margin-left: 6px; vertical-align: middle; }
 
-/* AI panel */
-.ai-response { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px;
-  font-size: 13px; line-height: 1.6; min-height: 60px; max-height: 300px; overflow-y: auto; white-space: pre-wrap; }
-.ai-chat { display: flex; gap: 8px; margin-top: 8px; }
-.ai-chat input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-  padding: 8px 12px; color: var(--text); font-size: 13px; }
+/* ===== AI Panel ===== */
+.ai-response {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.7;
+  min-height: 60px;
+  max-height: 300px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.ai-chat {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ai-chat__input {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--transition);
+}
+.ai-chat__input:focus { border-color: var(--accent-1); box-shadow: 0 0 0 3px rgba(168,85,247,0.1); }
 
-/* Gallery grid */
-.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
-.gallery-item { position: relative; background: var(--card); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; cursor: pointer; }
+/* ===== Gallery Grid ===== */
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.gallery-item {
+  position: relative;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.gallery-item:hover { border-color: var(--accent-1); transform: translateY(-2px); box-shadow: 0 4px 20px rgba(168,85,247,0.12); }
 .gallery-item img { width: 100%; height: 120px; object-fit: cover; }
-.gallery-item .info { padding: 6px 8px; font-size: 11px; }
-.gallery-item .info .conf { font-weight: 600; }
-.gallery-item .info .label { color: var(--muted); }
-.gallery-item.selected { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(88,166,255,0.3); }
+.gallery-item__placeholder {
+  height: 120px;
+  background: linear-gradient(135deg, var(--bg-elevated), var(--border));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+}
+.gallery-item__info { padding: 8px 10px; font-size: 11px; }
+.gallery-item__conf { font-weight: 600; color: var(--accent-1); }
+.gallery-item__label { color: var(--text-muted); margin-left: 4px; }
+.gallery-item--selected { border-color: var(--accent-1); box-shadow: 0 0 0 2px rgba(168,85,247,0.3); }
 
-/* Compare view */
-.compare-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
-.compare-card .metric { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--border); }
+/* ===== Compare ===== */
+.compare-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+.compare-card__metric {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.compare-bar {
+  display: none;
+  align-items: center;
+  gap: 10px;
+}
+.compare-bar.active { display: flex; }
 
-/* Back link */
-.back-link { font-size: 13px; color: var(--muted); cursor: pointer; margin-bottom: 16px; display: inline-block; }
-.back-link:hover { color: var(--text); }
+/* ===== Back Link ===== */
+.back-link {
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  margin-bottom: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color var(--transition);
+}
+.back-link:hover { color: var(--accent-1); }
 
-/* Empty state */
-.empty { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
-.empty .icon { font-size: 36px; margin-bottom: 12px; }
+/* ===== Empty State ===== */
+.empty-state {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.empty-state__icon { font-size: 40px; margin-bottom: 12px; display: block; }
+.empty-state__hint { font-size: 12px; margin-top: 8px; color: var(--text-dim); }
 
-/* New-guardian form */
-.new-form { display: flex; gap: 8px; margin-top: 16px; }
-.new-form input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
-  padding: 10px 14px; color: var(--text); font-size: 14px; }
+/* ===== New Guardian Form ===== */
+.new-guardian-form {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+.new-guardian-form__input {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 11px 16px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color var(--transition);
+}
+.new-guardian-form__input:focus { border-color: var(--accent-1); box-shadow: 0 0 0 3px rgba(168,85,247,0.1); }
+.new-guardian-form__label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+/* ===== Section Divider ===== */
+.section-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+/* ===== History Section ===== */
+.history-card {
+  opacity: 0.85;
+}
+.history-card:hover {
+  opacity: 1;
+}
+.history-card__date {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.model-sub-active {
+  background: var(--accent-1) !important;
+  color: #fff !important;
+  border-color: var(--accent-1) !important;
+}
+
+/* ===== Responsive ===== */
+@media (max-width: 640px) {
+  .site-header { padding: 12px 16px; }
+  .main-content { padding: 12px 12px; }
+  .process-grid { grid-template-columns: 1fr; }
+  .metrics-row { grid-template-columns: repeat(2, 1fr); }
+  .gallery-grid { grid-template-columns: repeat(2, 1fr); }
+  .tabs { gap: 0; }
+  .tab { padding: 8px 12px; font-size: 12px; }
+  .card { padding: 14px; }
+  .chart-container { height: 260px; }
+  .new-guardian-form { flex-direction: column; }
+  .compare-grid { grid-template-columns: 1fr; }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  .process-grid { grid-template-columns: repeat(2, 1fr); }
+  .gallery-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+@media (min-width: 1025px) {
+  .gallery-grid { grid-template-columns: repeat(6, 1fr); }
+}
 </style>
 </head>
 <body>
-<header>
-  <h1 onclick="showProcessList()" style="cursor:pointer">🛡️ Guardian Dashboard</h1>
-  <div>
-    <span id="ws-status" style="font-size:11px;color:var(--muted)">● 连接中...</span>
-    <span id="global-badge" class="badge" style="display:none"></span>
+<div id="conn-banner" class="conn-banner">&#x26A0; 连接中断，正在重连...</div>
+<header class="site-header">
+  <div class="site-header__title" onclick="showProcessList()">&#x1F6E1; Guardian Dashboard</div>
+  <div class="site-header__status">
+    <span class="ws-indicator" id="ws-status">
+      <span class="ws-indicator__dot"></span>
+      连接中...
+    </span>
+    <span id="global-badge" class="global-badge"></span>
   </div>
 </header>
 
-<main>
+<main class="main-content">
   <!-- ========== Process List ========== -->
-  <div id="view-process-list" class="active">
+  <div id="view-process-list" class="view active">
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <h2 style="margin:0">训练进程</h2>
-        <button class="btn small" onclick="refreshProcesses()">🔄 刷新</button>
+      <div class="card__header">
+        <div class="card__title">活跃进程</div>
+        <button class="btn btn--sm" onclick="refreshProcesses()">&#x1F504; 刷新</button>
       </div>
       <div id="process-grid" class="process-grid"></div>
-      <div style="margin-top:16px">
-        <div style="font-size:13px;color:var(--muted);margin-bottom:6px">新建守护</div>
-        <div class="new-form">
-          <input id="new-command" value="python train.py --epochs 20" placeholder="训练命令...">
-          <button class="btn primary" onclick="alert('请在终端运行: python run.py watch --with-dashboard -- <命令>')">启动</button>
+      <div style="margin-top:20px">
+        <div class="new-guardian-form__label">新建守护</div>
+        <div class="new-guardian-form">
+          <input class="new-guardian-form__input" id="new-command" value="python train.py --epochs 20" placeholder="训练命令...">
+          <button class="btn btn--primary" onclick="alert('请在终端运行: python run.py watch --with-dashboard -- <命令>')">启动</button>
         </div>
       </div>
     </div>
-    <div id="compare-bar" style="display:none" class="card">
-      <div style="display:flex;align-items:center;gap:8px">
-        <span style="font-size:13px">已选: <b id="compare-count">0</b>/5</span>
-        <button class="btn primary small" onclick="runCompare()">开始对比</button>
-        <button class="btn small" onclick="clearCompare()">清除</button>
+    <div id="compare-bar" class="card compare-bar">
+      <span style="font-size:13px">已选: <b id="compare-count">0</b>/5</span>
+      <button class="btn btn--primary btn--sm" onclick="runCompare()">开始对比</button>
+      <button class="btn btn--sm" onclick="clearCompare()">清除</button>
+    </div>
+    <!-- History section -->
+    <div class="card" id="history-section">
+      <div class="card__header">
+        <div class="card__title">历史进程</div>
       </div>
+      <div id="history-grid" class="process-grid"></div>
     </div>
   </div>
 
   <!-- ========== Process Detail ========== -->
-  <div id="view-process-detail">
-    <div class="back-link" onclick="showProcessList()">← 返回进程列表</div>
+  <div id="view-process-detail" class="view">
+    <div class="back-link" onclick="showProcessList()">&#x2190; 返回进程列表</div>
     <div id="detail-header" class="card"></div>
     <div id="detail-metrics" class="metrics-row"></div>
 
     <div class="tabs">
-      <div class="tab active" data-tab="overview" onclick="switchTab('overview')">📊 训练曲线</div>
-      <div class="tab" data-tab="logs" onclick="switchTab('logs')">📋 日志</div>
-      <div class="tab" data-tab="ai" onclick="switchTab('ai')">🧠 AI 分析</div>
-      <div class="tab" data-tab="model" onclick="switchTab('model')">🏗️ 模型结构</div>
-      <div class="tab" data-tab="gallery" onclick="switchTab('gallery')">🖼️ 图库</div>
+      <div class="tab active" data-tab="overview" onclick="switchTab('overview')">&#x1F4CA; 训练曲线</div>
+      <div class="tab" data-tab="logs" onclick="switchTab('logs')">&#x1F4CB; 日志</div>
+      <div class="tab" data-tab="ai" onclick="switchTab('ai')">&#x1F9E0; AI 分析</div>
+      <div class="tab" data-tab="model" onclick="switchTab('model')">&#x1F3D7; 模型结构</div>
+      <div class="tab" data-tab="gallery" onclick="switchTab('gallery')">&#x1F5BC; 图库</div>
     </div>
 
     <div id="tab-overview" class="tab-panel active">
       <div class="card">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-          <span style="font-size:13px;color:var(--muted)">显示指标:</span>
-          <div id="metric-toggles"></div>
+        <div class="chart-toolbar">
+          <div class="chart-toolbar__left">
+            <span class="chart-controls__label">显示指标:</span>
+            <div id="metric-toggles"></div>
+          </div>
+          <div class="chart-actions">
+            <button class="btn btn--sm" onclick="toggleSmoothing()" id="btn-ema">EMA</button>
+            <button class="btn btn--sm" onclick="exportCSV()">CSV</button>
+            <button class="btn btn--sm" onclick="exportPNG()">PNG</button>
+            <button class="btn btn--sm" onclick="resetZoom()">Reset</button>
+          </div>
         </div>
-        <div id="chart-main" class="chart-container"></div>
-        <div id="chart-gpu" class="chart-container" style="height:200px"></div>
+        <div id="chart-panels"></div>
+        <div class="chart-range-wrap">
+          <span class="chart-range-label" id="range-start">0</span>
+          <input type="range" id="chart-range-min" min="0" max="100" value="0" oninput="onRangeChange()">
+          <input type="range" id="chart-range-max" min="0" max="100" value="100" oninput="onRangeChange()">
+          <span class="chart-range-label" id="range-end">100</span>
+        </div>
+        <div class="event-legend">
+          <span class="event-legend__item"><span class="event-legend__dot" style="background:#f87171"></span>Loss Spike</span>
+          <span class="event-legend__item"><span class="event-legend__dot" style="background:#34d399"></span>Checkpoint</span>
+          <span class="event-legend__item"><span class="event-legend__dot" style="background:#06b6d4"></span>LR Change</span>
+          <span class="event-legend__item"><span class="event-legend__dot" style="background:#fbbf24"></span>Alert</span>
+        </div>
       </div>
     </div>
 
     <div id="tab-logs" class="tab-panel">
       <div class="card">
-        <div style="display:flex;gap:8px;margin-bottom:8px">
-          <button class="btn small" onclick="toggleAutoScroll()" id="btn-autoscroll">⏸ 暂停滚动</button>
-          <input placeholder="搜索..." oninput="filterLogs(this.value)" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text);font-size:12px;flex:1">
-          <button class="btn small" onclick="refreshLogs()">🔄</button>
+        <div class="log-toolbar">
+          <button class="btn btn--sm" onclick="toggleAutoScroll()" id="btn-autoscroll">&#x23F8; 暂停滚动</button>
+          <input class="log-search" placeholder="搜索日志..." oninput="filterLogs(this.value)">
+          <button class="btn btn--sm" onclick="refreshLogs()">&#x1F504;</button>
         </div>
         <div id="log-viewer" class="log-viewer"></div>
       </div>
@@ -204,38 +783,52 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px 24px; }
 
     <div id="tab-ai" class="tab-panel">
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <span style="font-size:13px;color:var(--muted)">AI 模型: 点击按钮触发分析</span>
-          <button class="btn primary small" onclick="runAIAnalysis()" id="btn-ai-analyze">🔮 分析当前状态</button>
+        <div class="card__header">
+          <span class="section-label">AI 模型: 点击按钮触发分析</span>
+          <button class="btn btn--primary btn--sm" onclick="runAIAnalysis()" id="btn-ai-analyze">&#x1F52E; 分析当前状态</button>
         </div>
         <div id="ai-output" class="ai-response">点击上方按钮开始分析...</div>
-        <div class="ai-chat" style="margin-top:12px">
-          <input id="ai-question" placeholder="追问...（如：为什么 loss 在第 8 epoch 突增？）" onkeydown="if(event.key==='Enter')askAI()">
-          <button class="btn small" onclick="askAI()">发送</button>
+        <div class="ai-chat">
+          <input class="ai-chat__input" id="ai-question" placeholder="追问...（如：为什么 loss 在第 8 epoch 突增？）" onkeydown="if(event.key==='Enter')askAI()">
+          <button class="btn btn--sm" onclick="askAI()">发送</button>
         </div>
       </div>
     </div>
 
     <div id="tab-model" class="tab-panel">
       <div class="card">
-        <div id="model-tree" class="model-tree"></div>
+        <div class="card__header">
+          <div class="card__title">模型结构</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button class="btn btn--sm" onclick="switchModelSubTab('tree')" id="btn-model-tree">树形</button>
+            <button class="btn btn--sm" onclick="switchModelSubTab('viz')" id="btn-model-viz-tab">架构图</button>
+            <button class="btn btn--primary btn--sm" onclick="generateModelVizInline()" id="btn-model-viz">&#x1F3D7; 生成</button>
+          </div>
+        </div>
+        <div id="model-sub-tree">
+          <div id="model-tree" class="model-tree"></div>
+        </div>
+        <div id="model-sub-viz" style="display:none">
+          <div id="model-viz-frame" style="width:100%;height:600px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:auto;background:var(--bg-primary)"></div>
+        </div>
       </div>
     </div>
 
     <div id="tab-gallery" class="tab-panel">
       <div class="card">
-        <div style="font-size:13px;color:var(--muted);margin-bottom:8px">
-          图库需先在 CLI 中生成，或在训练完成后从详情页触发
-        </div>
+        <div class="section-label">图库需先在 CLI 中生成，或在训练完成后从详情页触发</div>
         <div id="gallery-grid" class="gallery-grid"></div>
       </div>
     </div>
   </div>
 
   <!-- ========== Compare ========== -->
-  <div id="view-compare">
-    <div class="back-link" onclick="showProcessList()">← 返回进程列表</div>
-    <div class="card"><h2>对比结果</h2><div id="compare-content"></div></div>
+  <div id="view-compare" class="view">
+    <div class="back-link" onclick="showProcessList()">&#x2190; 返回进程列表</div>
+    <div class="card">
+      <div class="card__title">对比结果</div>
+      <div id="compare-content"></div>
+    </div>
   </div>
 </main>
 
@@ -247,16 +840,33 @@ let autoscroll = true;
 let compareSet = new Set();
 let wsGlobal = null;
 let wsProcess = null;
-let chartMain = null;
-let chartGpu = null;
+let chartInstances = [];  // Array of uPlot instances (multi-view)
+let smoothingEnabled = false;
+let chartEvents = [];
+let isHistoryProcess = false;  // Whether current detail is from history
+
+// ===================== Theme Constants =====================
+const THEME = {
+  bg: '#1a1128',
+  text: '#8b7fa8',
+  border: '#2d2145',
+  grid: 'rgba(168,85,247,0.08)',
+  tooltip: { bg: '#241a35', border: '#a855f7' },
+  palette: ['#a855f7', '#06b6d4', '#34d399', '#fbbf24', '#f87171'],
+};
 
 // ===================== Init =====================
 function init() {
-  chartMain = echarts.init(document.getElementById('chart-main'));
-  chartGpu = echarts.init(document.getElementById('chart-gpu'));
   connectWS();
   refreshProcesses();
-  window.addEventListener('resize', () => { chartMain?.resize(); chartGpu?.resize(); });
+  window.addEventListener('resize', () => {
+    chartInstances.forEach(c => {
+      if (c && c.over) {
+        const el = c.over.parentElement;
+        if (el) c.setSize({ width: el.clientWidth, height: 300 });
+      }
+    });
+  });
 }
 document.addEventListener('DOMContentLoaded', init);
 
@@ -265,8 +875,15 @@ function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const url = `${proto}://${location.host}/ws`;
   wsGlobal = new WebSocket(url);
-  wsGlobal.onopen = () => setWSStatus('● 已连接', 'var(--green)');
-  wsGlobal.onclose = () => { setWSStatus('● 断开 · 3s 后重连', 'var(--red)'); setTimeout(connectWS, 3000); };
+  wsGlobal.onopen = () => {
+    setWSStatus('● 已连接', true);
+    document.getElementById('conn-banner').classList.remove('conn-banner--show');
+  };
+  wsGlobal.onclose = () => {
+    setWSStatus('● 断开 · 3s 后重连', false);
+    document.getElementById('conn-banner').classList.add('conn-banner--show');
+    setTimeout(connectWS, 3000);
+  };
   wsGlobal.onmessage = e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'process_update') refreshProcesses();
@@ -275,15 +892,24 @@ function connectWS() {
   };
 }
 
-function setWSStatus(text, color) {
+function setWSStatus(text, connected) {
   const el = document.getElementById('ws-status');
-  el.textContent = text; el.style.color = color;
+  const dot = el.querySelector('.ws-indicator__dot');
+  el.lastChild.textContent = ' ' + text;
+  dot.className = 'ws-indicator__dot' + (connected ? ' ws-indicator__dot--connected' : ' ws-indicator__dot--disconnected');
 }
 
 function subProcessWS(pid) {
-  if (wsProcess) wsProcess.close();
+  if (wsProcess) { wsProcess.close(); wsProcess = null; }
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   wsProcess = new WebSocket(`${proto}://${location.host}/ws/process/${pid}`);
+  wsProcess.onopen = () => {
+    document.getElementById('conn-banner').classList.remove('conn-banner--show');
+  };
+  wsProcess.onclose = () => {
+    document.getElementById('conn-banner').classList.add('conn-banner--show');
+    setTimeout(() => { if (currentProcessId === pid) subProcessWS(pid); }, 3000);
+  };
   wsProcess.onmessage = e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'metrics') liveUpdateMetrics(msg.data);
@@ -293,69 +919,111 @@ function subProcessWS(pid) {
 }
 
 // ===================== API helpers =====================
-async function api(url) { const r = await fetch(url); return r.json(); }
+async function api(url, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { signal: controller.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  } catch (err) {
+    if (err.name === 'AbortError') console.warn(`[api] timeout: ${url}`);
+    else console.warn(`[api] ${url}: ${err.message}`);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ===================== Process List =====================
 async function refreshProcesses() {
   const data = await api('/api/processes');
+  if (!data) return;
   const grid = document.getElementById('process-grid');
-  if (!data.processes || !data.processes.length) {
-    grid.innerHTML = `<div class="empty"><div class="icon">📭</div>暂无训练进程<br><span style="font-size:12px">在终端运行 python run.py watch --with-dashboard -- &lt;训练命令&gt;</span></div>`;
-    return;
+  const histGrid = document.getElementById('history-grid');
+  const procs = data.processes || [];
+  const liveProcs = procs.filter(p => p.source === 'live');
+  const histProcs = procs.filter(p => p.source === 'history');
+
+  if (!liveProcs.length) {
+    grid.innerHTML = `<div class="empty-state"><span class="empty-state__icon">&#x1F4ED;</span>暂无活跃进程<br><span class="empty-state__hint">在终端运行 python run.py watch --with-dashboard -- &lt;训练命令&gt;</span></div>`;
+  } else {
+    const badge = document.getElementById('global-badge');
+    const runningCount = liveProcs.filter(p => p.status === 'running').length;
+    badge.style.display = 'inline';
+    badge.textContent = `${runningCount} running`;
+    grid.innerHTML = liveProcs.map(p => renderProcessCard(p, false)).join('');
   }
-  document.getElementById('global-badge').style.display = 'inline';
-  document.getElementById('global-badge').textContent = `${data.processes.filter(p=>p.status==='running').length} running`;
-  grid.innerHTML = data.processes.map(p => {
-    const epochStr = p.epoch ? `Epoch ${p.epoch}${p.max_epoch ? '/'+p.max_epoch : ''}` : '';
-    const pct = p.max_epoch && p.epoch ? Math.round(p.epoch/p.max_epoch*100) : 0;
-    const m = p.latest_metrics || {};
-    const g = p.latest_gpu || {};
-    const checked = compareSet.has(p.process_id) ? 'checked' : '';
-    return `<div class="card process-card" onclick="showDetail('${p.process_id}')">
-      <div class="title">
-        <span class="status-dot ${p.status}"></span>${p.name || p.process_id}
-        <span style="font-size:11px;color:var(--muted);font-weight:400;margin-left:8px">${p.status}</span>
-      </div>
-      <div class="meta">${epochStr} ${p.command ? '· '+p.command.slice(0,60) : ''}</div>
-      ${p.max_epoch ? `<div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>` : ''}
-      <div class="stats">
-        ${m.loss !== undefined ? `<span><span class="stat-val">${m.loss.toFixed(4)}</span> <span class="stat-label">loss</span></span>` : ''}
-        ${m.val_acc !== undefined ? `<span><span class="stat-val">${(m.val_acc*100).toFixed(1)}%</span> <span class="stat-label">acc</span></span>` : ''}
-        ${m.lr !== undefined ? `<span><span class="stat-val">${m.lr}</span> <span class="stat-label">lr</span></span>` : ''}
-        ${g.util_pct !== undefined ? `<span><span class="stat-val">${g.util_pct}%</span> <span class="stat-label">GPU</span></span>` : ''}
-        ${p.anomaly_count > 0 ? `<span style="color:var(--orange)">⚠ ${p.anomaly_count} events</span>` : ''}
-      </div>
-      <div class="actions" onclick="event.stopPropagation()">
-        <label class="btn small" style="cursor:pointer"><input type="checkbox" ${checked} onchange="toggleCompare('${p.process_id}', this.checked)" style="margin-right:4px">对比</label>
-      </div>
-    </div>`;
-  }).join('');
+
+  // History section
+  if (histProcs.length) {
+    document.getElementById('history-section').style.display = '';
+    histGrid.innerHTML = histProcs.map(p => renderProcessCard(p, true)).join('');
+  } else {
+    document.getElementById('history-section').style.display = 'none';
+  }
   updateCompareBar();
 }
 
+function renderProcessCard(p, isHistory) {
+  const epochStr = p.epoch ? `Epoch ${p.epoch}${p.max_epoch ? '/' + p.max_epoch : ''}` : '';
+  const pct = p.max_epoch && p.epoch ? Math.round(p.epoch / p.max_epoch * 100) : 0;
+  const m = p.latest_metrics || {};
+  const g = p.latest_gpu || {};
+  const checked = compareSet.has(p.process_id) ? 'checked' : '';
+  const dotClass = p.status === 'running' ? 'process-card__status-dot--running' : p.status === 'failed' ? 'process-card__status-dot--failed' : 'process-card__status-dot--completed';
+  const clickFn = isHistory ? `showHistoryDetail('${p.process_id}')` : `showDetail('${p.process_id}')`;
+  const dateStr = p.created_at ? new Date(p.created_at * 1000).toLocaleDateString() : '';
+  const extraClass = isHistory ? ' history-card' : '';
+  return `<div class="card process-card${extraClass}" onclick="${clickFn}">
+    <div class="process-card__name">
+      <span class="process-card__status-dot ${dotClass}"></span>
+      ${p.name || p.process_id}
+      <span class="process-card__status-label">${p.status}</span>
+    </div>
+    ${isHistory ? `<div class="history-card__date">${dateStr}</div>` : ''}
+    <div class="process-card__meta">${epochStr} ${p.command ? ' · ' + p.command.slice(0, 60) : ''}</div>
+    ${p.max_epoch ? `<div class="progress-track"><div class="progress-track__bar" style="width:${pct}%"></div></div>` : ''}
+    <div class="process-card__stats">
+      ${m.loss !== undefined ? `<span><span class="stat-item__value">${typeof m.loss === 'number' ? m.loss.toFixed(4) : m.loss}</span><span class="stat-item__label">loss</span></span>` : ''}
+      ${m.val_acc !== undefined ? `<span><span class="stat-item__value">${typeof m.val_acc === 'number' ? (m.val_acc * 100).toFixed(1) + '%' : m.val_acc}</span><span class="stat-item__label">acc</span></span>` : ''}
+      ${m.lr !== undefined ? `<span><span class="stat-item__value">${m.lr}</span><span class="stat-item__label">lr</span></span>` : ''}
+      ${g.util_pct !== undefined ? `<span><span class="stat-item__value">${g.util_pct}%</span><span class="stat-item__label">GPU</span></span>` : ''}
+      ${p.anomaly_count > 0 ? `<span class="process-card__anomaly">&#x26A0; ${p.anomaly_count} events</span>` : ''}
+    </div>
+    ${!isHistory ? `<div class="process-card__actions" onclick="event.stopPropagation()">
+      <label class="btn btn--sm" style="cursor:pointer"><input type="checkbox" ${checked} onchange="toggleCompare('${p.process_id}', this.checked)" style="margin-right:4px;accent-color:var(--accent-1)">对比</label>
+    </div>` : ''}
+  </div>`;
+}
+
 function toggleCompare(pid, on) {
-  if (on) { if (compareSet.size >=5) { alert('最多对比5个'); return; } compareSet.add(pid); }
+  if (on) { if (compareSet.size >= 5) { alert('最多对比5个'); return; } compareSet.add(pid); }
   else compareSet.delete(pid);
   updateCompareBar();
 }
 function updateCompareBar() {
   const bar = document.getElementById('compare-bar');
-  bar.style.display = compareSet.size >= 2 ? 'block' : 'none';
+  if (compareSet.size >= 2) { bar.classList.add('active'); } else { bar.classList.remove('active'); }
   document.getElementById('compare-count').textContent = compareSet.size;
 }
 function clearCompare() { compareSet.clear(); refreshProcesses(); }
 
 async function runCompare() {
   const ids = [...compareSet];
-  const data = await fetch('/api/compare', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({process_ids: ids}) }).then(r=>r.json());
+  let data;
+  try {
+    data = await fetch('/api/compare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ process_ids: ids }) }).then(r => r.json());
+  } catch (e) { console.warn('[compare] fetch failed:', e); return; }
+  if (!data) return;
   document.getElementById('view-process-list').classList.remove('active');
   document.getElementById('view-process-detail').classList.remove('active');
   document.getElementById('view-compare').classList.add('active');
   document.getElementById('compare-content').innerHTML = `<div class="compare-grid">${
-    (data.comparisons||[]).map(c => `<div class="card compare-card">
-      <h2>${c.name}</h2>
-      <div>状态: ${c.status}</div>
-      ${Object.entries(c.latest_metrics||{}).slice(0,10).map(([k,v]) => `<div class="metric"><span>${k}</span><span>${typeof v==='number'?v.toFixed(4):v}</span></div>`).join('')}
+    (data.comparisons || []).map(c => `<div class="card">
+      <div class="card__title">${c.name}</div>
+      <div style="font-size:13px;margin-bottom:8px">状态: ${c.status}</div>
+      ${Object.entries(c.latest_metrics || {}).slice(0, 10).map(([k, v]) => `<div class="compare-card__metric"><span>${k}</span><span>${typeof v === 'number' ? v.toFixed(4) : v}</span></div>`).join('')}
     </div>`).join('')
   }</div>`;
 }
@@ -363,51 +1031,89 @@ async function runCompare() {
 // ===================== Process Detail =====================
 async function showDetail(pid) {
   currentProcessId = pid;
+  isHistoryProcess = false;
   document.getElementById('view-process-list').classList.remove('active');
   document.getElementById('view-compare').classList.remove('active');
   document.getElementById('view-process-detail').classList.add('active');
   subProcessWS(pid);
 
   const data = await api(`/api/process/${pid}`);
+  if (!data) return;
   if (data.error) { alert(data.error); return; }
   currentDetail = data;
+  _populateDetail(data);
 
+  // Switch tab first so chart containers are visible
+  switchTab('overview');
+  // Load sub-views
+  refreshLogs();
+  document.getElementById('ai-output').textContent = '点击上方按钮开始分析...';
+  document.getElementById('model-tree').innerHTML = '<span style="color:var(--text-muted)">加载中...</span>';
+  document.getElementById('gallery-grid').innerHTML = '';
+  // Defer chart init for DOM layout
+  setTimeout(() => loadMetricsChart(pid), 50);
+}
+
+async function showHistoryDetail(pid) {
+  currentProcessId = pid;
+  isHistoryProcess = true;
+  document.getElementById('view-process-list').classList.remove('active');
+  document.getElementById('view-compare').classList.remove('active');
+  document.getElementById('view-process-detail').classList.add('active');
+
+  const data = await api(`/api/history/${pid}`);
+  if (!data) return;
+  if (data.error) { alert(data.error); return; }
+  currentDetail = data;
+  _populateDetail(data);
+
+  // Load metrics from history API
+  const mData = await api(`/api/history/${pid}/metrics?limit=2000`);
+  if (!mData) return;
+  window._allMetrics = mData.metrics || [];
+  chartEvents = detectAnomalies(window._allMetrics);
+
+  document.getElementById('ai-output').textContent = '历史进程无法进行 AI 分析';
+  document.getElementById('model-tree').innerHTML = '<span style="color:var(--text-muted)">历史进程无模型数据</span>';
+  document.getElementById('gallery-grid').innerHTML = '';
+  switchTab('overview');
+  setTimeout(() => initCharts(), 50);
+}
+
+function _populateDetail(data) {
+  const pid = data.process_id;
   // Header
   document.getElementById('detail-header').innerHTML = `
-    <div class="title" style="font-size:16px">${data.name || pid} <span style="font-size:12px;color:var(--muted)">${data.status}</span></div>
-    <div style="font-size:12px;color:var(--muted);margin-top:4px">${data.command||''} · ${data.metrics_count||0} records</div>`;
+    <div style="font-size:16px;font-weight:600">${data.name || pid} <span style="font-size:12px;color:var(--text-muted)">${data.status}${isHistoryProcess ? ' (历史)' : ''}</span></div>
+    <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${data.command || ''} · ${data.metrics_count || 0} records</div>`;
 
   // Metric cards
   const m = data.latest_metrics || {};
   const g = data.latest_gpu || {};
   document.getElementById('detail-metrics').innerHTML = [
-    m.loss !== undefined ? {v: m.loss.toFixed(4), l: 'Loss', t: 'down'} : null,
-    m.val_acc !== undefined ? {v: (m.val_acc*100).toFixed(1)+'%', l: 'Val Acc', t: 'up'} : null,
-    m.lr !== undefined ? {v: m.lr, l: 'LR'} : null,
-    g.util_pct !== undefined ? {v: g.util_pct+'%', l: 'GPU Util'} : null,
-    g.mem_used_mb !== undefined ? {v: (g.mem_used_mb/1024).toFixed(1)+'GB', l: 'GPU Mem'} : null,
-    g.temperature_c !== undefined ? {v: g.temperature_c+'°C', l: 'GPU Temp'} : null,
-    {v: data.metrics_count||0, l: 'Records'},
-    {v: data.anomaly_count||0, l: 'Anomalies', t: data.anomaly_count>0?'warn':''},
-  ].filter(Boolean).map(c => `<div class="metric-card"><div class="value">${c.v}</div><div class="label">${c.l}</div>${c.t==='down'?'<div class="trend down">↓</div>':c.t==='up'?'<div class="trend up">↑</div>':c.t==='warn'?'<div style="color:var(--orange);font-size:11px">⚠</div>':''}</div>`).join('');
+    m.loss !== undefined ? { v: typeof m.loss === 'number' ? m.loss.toFixed(4) : m.loss, l: 'Loss', t: 'down' } : null,
+    m.val_acc !== undefined ? { v: typeof m.val_acc === 'number' ? (m.val_acc * 100).toFixed(1) + '%' : m.val_acc, l: 'Val Acc', t: 'up' } : null,
+    m.lr !== undefined ? { v: m.lr, l: 'LR' } : null,
+    g.util_pct !== undefined ? { v: g.util_pct + '%', l: 'GPU Util' } : null,
+    { v: data.metrics_count || 0, l: 'Records' },
+    { v: data.anomaly_count || 0, l: 'Anomalies', t: data.anomaly_count > 0 ? 'warn' : '' },
+  ].filter(Boolean).map(c => {
+    let trendHtml = '';
+    if (c.t === 'down') trendHtml = '<div class="metric-card__trend metric-card__trend--down">&#x2193;</div>';
+    else if (c.t === 'up') trendHtml = '<div class="metric-card__trend metric-card__trend--up">&#x2191;</div>';
+    else if (c.t === 'warn') trendHtml = '<div class="metric-card__trend metric-card__trend--warn">&#x26A0;</div>';
+    return `<div class="metric-card"><div class="metric-card__value">${c.v}</div><div class="metric-card__label">${c.l}</div>${trendHtml}</div>`;
+  }).join('');
 
   // Metric toggles
   const disc = data.discovered_metrics || {};
   let toggles = '';
   for (const [cat, keys] of Object.entries(disc)) {
-    for (const k of (keys||[]).slice(0,5)) {
-      toggles += `<label style="font-size:11px;cursor:pointer;margin-right:8px"><input type="checkbox" checked onchange="redrawChart()" class="metric-cb" data-key="${k}"> ${k}</label>`;
+    for (const k of (keys || []).slice(0, 8)) {
+      toggles += `<label class="metric-toggle"><input type="checkbox" checked onchange="initCharts()" class="metric-cb" data-key="${k}"> ${k}</label>`;
     }
   }
-  document.getElementById('metric-toggles').innerHTML = toggles || '<span style="font-size:11px;color:var(--muted)">自动检测中...</span>';
-
-  // Load sub-views
-  loadMetricsChart(pid);
-  refreshLogs();
-  document.getElementById('ai-output').textContent = '点击上方按钮开始分析...';
-  document.getElementById('model-tree').innerHTML = '<span style="color:var(--muted)">加载中...</span>';
-  document.getElementById('gallery-grid').innerHTML = '';
-  switchTab('overview');
+  document.getElementById('metric-toggles').innerHTML = toggles || '<span style="font-size:11px;color:var(--text-muted)">自动检测中...</span>';
 }
 
 function showProcessList() {
@@ -429,50 +1135,14 @@ function switchTab(name) {
   if (name === 'gallery') loadGallery(currentProcessId);
 }
 
-// ===================== Metrics Chart =====================
+// ===================== Metrics Chart (uPlot) =====================
 async function loadMetricsChart(pid) {
   const data = await api(`/api/process/${pid}/metrics?limit=500`);
+  if (!data) return;
   const metrics = data.metrics || [];
   window._allMetrics = metrics;
-  redrawChart();
-}
-
-function redrawChart() {
-  const metrics = window._allMetrics || [];
-  if (!metrics.length) return;
-  const cbs = document.querySelectorAll('.metric-cb:checked');
-  const keys = [...cbs].map(c => c.dataset.key).filter(k => _isNumeric(metrics, k));
-  if (!keys.length) keys.push(...Object.keys(metrics[0]).filter(k => _isNumeric(metrics, k)).slice(0, 4));
-
-  const steps = metrics.map((_,i) => i);
-  const series = keys.map(k => ({
-    name: k, type: 'line', data: metrics.map(m => m[k] ?? null),
-    smooth: true, symbol: 'none', lineStyle: { width: 1.5 },
-  }));
-
-  chartMain.setOption({
-    darkMode: true, backgroundColor: '#161b22',
-    tooltip: { trigger: 'axis' },
-    legend: { textStyle: { color: '#8b949e', fontSize: 11 }, top: 0 },
-    grid: { left: 50, right: 20, top: 30, bottom: 30 },
-    xAxis: { type: 'category', data: metrics.map(m => m.step || m.epoch || ''), axisLabel: { color: '#484f58', fontSize: 10 } },
-    yAxis: { type: 'value', axisLabel: { color: '#484f58', fontSize: 10 }, splitLine: { lineStyle: { color: '#21262d' } } },
-    series,
-  }, true);
-
-  // GPU chart
-  const gpuKeys = keys.filter(k => k.startsWith('gpu') || ['gpu_util_pct','mem_used_mb'].includes(k));
-  if (gpuKeys.length) {
-    chartGpu.setOption({
-      darkMode: true, backgroundColor: '#161b22',
-      tooltip: { trigger: 'axis' },
-      legend: { textStyle: { color: '#8b949e', fontSize: 11 }, top: 0 },
-      grid: { left: 50, right: 20, top: 30, bottom: 20 },
-      xAxis: { type: 'category', data: metrics.map(m => m.step || m.epoch || ''), axisLabel: { color: '#484f58', fontSize: 10 } },
-      yAxis: { type: 'value', axisLabel: { color: '#484f58', fontSize: 10 }, splitLine: { lineStyle: { color: '#21262d' } } },
-      series: gpuKeys.map(k => ({ name: k, type: 'line', data: metrics.map(m => m[k] ?? null), smooth: true, symbol: 'none' })),
-    }, true);
-  }
+  chartEvents = detectAnomalies(metrics);
+  initCharts();
 }
 
 function _isNumeric(metrics, key) {
@@ -480,17 +1150,392 @@ function _isNumeric(metrics, key) {
   return false;
 }
 
+function assignAxis(key) {
+  const k = key.toLowerCase();
+  if (k.includes('loss') || k.includes('error')) return 1;
+  if (k.includes('acc') || k.includes('precision') || k.includes('recall') || k.includes('f1')) return 2;
+  if (k.includes('lr') || k.includes('learning_rate')) return 3;
+  return 1;
+}
+
+function formatValue(key, v) {
+  if (v == null) return '';
+  const k = key.toLowerCase();
+  if (k.includes('acc') || k.includes('precision') || k.includes('recall') || k.includes('f1')) return (v * 100).toFixed(1) + '%';
+  if (k.includes('lr') || k.includes('learning_rate')) return v.toExponential(1);
+  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+  if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  if (Math.abs(v) < 0.01 && v !== 0) return v.toExponential(2);
+  return v.toFixed(4);
+}
+
+function detectAnomalies(metrics) {
+  const events = [];
+  if (!metrics.length) return events;
+  const windowSize = 10;
+  for (let i = windowSize; i < metrics.length; i++) {
+    const m = metrics[i];
+    const lossKeys = Object.keys(m).filter(k => k.toLowerCase().includes('loss'));
+    for (const lk of lossKeys) {
+      const curr = m[lk];
+      if (typeof curr !== 'number') continue;
+      const window = metrics.slice(i - windowSize, i).map(w => w[lk]).filter(v => typeof v === 'number');
+      if (!window.length) continue;
+      const avg = window.reduce((a, b) => a + b, 0) / window.length;
+      if (curr > avg * 1.5 && avg > 0) {
+        events.push({ idx: i, type: 'spike', label: 'Loss Spike', color: '#f87171' });
+        break;
+      }
+    }
+  }
+  return events;
+}
+
+function getCheckedKeys() {
+  const metrics = window._allMetrics || [];
+  if (!metrics.length) return [];
+  const cbs = document.querySelectorAll('.metric-cb:checked');
+  let keys = [...cbs].map(c => c.dataset.key).filter(k => _isNumeric(metrics, k));
+  if (!keys.length) keys.push(...Object.keys(metrics[0]).filter(k => _isNumeric(metrics, k)).slice(0, 4));
+  return keys;
+}
+
+function downsampleLTTB(data, threshold) {
+  if (data.length <= threshold) return data;
+  const sampled = [data[0]];
+  const every = (data.length - 2) / (threshold - 2);
+  let a = 0;
+  for (let i = 0; i < threshold - 2; i++) {
+    let avgX = 0, avgY = 0, count = 0;
+    const start = Math.floor((i + 1) * every) + 1;
+    const end = Math.min(Math.floor((i + 2) * every) + 1, data.length);
+    for (let j = start; j < end; j++) { avgX += j; avgY += (data[j] ?? 0); count++; }
+    avgX /= count; avgY /= count;
+    const rangeStart = Math.floor(i * every) + 1;
+    const rangeEnd = Math.floor((i + 1) * every) + 1;
+    let maxArea = -1, maxIdx = rangeStart;
+    for (let j = rangeStart; j < rangeEnd; j++) {
+      const area = Math.abs((j - a) * (avgY - (data[a] ?? 0)) - (avgX - a) * ((data[j] ?? 0) - (data[a] ?? 0))) * 0.5;
+      if (area > maxArea) { maxArea = area; maxIdx = j; }
+    }
+    sampled.push(data[maxIdx]);
+    a = maxIdx;
+  }
+  sampled.push(data[data.length - 1]);
+  return sampled;
+}
+
+function computeEMA(data, alpha = 0.1) {
+  const ema = [data[0]];
+  for (let i = 1; i < data.length; i++) {
+    ema.push(alpha * (data[i] ?? ema[i-1]) + (1 - alpha) * ema[i-1]);
+  }
+  return ema;
+}
+
+function initCharts() {
+  const keys = getCheckedKeys();
+  if (!keys.length) return;
+
+  // Destroy all existing charts
+  chartInstances.forEach(c => { if (c) c.destroy(); });
+  chartInstances = [];
+
+  const panelsEl = document.getElementById('chart-panels');
+  panelsEl.innerHTML = '';
+
+  const metrics = window._allMetrics || [];
+  if (!metrics.length) return;
+
+  // Group keys by type
+  const groups = {};
+  keys.forEach(k => {
+    const g = assignGroup(k);
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(k);
+  });
+
+  const maxPoints = 2000;
+  const xs = metrics.map((m, i) => i);
+  const downsampled = xs.length > maxPoints;
+  const xData = downsampled ? downsampleLTTB(xs, maxPoints) : xs;
+
+  // Create one chart per group
+  const groupOrder = ['loss', 'accuracy', 'lr', 'gpu', 'custom'];
+  const sortedGroups = Object.keys(groups).sort((a, b) => {
+    const ai = groupOrder.indexOf(a) >= 0 ? groupOrder.indexOf(a) : 99;
+    const bi = groupOrder.indexOf(b) >= 0 ? groupOrder.indexOf(b) : 99;
+    return ai - bi;
+  });
+
+  const containers = [];
+  sortedGroups.forEach(groupName => {
+    const groupKeys = groups[groupName];
+    // Create container
+    const titleEl = document.createElement('div');
+    titleEl.className = 'chart-group-title';
+    titleEl.textContent = groupName.toUpperCase();
+    panelsEl.appendChild(titleEl);
+
+    const chartEl = document.createElement('div');
+    chartEl.className = 'chart-container';
+    chartEl.id = 'chart-group-' + groupName;
+    panelsEl.appendChild(chartEl);
+    containers.push({ groupName, groupKeys, chartEl });
+  });
+
+  // Force layout reflow so all containers have correct dimensions
+  panelsEl.offsetHeight;
+
+  containers.forEach(({ groupName, groupKeys, chartEl }) => {
+
+    // Build series
+    const uSeries = [{ label: 'Step', scale: 'x' }];
+    const seriesData = [xData];
+    groupKeys.forEach((k, ki) => {
+      let rawData = metrics.map(m => m[k] ?? null);
+      let data = downsampled ? downsampleLTTB(rawData, maxPoints) : rawData;
+      const color = THEME.palette[(ki + sortedGroups.indexOf(groupName) * 3) % THEME.palette.length];
+      seriesData.push(data);
+      uSeries.push({
+        label: k,
+        stroke: color,
+        width: 2,
+        spanGaps: true,
+        points: { show: false },
+      });
+      // EMA overlay
+      if (smoothingEnabled && data.filter(v => v != null).length > 10) {
+        const ema = computeEMA(data);
+        seriesData.push(ema);
+        uSeries.push({
+          label: k + ' (EMA)',
+          stroke: color + '80',
+          width: 1,
+          dash: [4, 4],
+          spanGaps: true,
+          points: { show: false },
+        });
+      }
+    });
+
+    // Y-axis config per group
+    let yScale = {};
+    let yAxes = [];
+    if (groupName === 'loss') {
+      yScale = { range: (u, min, max) => [min * 0.95, max * 1.05] };
+      yAxes = [{ label: 'Loss', values: (u, ticks) => ticks.map(v => formatValue('loss', v)), grid: { stroke: THEME.grid } }];
+    } else if (groupName === 'accuracy') {
+      yScale = { range: [0, 1] };
+      yAxes = [{ label: 'Accuracy', values: (u, ticks) => ticks.map(v => (v * 100).toFixed(0) + '%'), grid: { stroke: THEME.grid } }];
+    } else if (groupName === 'lr') {
+      // Check if LR values are all constant (uPlot bug: log scale breaks with constant values)
+      const lrVals = groupKeys.length > 0 ? metrics.map(m => m[groupKeys[0]]).filter(v => v != null && typeof v === 'number') : [];
+      const allSame = lrVals.length > 0 && lrVals.every(v => v === lrVals[0]);
+      if (allSame) {
+        // Use linear scale with padding for constant LR values
+        const val = lrVals[0] || 0.001;
+        yScale = { range: [val * 0.1, val * 10] };
+        yAxes = [{ label: 'LR', values: (u, ticks) => ticks.map(v => v.toExponential(1)), grid: { stroke: THEME.grid } }];
+      } else {
+        yScale = {
+          distr: 3,
+          range: (u, min, max) => {
+            if (min <= 0) min = 1e-7;
+            if (max <= 0) max = 1;
+            if (min === max) { return [min / 10, max * 10]; }
+            return [min * 0.5, max * 2];
+          },
+        };
+        yAxes = [{ label: 'LR', values: (u, ticks) => ticks.map(v => v.toExponential(1)), grid: { stroke: THEME.grid } }];
+      }
+    } else {
+      yScale = { range: (u, min, max) => { const pad = (max - min) * 0.1 || 0.1; return [min - pad, max + pad]; } };
+      yAxes = [{ label: groupName, grid: { stroke: THEME.grid } }];
+    }
+
+    // Events plugin (only on first chart)
+    const plugins = [];
+    if (sortedGroups.indexOf(groupName) === 0 && chartEvents.length) {
+      plugins.push({
+        hooks: {
+          drawSeries: (u, seriesIdx) => {
+            if (seriesIdx !== 1) return;
+            const ctx = u.ctx;
+            chartEvents.forEach(ev => {
+              if (ev.idx >= u.data[0].length) return;
+              const x = u.valToPos(ev.idx, 'x');
+              ctx.save();
+              ctx.strokeStyle = ev.color;
+              ctx.lineWidth = 1;
+              ctx.setLineDash([4, 4]);
+              ctx.beginPath();
+              ctx.moveTo(x, u.bbox.top);
+              ctx.lineTo(x, u.bbox.top + u.bbox.height);
+              ctx.stroke();
+              ctx.setLineDash([]);
+              ctx.fillStyle = ev.color;
+              ctx.beginPath();
+              ctx.moveTo(x, u.bbox.top + 8);
+              ctx.lineTo(x - 5, u.bbox.top + 16);
+              ctx.lineTo(x + 5, u.bbox.top + 16);
+              ctx.fill();
+              ctx.restore();
+            });
+          }
+        }
+      });
+    }
+
+    const opts = {
+      width: chartEl.clientWidth || panelsEl.clientWidth || 800,
+      height: 300,
+      cursor: {
+        drag: { x: true, y: false, setScale: true },
+        sync: { key: 'train-sync' },
+      },
+      legend: { show: true, live: true },
+      scales: {
+        x: { time: false },
+        y: yScale,
+      },
+      axes: [
+        { stroke: THEME.text, grid: { stroke: THEME.grid }, ticks: { stroke: THEME.border } },
+        { stroke: THEME.text, ...yAxes[0] },
+      ],
+      plugins: plugins,
+      series: uSeries,
+    };
+
+    const chartWidth = chartEl.clientWidth || panelsEl.clientWidth || 800;
+    const chart = new uPlot(opts, seriesData, chartEl);
+    chartInstances.push(chart);
+    chart._groupName = groupName;
+    chart._keys = groupKeys;
+  });
+
+  // Final resize pass to ensure all charts are consistent
+  requestAnimationFrame(() => {
+    chartInstances.forEach(c => {
+      const el = document.getElementById('chart-group-' + c._groupName);
+      if (el && el.clientWidth > 0) {
+        c.setSize({ width: el.clientWidth, height: 300 });
+      }
+    });
+  });
+
+  // Update range slider
+  const total = metrics.length;
+  const minSlider = document.getElementById('chart-range-min');
+  const maxSlider = document.getElementById('chart-range-max');
+  minSlider.max = total - 1;
+  maxSlider.max = total - 1;
+  minSlider.value = 0;
+  maxSlider.value = total - 1;
+  document.getElementById('range-start').textContent = '0';
+  document.getElementById('range-end').textContent = total - 1;
+}
+
+function assignGroup(key) {
+  const k = key.toLowerCase();
+  if (k.includes('loss') || k.includes('error')) return 'loss';
+  if (k.includes('acc') || k.includes('precision') || k.includes('recall') || k.includes('f1') || k.includes('map') || k.includes('miou')) return 'accuracy';
+  if (k.includes('lr') || k.includes('learning_rate')) return 'lr';
+  if (k.includes('gpu') || k.includes('mem_used') || k.includes('util_pct') || k.includes('temp')) return 'gpu';
+  return 'custom';
+}
+
+function updateChart() {
+  initCharts();  // Rebuild all charts with latest data
+}
+
+function onRangeChange() {
+  const metrics = window._allMetrics || [];
+  const total = metrics.length;
+  if (!total) return;
+  const minVal = parseInt(document.getElementById('chart-range-min').value);
+  const maxVal = parseInt(document.getElementById('chart-range-max').value);
+  const lo = Math.min(minVal, maxVal);
+  const hi = Math.max(minVal, maxVal);
+  document.getElementById('range-start').textContent = lo;
+  document.getElementById('range-end').textContent = hi;
+  chartInstances.forEach(c => c.setScale('x', { min: lo, max: hi }));
+}
+
+function resetZoom() {
+  const metrics = window._allMetrics || [];
+  const total = metrics.length;
+  document.getElementById('chart-range-min').value = 0;
+  document.getElementById('chart-range-max').value = total - 1;
+  document.getElementById('range-start').textContent = '0';
+  document.getElementById('range-end').textContent = total - 1;
+  chartInstances.forEach(c => c.setScale('x', { min: 0, max: total - 1 }));
+}
+
+function toggleSmoothing() {
+  smoothingEnabled = !smoothingEnabled;
+  document.getElementById('btn-ema').classList.toggle('btn--active', smoothingEnabled);
+  initCharts();
+}
+
+function exportCSV() {
+  const metrics = window._allMetrics || [];
+  if (!metrics.length) return alert('No data to export');
+  const keys = Object.keys(metrics[0]).filter(k => k !== 'timestamp');
+  const header = 'step,' + keys.join(',');
+  const rows = metrics.map((m, i) => {
+    return [i, ...keys.map(k => m[k] ?? '')].join(',');
+  });
+  const csv = header + '\n' + rows.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `training_metrics_${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportPNG() {
+  if (!chartInstances.length) return alert('No chart to export');
+  const canvas = chartInstances[0].over;
+  const url = canvas.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `training_chart_${Date.now()}.png`;
+  a.click();
+}
+
 function liveUpdateMetrics(m) {
   if (!window._allMetrics) window._allMetrics = [];
   window._allMetrics.push(m);
-  if (window._allMetrics.length > 500) window._allMetrics = window._allMetrics.slice(-500);
-  redrawChart();
+  if (window._allMetrics.length > 2000) window._allMetrics = window._allMetrics.slice(-2000);
+  // Detect new anomalies
+  const metrics = window._allMetrics;
+  const lastIdx = metrics.length - 1;
+  if (lastIdx >= 10) {
+    const lossKeys = Object.keys(m).filter(k => k.toLowerCase().includes('loss'));
+    for (const lk of lossKeys) {
+      const curr = m[lk];
+      if (typeof curr !== 'number') continue;
+      const window = metrics.slice(lastIdx - 10, lastIdx).map(w => w[lk]).filter(v => typeof v === 'number');
+      if (!window.length) continue;
+      const avg = window.reduce((a, b) => a + b, 0) / window.length;
+      if (curr > avg * 1.5 && avg > 0) {
+        chartEvents.push({ idx: lastIdx, type: 'spike', label: 'Loss Spike', color: '#f87171' });
+        break;
+      }
+    }
+  }
+  if (chartInstances.length) updateChart();
+  else initCharts();
 }
 
 // ===================== Logs =====================
 async function refreshLogs() {
   if (!currentProcessId) return;
   const data = await api(`/api/process/${currentProcessId}/log?lines=200`);
+  if (!data) return;
   const viewer = document.getElementById('log-viewer');
   window._allLogLines = data.lines || [];
   renderLogs();
@@ -500,10 +1545,10 @@ function renderLogs(filter = '') {
   const lines = (window._allLogLines || []).filter(l => !filter || l.toLowerCase().includes(filter.toLowerCase()));
   const viewer = document.getElementById('log-viewer');
   viewer.innerHTML = lines.map(l => {
-    let cls = '';
-    if (/error|traceback|exception/i.test(l)) cls = 'error';
-    else if (/warn|warning/i.test(l)) cls = 'warning';
-    return `<div class="line ${cls}">${escapeHtml(l)}</div>`;
+    let cls = 'log-line';
+    if (/error|traceback|exception/i.test(l)) cls += ' log-line--error';
+    else if (/warn|warning/i.test(l)) cls += ' log-line--warning';
+    return `<div class="${cls}">${escapeHtml(l)}</div>`;
   }).join('');
   if (autoscroll) viewer.scrollTop = viewer.scrollHeight;
 }
@@ -528,7 +1573,7 @@ async function runAIAnalysis() {
     const r = await fetch(`/api/process/${currentProcessId}/ai/analyze`, { method: 'POST' });
     const d = await r.json();
     document.getElementById('ai-output').textContent = d.analysis || '无响应';
-  } catch(e) {
+  } catch (e) {
     document.getElementById('ai-output').textContent = '分析失败: ' + e;
   }
 }
@@ -541,7 +1586,7 @@ async function askAI() {
     const r = await fetch(`/api/process/${currentProcessId}/ai/chat?question=${encodeURIComponent(q)}`, { method: 'POST' });
     const d = await r.json();
     document.getElementById('ai-output').textContent = document.getElementById('ai-output').textContent.replace('⏳ 思考中...', '💬 ' + (d.answer || '...'));
-  } catch(e) {
+  } catch (e) {
     document.getElementById('ai-output').textContent += '\n错误: ' + e;
   }
   document.getElementById('ai-question').value = '';
@@ -552,62 +1597,100 @@ async function loadModelTree(pid) {
   const el = document.getElementById('model-tree');
   try {
     const data = await api(`/api/process/${pid}/model`);
-    if (data.error) { el.innerHTML = `<span style="color:var(--muted)">${data.error}</span>`; return; }
+    if (!data) return;
+    if (data.error) { el.innerHTML = `<span style="color:var(--text-muted)">${data.error}</span>`; return; }
     const nodes = data.nodes || [];
     const totalP = data.total_params || 1;
     const totalF = data.total_flops_est || 1;
-    el.innerHTML = `<div style="margin-bottom:8px;font-size:12px;color:var(--muted)">
-      ${data.model_name || 'Model'} · ${totalP.toLocaleString()} params · ${(totalF/1e6).toFixed(1)}M FLOPs · ${data.module_count||nodes.length} modules
+    el.innerHTML = `<div style="margin-bottom:10px;font-size:12px;color:var(--text-muted)">
+      ${data.model_name || 'Model'} · ${totalP.toLocaleString()} params · ${(totalF / 1e6).toFixed(1)}M FLOPs · ${data.module_count || nodes.length} modules
     </div><ul>${renderTreeNodes(nodes, totalP, totalF)}</ul>`;
-  } catch(e) {
-    el.innerHTML = `<span style="color:var(--red)">加载失败</span>`;
+  } catch (e) {
+    el.innerHTML = `<span style="color:var(--error)">加载失败</span>`;
   }
 }
 
 function renderTreeNodes(nodes, totalP, totalF) {
   return nodes.map(n => {
-    const pct = totalP > 0 ? (n.params||0)/totalP*100 : 0;
+    const pct = totalP > 0 ? (n.params || 0) / totalP * 100 : 0;
     const barW = Math.max(1, pct * 2);
-    const color = pct > 25 ? 'var(--red)' : pct > 5 ? 'var(--orange)' : 'var(--green)';
+    const color = pct > 25 ? 'var(--error)' : pct > 5 ? 'var(--accent-1)' : 'var(--success)';
     const repeat = n.repeat > 1 ? `<span class="node-repeat">×${n.repeat}</span>` : '';
     const params = n.params ? `<span class="node-params">${fmtParams(n.params)}</span>` : '';
     const flops = n.flops ? `<span class="node-flops">${fmtParams(n.flops)} FLOPs</span>` : '';
     const bar = pct > 0.1 ? `<span class="bar" style="width:${barW}px;background:${color}"></span>` : '';
     const children = n.children && n.children.length ? `<ul>${renderTreeNodes(n.children, totalP, totalF)}</ul>` : '';
-    return `<li><span class="node-type">${n.type||'?'}</span> ${n.name.split('.').pop()}${repeat}${params}${flops}${bar}${children}</li>`;
+    return `<li><span class="node-type">${n.type || '?'}</span> ${n.name.split('.').pop()}${repeat}${params}${flops}${bar}${children}</li>`;
   }).join('');
+}
+
+async function generateModelVizInline() {
+  if (!currentProcessId) return;
+  const btn = document.getElementById('btn-model-viz');
+  const origText = btn.textContent;
+  btn.textContent = '生成中...';
+  btn.disabled = true;
+  try {
+    const r = await fetch(`/api/process/${currentProcessId}/model/viz-html`);
+    const d = await r.json();
+    if (d.error) {
+      alert('生成失败: ' + d.error);
+    } else if (d.html) {
+      const frame = document.getElementById('model-viz-frame');
+      // Use iframe with srcdoc for sandboxing
+      const iframe = document.createElement('iframe');
+      iframe.style.cssText = 'width:100%;height:100%;border:none;';
+      iframe.srcdoc = d.html;
+      frame.innerHTML = '';
+      frame.appendChild(iframe);
+      switchModelSubTab('viz');
+    }
+  } catch (e) {
+    alert('请求失败: ' + e);
+  } finally {
+    btn.textContent = origText;
+    btn.disabled = false;
+  }
+}
+
+function switchModelSubTab(tab) {
+  document.getElementById('model-sub-tree').style.display = tab === 'tree' ? '' : 'none';
+  document.getElementById('model-sub-viz').style.display = tab === 'viz' ? '' : 'none';
+  document.getElementById('btn-model-tree').classList.toggle('model-sub-active', tab === 'tree');
+  document.getElementById('btn-model-viz-tab').classList.toggle('model-sub-active', tab === 'viz');
 }
 
 function fmtParams(p) {
   if (!p) return '0';
-  if (p >= 1e6) return (p/1e6).toFixed(1)+'M';
-  if (p >= 1e3) return Math.round(p/1e3)+'K';
+  if (p >= 1e6) return (p / 1e6).toFixed(1) + 'M';
+  if (p >= 1e3) return Math.round(p / 1e3) + 'K';
   return p.toString();
 }
 
 // ===================== Gallery =====================
 async function loadGallery(pid) {
   const data = await api(`/api/process/${pid}/gallery`);
+  if (!data) return;
   const el = document.getElementById('gallery-grid');
   if (!data.galleries || !Object.keys(data.galleries).length) {
-    el.innerHTML = `<div class="empty"><div class="icon">🖼️</div>暂无图库数据<br><span style="font-size:12px">在 CLI 运行 gallery 命令或等训练完成后触发</span></div>`;
+    el.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><span class="empty-state__icon">&#x1F5BC;</span>暂无图库数据<br><span class="empty-state__hint">在 CLI 运行 gallery 命令或等训练完成后触发</span></div>`;
     return;
   }
   let html = '';
   for (const [name, images] of Object.entries(data.galleries)) {
-    html += `<div style="grid-column:1/-1;font-size:13px;font-weight:600;margin-top:8px">${name} (${images.length})</div>`;
-    for (const img of (images||[]).slice(0, 30)) {
+    html += `<div style="grid-column:1/-1;font-size:13px;font-weight:600;margin-top:10px;color:var(--accent-1)">${name} (${images.length})</div>`;
+    for (const img of (images || []).slice(0, 30)) {
       html += `<div class="gallery-item">
-        <div style="height:120px;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:24px">🖼️</div>
-        <div class="info"><span class="conf">${img.confidence?.toFixed(3)||'?'}</span> <span class="label">${img.predicted_class||img.true_label||''}</span></div>
+        <div class="gallery-item__placeholder">&#x1F5BC;</div>
+        <div class="gallery-item__info"><span class="gallery-item__conf">${img.confidence?.toFixed(3) || '?'}</span> <span class="gallery-item__label">${img.predicted_class || img.true_label || ''}</span></div>
       </div>`;
     }
   }
-  el.innerHTML = html || '<div class="empty">无图片数据</div>';
+  el.innerHTML = html || '<div class="empty-state">无图片数据</div>';
 }
 
 function escapeHtml(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 </script>
 </body>

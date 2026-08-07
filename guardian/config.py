@@ -87,7 +87,7 @@ DEFAULTS: dict[str, Any] = {
     "mcp": {
         "enabled": False,
         "transport": "stdio",
-        "tcp_port": 8765,
+        "tcp_port": 8766,
         "enable_write_tools": False,
         "write_token_env": "GUARDIAN_MCP_TOKEN",
         "state_refresh_interval": 5,
@@ -122,6 +122,22 @@ DEFAULTS: dict[str, Any] = {
     "dashboard": {
         "port": 8765,
         "host": "127.0.0.1",
+    },
+    "limits": {
+        "metrics_history_max": 2000,
+        "gpu_history_max": 500,
+        "log_lines_max": 2000,
+        "import_metrics_max": 100000,
+        "import_inline_metrics_max": 5000,
+        "stderr_tail_bytes": 2000,
+        "mcp_inspect_source_max_lines": 100,
+    },
+    "logging": {
+        "level": "INFO",
+        "file": "",
+        "file_level": "DEBUG",
+        "format": "%(asctime)s [%(levelname)-5s] %(name)s: %(message)s",
+        "datefmt": "%m-%d %H:%M:%S",
     },
 }
 

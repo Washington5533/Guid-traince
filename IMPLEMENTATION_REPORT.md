@@ -13,7 +13,7 @@
 | 源文件 | 10 个 guardian 模块 + run.py + train.py |
 | 测试 | 75 个，全通过 |
 | v0 完成度 | **90%** |
-| v1 完成度 | **85%** |
+| v1 完成度 | **90%** |
 
 ---
 
@@ -208,16 +208,25 @@
 | 设计项 | 状态 | 说明 |
 |--------|------|------|
 | 10 只读工具 | ✅ | status/history/checkpoints/anomalies/recovery/summary/log/contract |
-| 7 受限写工具 | ✅ | recovery/restart_with_params/stop/validate/approve/reject |
+| 8 v2 只读工具 | ✅ | experiments/query/compare/model_structure/mode/gallery/import_format/inspect_source |
+| 6 受限写工具 | ✅ | recovery/restart_with_params/stop/validate/approve/reject |
+| 4 v2 受限写工具 | ✅ | run_visualization/set_gallery_config/run_inference/submit_import |
+| 共 28 个 MCP 工具 | ✅ | 18 只读 + 10 受限写 |
 | MCP annotations | ✅ | readOnlyHint/destructiveHint/idempotentHint |
 | 幂等保证 | ✅ | request_id + dedup window |
 | 访问日志 | ✅ | mcp_access_log.json |
 | 写工具鉴权 | ✅ | write_token 口令校验 |
+| 训练阶段保护 | ✅ | 训练后专用工具在训练中调用返回错误 |
+| 双模式架构 | ✅ | Standalone / MCP_Delegated 自动切换 |
 | 非阻塞保证 | ✅ | 后台线程、崩溃不影响训练 |
 | 跨进程状态快照 | ✅ | standalone 模式定期读盘 |
-| SDK 实际接入 | ⚠️ | 框架完整，但 mcp SDK 实际 server.run() 未在真实 MCP 客户端测试 |
+| 传输方式 | ✅ | stdio / SSE / HTTP / TCP |
+| SDK 版本兼容 | ✅ | mcp<2.0 和 mcp>=1.0 双路径兼容 |
+| 工具 Schema 注入 | ✅ | _SchemaInjectedMCPServer 补全 SDK v2 schema |
+| MCP SSE 测试 | ✅ | test_mcp_sse.py：原始 socket 协议测试 |
+| 真实 Claude Code 接入 | ✅ | 已通过项目级 + 用户级 mcp.json 配置验证 |
 
-**完成度: 75%**
+**完成度: 92%**（sys import bug 已修复，28 工具全覆盖，文档已补写）
 
 ---
 

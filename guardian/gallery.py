@@ -27,6 +27,10 @@ from typing import Any
 
 from .inference import InferenceRunner
 
+from guardian.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # AI prompt
@@ -111,7 +115,7 @@ class GalleryManager:
         try:
             return InferenceRunner.detect_task_type(lambda: _try_build_model())
         except Exception:
-            pass
+            logger.warning("从模型代码推断任务类型失败，回退 classification", exc_info=True)
 
         return "classification"
 
@@ -142,7 +146,7 @@ class GalleryManager:
                     result["source"] = "agent"
                     return result
             except Exception:
-                pass
+                logger.warning("AI 提议图片筛选策略失败，使用默认策略", exc_info=True)
 
         return _default_strategies(task_type, self.default_max_images)
 
@@ -266,6 +270,7 @@ class GalleryManager:
         try:
             return json.loads(p.read_text(encoding="utf-8"))
         except (ValueError, OSError):
+            # 配置损坏时按无配置处理，静默返回 None
             return None
 
     # ------------------------------------------------------------------
@@ -299,9 +304,9 @@ class GalleryManager:
                 "--server.port", str(port),
             ])
         else:
-            print(f"[gallery] Streamlit 脚本不存在: {streamlit_script}")
-            print(f"[gallery] 结果已保存到: {tmp_path}")
-            print(f"[gallery] 手动启动: streamlit run guardian/streamlit_app.py -- --results {tmp_path}")
+            logger.info("Streamlit 脚本不存在: %s", streamlit_script)
+            logger.info("结果已保存到: %s", tmp_path)
+            logger.info("手动启动: streamlit run guardian/streamlit_app.py -- --results %s", tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +429,7 @@ def _load_predictions(infer_result: dict) -> list[dict]:
         if isinstance(data, dict):
             return data.get("predictions", data.get("results", []))
     except (ValueError, OSError):
+        # 推理结果文件缺失/损坏时按空预测处理，静默跳过
         pass
 
     return []
@@ -435,6 +441,7 @@ def _try_build_model():
         from train import build_model
         return build_model()
     except Exception:
+        logger.warning("尝试构建模型失败（任务类型推断将回退）", exc_info=True)
         raise
 
 

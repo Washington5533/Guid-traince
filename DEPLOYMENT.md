@@ -203,11 +203,13 @@ python run.py serve --transport stdio
 python run.py watch --with-mcp -- python train.py
 ```
 
-MCP 模式下 guardian agent 自动让位，Claude Code 获得全部 25 个工具的读写权限。
+MCP 模式下 guardian agent 自动让位，Claude Code 获得全部 28 个工具的读写权限。
+
+> 完整文档：[MCP.md](MCP.md) · [MCP_API_REFERENCE.md](MCP_API_REFERENCE.md) · [MCP_QUICKSTART.md](MCP_QUICKSTART.md)
 
 ### 6.1 MCP 工具列表
 
-**只读工具（16 个）：**
+**只读工具（18 个）：**
 
 | 工具 | 功能 |
 |------|------|
@@ -227,8 +229,10 @@ MCP 模式下 guardian agent 自动让位，Claude Code 获得全部 25 个工�
 | `get_model_structure` | 模型结构 JSON（节点+边+FLOPs） |
 | `get_guardian_mode` | 当前模式（standalone/mcp_delegated） |
 | `get_gallery_config` | 图片筛选策略配置 |
+| `get_import_format` | 导入格式规范（JSON Schema） |
+| `inspect_source` | 采样外部数据文件 |
 
-**受限写工具（9 个，需 write_token + 阶段保护）：**
+**受限写工具（10 个，需 write_token + 阶段保护）：**
 
 | 工具 | 功能 | 训练中 |
 |------|------|--------|
@@ -241,6 +245,7 @@ MCP 模式下 guardian agent 自动让位，Claude Code 获得全部 25 个工�
 | `run_visualization` | 生成模型可视化 HTML | ❌ 仅训练后 |
 | `set_gallery_config` | 更新筛选策略 | ❌ 仅训练后 |
 | `run_inference` | 触发推理 | ❌ 仅训练后 |
+| `submit_import` | 导入外部训练数据 | ✅ |
 
 训练中写工具保护：`set_gallery_config` / `run_visualization` / `run_inference` 仅在训练结束后可用。
 

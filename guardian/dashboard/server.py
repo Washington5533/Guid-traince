@@ -28,7 +28,12 @@ import os
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
+
+from guardian.logging_config import get_logger
+
+logger = get_logger(__name__)
 from typing import Any
 
 # FastAPI 可选导入
@@ -61,13 +66,147 @@ class DashboardServer:
 
         # 状态注册表：{process_id: ProcessState}
         self._processes: dict[str, dict] = {}
+        # 历史进程（从磁盘加载）：{process_id: {meta, metrics_path}}
+        self._history: dict[str, dict] = {}
         # WebSocket 连接：{process_id: [ws, ...]}
         self._subscribers: dict[str, list[WebSocket]] = {}
         # 全局订阅
         self._global_subs: list[WebSocket] = []
         self._lock = threading.Lock()
+        # 持久化根目录（从配置读取，默认 ./logs）
+        self._persist_root = Path(self.cfg.get("project", {}).get("log_dir", "./logs"))
+        self._load_history()
 
         self.app = self._build_app() if _FASTAPI_OK else None
+
+    # ------------------------------------------------------------------
+    # 持久化
+    # ------------------------------------------------------------------
+
+    def _persist_meta(self, process_id: str, state: dict) -> None:
+        """写入/更新进程元信息到 logs/{pid}/meta.json。"""
+        try:
+            d = self._persist_root / process_id
+            d.mkdir(parents=True, exist_ok=True)
+            meta = {
+                "process_id": process_id,
+                "name": state.get("name", process_id),
+                "command": state.get("command", ""),
+                "project_dir": state.get("project_dir", ""),
+                "status": state.get("status", "unknown"),
+                "registered_at": state.get("registered_at", 0),
+                "finished_at": state.get("finished_at"),
+                "config": state.get("config", {}),
+                "model_entry": state.get("model_entry", ""),
+                "log_file": state.get("log_file", ""),
+            }
+            (d / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            logger.warning("写入 meta.json 失败: %s", d, exc_info=True)
+
+    def _persist_metrics_line(self, process_id: str, data: dict) -> None:
+        """追加一条指标到 logs/{pid}/metrics.jsonl。"""
+        try:
+            d = self._persist_root / process_id
+            d.mkdir(parents=True, exist_ok=True)
+            with (d / "metrics.jsonl").open("a", encoding="utf-8") as f:
+                f.write(json.dumps(data, ensure_ascii=False) + "\n")
+        except Exception:
+            logger.warning("写入 metrics.jsonl 失败: %s", d, exc_info=True)
+
+    def _load_history(self) -> None:
+        """启动时扫描 logs/ 目录，加载含 meta.json 的子目录作为历史进程。"""
+        root = self._persist_root
+        if not root.is_dir():
+            return
+        for d in root.iterdir():
+            if not d.is_dir():
+                continue
+            meta_file = d / "meta.json"
+            metrics_file = d / "metrics.jsonl"
+            if meta_file.is_file():
+                try:
+                    meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                    pid = meta.get("process_id", d.name)
+                    self._history[pid] = {
+                        "meta": meta,
+                        "metrics_path": str(metrics_file) if metrics_file.is_file() else None,
+                        "dir": str(d),
+                    }
+                except Exception:
+                    logger.warning("加载历史进程元信息失败: %s", d, exc_info=True)
+
+    def _read_history_metrics(self, pid: str) -> list:
+        """从 JSONL 文件读取历史指标数据。"""
+        info = self._history.get(pid)
+        if not info or not info.get("metrics_path"):
+            return []
+        try:
+            lines = []
+            with open(info["metrics_path"], "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        lines.append(json.loads(line))
+            return lines
+        except Exception:
+            logger.warning("读取历史指标文件失败: %s", info.get("metrics_path"), exc_info=True)
+            return []
+
+    # ------------------------------------------------------------------
+    # 外部导入
+    # ------------------------------------------------------------------
+
+    def import_process(self, meta: dict, metrics: list[dict]) -> dict:
+        """导入外部训练数据。
+
+        Args:
+            meta: 元信息，必须含 name 字段
+            metrics: 指标列表，每条为 dict，至少含一个数值字段
+
+        Returns:
+            {"process_id": "import_xxx", "records": N, "status": "imported"}
+            或 {"error": "...", "detail": "..."}
+        """
+        # 校验 meta
+        if not isinstance(meta, dict) or not meta.get("name"):
+            return {"error": "meta 必须含 name 字段", "detail": "meta 必须含 name（字符串）"}
+
+        # 校验 metrics
+        if not isinstance(metrics, list) or len(metrics) == 0:
+            return {"error": "metrics 不能为空", "detail": "metrics 必须为非空列表"}
+        if len(metrics) > 100000:
+            return {"error": "指标数量超限", "detail": f"单次上限 100000 条，当前 {len(metrics)} 条"}
+        for i, m in enumerate(metrics):
+            if not isinstance(m, dict):
+                return {"error": f"metrics[{i}] 格式错误", "detail": "每条必须为 dict"}
+            if not any(isinstance(v, (int, float)) for v in m.values()):
+                return {"error": f"metrics[{i}] 无数值", "detail": "每条至少含一个数值字段"}
+
+        # 生成唯一 process_id
+        process_id = f"import_{uuid.uuid4().hex[:8]}"
+        state = {
+            "process_id": process_id,
+            "name": meta["name"],
+            "command": meta.get("command", ""),
+            "project_dir": meta.get("project_dir", ""),
+            "status": "imported",
+            "registered_at": time.time(),
+            "finished_at": time.time(),
+            "config": {"source": meta.get("source", "external")},
+            "model_entry": "",
+            "log_file": "",
+        }
+
+        # 持久化
+        self._persist_meta(process_id, state)
+        for m in metrics:
+            self._persist_metrics_line(process_id, m)
+
+        # 刷新历史
+        self._load_history()
+
+        return {"process_id": process_id, "records": len(metrics), "status": "imported"}
 
     # ------------------------------------------------------------------
     # 进程注册
@@ -79,6 +218,7 @@ class DashboardServer:
         state.setdefault("registered_at", time.time())
         with self._lock:
             self._processes[process_id] = state
+        self._persist_meta(process_id, state)
         self._safe_broadcast_global({"type": "process_update", "process_id": process_id, "status": state.get("status")})
 
     def _safe_broadcast_process(self, process_id: str, msg: dict) -> None:
@@ -142,6 +282,7 @@ class DashboardServer:
                     "_gpu_history": [],
                     "_log_lines": [],
                 }
+            self._persist_meta(pid, self._processes[pid])
             return JSONResponse({"ok": True, "process_id": pid})
 
         @app.post("/api/process/{process_id}/push")
@@ -155,7 +296,7 @@ class DashboardServer:
                 # 处理 log_file（可能是注册后补传的）
                 if "log_file" in patch:
                     s["log_file"] = patch["log_file"]
-                # 累积 metrics 历史
+                # 累积 metrics 历史 + 持久化
                 mdata = payload.get("data")
                 if mdata:
                     hist = s.setdefault("_metrics_history", [])
@@ -163,6 +304,7 @@ class DashboardServer:
                     if len(hist) > 2000:
                         s["_metrics_history"] = hist[-2000:]
                     s["latest_metrics"] = mdata
+                    self._persist_metrics_line(process_id, mdata)
                 # 累积 GPU 历史
                 gpu = payload.get("gpu")
                 if gpu:
@@ -170,6 +312,9 @@ class DashboardServer:
                     gh.append(gpu)
                     if len(gh) > 500:
                         s["_gpu_history"] = gh[-500:]
+                # 状态变更时更新 meta
+                if "status" in patch:
+                    self._persist_meta(process_id, s)
             mtype = payload.get("type")
             if mtype == "metrics" and payload.get("data"):
                 await self._broadcast_process(process_id, {"type": "metrics", "data": payload["data"]})
@@ -188,7 +333,7 @@ class DashboardServer:
             html = (self.static_dir / "index.html").read_text(encoding="utf-8")
             return HTMLResponse(content=html)
 
-        # ---- API: 进程列表 ----
+        # ---- API: 进程列表（含历史） ----
         @app.get("/api/processes")
         async def list_processes():
             with self._lock:
@@ -206,7 +351,23 @@ class DashboardServer:
                         "anomaly_count": s.get("anomaly_count", 0),
                         "restart_count": s.get("restart_count", 0),
                         "command": s.get("command", ""),
+                        "source": "live",
                     })
+            # 追加历史进程（去重：已在 live 中的不重复）
+            live_ids = {p["process_id"] for p in procs}
+            for pid, info in self._history.items():
+                if pid in live_ids:
+                    continue
+                meta = info.get("meta", {})
+                procs.append({
+                    "process_id": pid,
+                    "name": meta.get("name", pid),
+                    "status": meta.get("status", "unknown"),
+                    "command": meta.get("command", ""),
+                    "created_at": meta.get("registered_at", 0),
+                    "finished_at": meta.get("finished_at"),
+                    "source": "history",
+                })
             return JSONResponse(content={"processes": procs})
 
         # ---- API: 进程详情 ----
@@ -321,6 +482,155 @@ class DashboardServer:
             except Exception as e:
                 return JSONResponse({"error": str(e)}, 500)
 
+        # ---- API: 生成模型架构图 HTML ----
+        @app.post("/api/process/{process_id}/model/viz")
+        async def model_viz_generate(process_id: str):
+            s = _get_state(process_id)
+            if not s:
+                return JSONResponse({"error": "not found"}, 404)
+            graph = s.get("_model_graph")
+            if not graph:
+                return JSONResponse({"error": "请先加载模型结构（点击模型结构 Tab）"}, 400)
+            try:
+                from ..model_viz import ModelVisualizer, _default_viz_config
+                mv = ModelVisualizer()
+                stats = mv.compute_stats(graph)
+                viz_config = _default_viz_config(graph, stats)
+                viz_dir = self._persist_root / "viz"
+                viz_dir.mkdir(parents=True, exist_ok=True)
+                safe_name = process_id.replace("/", "_").replace("\\", "_")
+                out_path = viz_dir / f"model_viz_{safe_name}.html"
+                mv.render_html(graph, stats, viz_config, out_path)
+                url = f"/api/viz/{out_path.name}"
+                return JSONResponse({"url": url, "path": str(out_path)})
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, 500)
+
+        # ---- 模型架构图 HTML 文件服务 ----
+        @app.get("/api/viz/{filename}")
+        async def serve_viz_html(filename: str):
+            viz_path = self._persist_root / "viz" / filename
+            if not viz_path.exists() or not viz_path.is_file():
+                return JSONResponse({"error": "file not found"}, 404)
+            html = viz_path.read_text(encoding="utf-8")
+            return HTMLResponse(content=html)
+
+        # ---- API: 模型架构图内嵌 HTML ----
+        @app.get("/api/process/{process_id}/model/viz-html")
+        async def model_viz_inline_html(process_id: str):
+            """返回生成的架构图 HTML 内容（供 iframe srcdoc 嵌入）。"""
+            s = _get_state(process_id)
+            if not s:
+                return JSONResponse({"error": "not found"}, 404)
+            graph = s.get("_model_graph")
+            if not graph:
+                return JSONResponse({"error": "请先加载模型结构"}, 400)
+            try:
+                from ..model_viz import ModelVisualizer, _default_viz_config
+                mv = ModelVisualizer()
+                stats = mv.compute_stats(graph)
+                viz_config = _default_viz_config(graph, stats)
+                viz_dir = self._persist_root / "viz"
+                viz_dir.mkdir(parents=True, exist_ok=True)
+                safe_name = process_id.replace("/", "_").replace("\\", "_")
+                out_path = viz_dir / f"model_viz_{safe_name}.html"
+                mv.render_html(graph, stats, viz_config, out_path)
+                html_content = out_path.read_text(encoding="utf-8")
+                return JSONResponse({"html": html_content})
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, 500)
+
+        # ---- API: 历史进程列表 ----
+        @app.get("/api/history")
+        async def list_history():
+            items = []
+            for pid, info in self._history.items():
+                meta = info.get("meta", {})
+                # 读取最后一条指标作为摘要
+                last_metrics = {}
+                hist = self._read_history_metrics(pid)
+                if hist:
+                    last_metrics = hist[-1]
+                items.append({
+                    "process_id": pid,
+                    "name": meta.get("name", pid),
+                    "command": meta.get("command", ""),
+                    "status": meta.get("status", "unknown"),
+                    "registered_at": meta.get("registered_at", 0),
+                    "finished_at": meta.get("finished_at"),
+                    "metrics_count": len(hist),
+                    "latest_metrics": last_metrics,
+                })
+            return JSONResponse({"history": items})
+
+        # ---- API: 历史进程详情 ----
+        @app.get("/api/history/{process_id}")
+        async def history_detail(process_id: str):
+            info = self._history.get(process_id)
+            if not info:
+                return JSONResponse({"error": "not found"}, 404)
+            meta = info.get("meta", {})
+            hist = self._read_history_metrics(process_id)
+            discovered = _discover_metrics(hist)
+            return JSONResponse({
+                "process_id": process_id,
+                "name": meta.get("name", process_id),
+                "status": meta.get("status", "unknown"),
+                "command": meta.get("command", ""),
+                "registered_at": meta.get("registered_at", 0),
+                "finished_at": meta.get("finished_at"),
+                "latest_metrics": hist[-1] if hist else {},
+                "discovered_metrics": discovered,
+                "metrics_count": len(hist),
+                "source": "history",
+            })
+
+        # ---- API: 历史指标数据 ----
+        @app.get("/api/history/{process_id}/metrics")
+        async def history_metrics(
+            process_id: str,
+            limit: int = Query(500, ge=10, le=5000),
+            cursor: int = Query(0, ge=0),
+        ):
+            info = self._history.get(process_id)
+            if not info:
+                return JSONResponse({"error": "not found"}, 404)
+            hist = self._read_history_metrics(process_id)
+            total = len(hist)
+            start = max(0, total - limit - cursor)
+            end = total - cursor if cursor else total
+            return JSONResponse({
+                "metrics": hist[max(0, start):end],
+                "total": total, "cursor": cursor, "limit": limit,
+            })
+
+        # ---- API: MCP 自定义指标推送 ----
+        @app.post("/api/process/{process_id}/metrics/custom")
+        async def push_custom_metrics(process_id: str, payload: dict):
+            """接收任意 key-value 指标，支持 MCP 工具推送自定义指标。"""
+            s = _get_state(process_id)
+            if not s:
+                return JSONResponse({"error": "not found"}, 404)
+            data = payload.get("data", {})
+            group = payload.get("group", "custom")
+            # 将 group 信息写入数据中以便前端分组
+            data["_group"] = group
+            data["_ts"] = time.time()
+            with self._lock:
+                if process_id in self._processes:
+                    hist = self._processes[process_id].setdefault("_metrics_history", [])
+                    # 合并到最新一条或新建
+                    if hist and not data.get("step"):
+                        last = hist[-1]
+                        merged = {**last, **data}
+                        hist[-1] = merged
+                    else:
+                        hist.append(data)
+                    self._processes[process_id]["latest_metrics"] = hist[-1]
+            self._persist_metrics_line(process_id, data)
+            await self._broadcast_process(process_id, {"type": "metrics", "data": data})
+            return JSONResponse({"ok": True, "group": group})
+
         # ---- API: 异常事件 ----
         @app.get("/api/process/{process_id}/anomalies")
         async def anomalies(process_id: str):
@@ -340,8 +650,13 @@ class DashboardServer:
                 from ..credentials import load_credentials, apply_credentials
                 apply_credentials(load_credentials())
                 from ..agent_advisor import AgentAdvisor
-                advisor = AgentAdvisor({"enabled": True, "provider": "anthropic",
-                                        "decision_timeout": 15})
+                import os as _os
+                _provider = _os.environ.get("GUARDIAN_AI_PROVIDER", "anthropic")
+                _model = _os.environ.get("GUARDIAN_AI_MODEL") or None
+                _cfg = {"enabled": True, "provider": _provider, "decision_timeout": 15}
+                if _model:
+                    _cfg["model"] = _model
+                advisor = AgentAdvisor(_cfg)
                 if advisor.is_enabled():
                     ctx = {"status": s.get("status"), "latest_metrics": hist[-1] if hist else {},
                            "metrics_summary": summary, "anomaly_count": s.get("anomaly_count", 0)}
@@ -349,7 +664,7 @@ class DashboardServer:
                     if text:
                         return JSONResponse({"analysis": text, "source": "agent"})
             except Exception:
-                pass
+                logger.warning("AI 分析调用失败", exc_info=True)
             return JSONResponse({
                 "analysis": f"训练状态: {s.get('status')}, 最新 loss: {summary.get('loss_last', '?')}, 异常数: {s.get('anomaly_count', 0)}",
                 "source": "summary", "context": {"status": s.get("status"), "metrics_summary": summary}
@@ -366,7 +681,13 @@ class DashboardServer:
                 from ..credentials import load_credentials, apply_credentials
                 apply_credentials(load_credentials())
                 from ..agent_advisor import AgentAdvisor
-                advisor = AgentAdvisor({"enabled": True, "provider": "anthropic", "decision_timeout": 15})
+                import os as _os
+                _provider = _os.environ.get("GUARDIAN_AI_PROVIDER", "anthropic")
+                _model = _os.environ.get("GUARDIAN_AI_MODEL") or None
+                _cfg = {"enabled": True, "provider": _provider, "decision_timeout": 15}
+                if _model:
+                    _cfg["model"] = _model
+                advisor = AgentAdvisor(_cfg)
                 if advisor.is_enabled():
                     ctx = {"status": s.get("status"), "question": question,
                            "latest_metrics": hist[-1] if hist else {},
@@ -375,7 +696,7 @@ class DashboardServer:
                     if ans:
                         return JSONResponse({"answer": ans})
             except Exception:
-                pass
+                logger.warning("AI 对话调用失败", exc_info=True)
             return JSONResponse({"answer": "AI 调用失败，请检查凭据配置"})
 
         # ---- API: 图库（最小可用） ----

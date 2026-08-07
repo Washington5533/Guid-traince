@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # ── 核心测试：故障注入验收（S1/S2/S3） + 单元测试 ──────────────
+  core:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: 安装依赖
+        run: |
+          pip install -r requirements-core.txt
+          pip install -r requirements-mcp.txt
+          pip install pytest pyyaml
+
+      - name: 运行核心测试
+        run: |
+          python -m pytest \
+            tests/faultbench/ \
+            tests/test_agent_advisor.py \
+            tests/test_config.py \
+            tests/test_mcp_tools.py \
+            tests/test_notifier.py \
+            tests/test_project_context.py \
+            tests/test_experiment_query.py \
+            tests/test_gallery.py \
+            tests/test_model_viz.py \
+            -v --tb=short
+
+  # ── 语法检查（不含 torch 依赖）──────────────────────────────
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 语法检查
+        run: |
+          python -c "
+          import ast, sys, pathlib
+          errors = 0
+          for f in pathlib.Path('.').rglob('*.py'):
+              if '.git' in str(f) or '__pycache__' in str(f):
+                  continue
+              try:
+                  ast.parse(f.read_text(encoding='utf-8'))
+              except SyntaxError as e:
+                  print(f'SYNTAX ERROR: {f}: {e}')
+                  errors += 1
+          print(f'{errors} errors')
+          sys.exit(errors)
+          "

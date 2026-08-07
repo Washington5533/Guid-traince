@@ -21,6 +21,10 @@ from importlib import import_module
 
 from .config import resolve_secret
 
+from guardian.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 class AgentAdvisor:
     """decide() / narrate() / suggest() 统一入口。"""
@@ -150,6 +154,8 @@ class AgentAdvisor:
             return self._log_decision(decision_point, context, default_action,
                                        "timeout", latency_ms)
         except Exception:
+            logger.error("decide() 调用 LLM 失败，降级为规则默认动作 (decision_point=%s)",
+                         decision_point, exc_info=True)
             self._record_failure()
             latency_ms = (time.monotonic() - start) * 1000
             return self._log_decision(decision_point, context, default_action,
@@ -179,6 +185,7 @@ class AgentAdvisor:
             self._record_failure()
             return None
         except Exception:
+            logger.warning("narrate() 生成自然语言解读失败，返回 None", exc_info=True)
             self._record_failure()
             return None
         self._record_success()
@@ -200,6 +207,7 @@ class AgentAdvisor:
         try:
             return self._call_llm_suggest(kind, context, registry_snapshot)
         except Exception:
+            logger.warning("suggest() 生成注册表建议失败 (kind=%s)，返回 None", kind, exc_info=True)
             return None
 
     # --- 内部实现 ---------------------------------------------------------
@@ -241,6 +249,7 @@ class AgentAdvisor:
             obj = json.loads(text)
             return obj
         except (json.JSONDecodeError, ValueError):
+            # LLM 输出非 JSON 属预期情况，继续尝试后续解析策略
             pass
         # 尝试用 {} 包裹的 JSON 片段
         start = text.find("{")
@@ -249,6 +258,7 @@ class AgentAdvisor:
             try:
                 return json.loads(text[start:end + 1])
             except (json.JSONDecodeError, ValueError):
+                # 片段解析失败同样属预期情况，继续回退纯文本解析
                 pass
         # 回退：取第一行非空的纯文本作为动作名
         for line in text.splitlines():
@@ -337,7 +347,11 @@ class AgentAdvisor:
         api_key = self._get_api_key()
         if not api_key:
             raise RuntimeError("未配置 OPENAI_API_KEY 环境变量")
-        client = openai.OpenAI(api_key=api_key).with_options(
+        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        base_url = os.environ.get("OPENAI_BASE_URL")
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        client = openai.OpenAI(**client_kwargs).with_options(
             timeout=min(timeout, 60), max_retries=0,
         )
         response = client.chat.completions.create(
@@ -526,5 +540,6 @@ def _summarize_context(context: dict[str, Any], max_len: int = 200) -> str:
     try:
         text = ", ".join(f"{k}={v}" for k, v in context.items())
     except Exception:
+        logger.warning("上下文摘要生成失败，回退为 str(context)", exc_info=True)
         text = str(context)
     return text[:max_len]

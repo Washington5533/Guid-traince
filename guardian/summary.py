@@ -14,6 +14,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from guardian.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 class SummaryGenerator:
     def __init__(
@@ -167,6 +171,7 @@ class SummaryGenerator:
         try:
             return self.advisor.narrate(summary)
         except Exception:
+            logger.warning("生成 AI 自然语言解读失败，摘要中省略该字段", exc_info=True)
             return None      # 纯输出，失败只影响可读性
 
     # --- 输出 -------------------------------------------------------
@@ -250,7 +255,7 @@ class SummaryGenerator:
         return "\n".join(lines)
 
     def print_summary(self, summary: dict) -> None:
-        print(self.render(summary), flush=True)
+        logger.info("%s", self.render(summary))
 
     def save_summary(self, summary: dict, output_dir: str | Path) -> tuple[Path, Path]:
         out = Path(output_dir)

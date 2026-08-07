@@ -12,10 +12,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from guardian.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 # 项目配置模板
 PROJECT_TEMPLATE = {
@@ -132,6 +137,7 @@ class ProjectContext:
                 text = py_file.read_text(encoding="utf-8", errors="replace")
                 lines = text.splitlines()
             except Exception:
+                logger.warning("读取 Python 文件失败，跳过: %s", py_file, exc_info=True)
                 continue
 
             # 找 build_model / get_dataloaders 函数
@@ -212,7 +218,7 @@ class ProjectContext:
                     self.save()
                     return True
         except Exception:
-            pass
+            logger.warning("AI 补全项目配置失败，保持当前探测结果", exc_info=True)
 
         return False
 

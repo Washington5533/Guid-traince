@@ -18,6 +18,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from guardian.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 _CP_RE = re.compile(r"^cp_(\d+)$")
 
 
@@ -85,6 +89,7 @@ class CheckpointAnalyzer:
         try:
             fp = self._fingerprint(path)
         except OSError:
+            # 训练进程可能正在写 checkpoint，文件瞬时不可读属预期，静默跳过
             return False
         if not fp:
             return False
@@ -106,11 +111,13 @@ class CheckpointAnalyzer:
         try:
             import torch
         except ImportError:  # pragma: no cover
+            # torch 未安装时无法校验内容，视为已写完并跳过校验
             return True
         for cand in weights:
             try:
                 obj = torch.load(cand, map_location="cpu", weights_only=False)
             except Exception:
+                logger.warning("checkpoint 文件无法用 torch.load 加载，跳过: %s", cand, exc_info=True)
                 continue
             if isinstance(obj, dict) and all(k in obj for k in self.required_keys):
                 return True
@@ -171,6 +178,7 @@ class CheckpointAnalyzer:
             try:
                 shutil.rmtree(self.known[ep].path)
             except OSError:
+                # 删除失败即保留该 checkpoint，避免误删训练进程正在使用的文件
                 continue
             removed.append(ep)
             self.known.pop(ep, None)
@@ -208,6 +216,7 @@ class CheckpointAnalyzer:
                 if selected.get("task_type"):
                     metric_source["task_type"] = selected["task_type"]
             except Exception:
+                logger.warning("contract.select_metric() 失败，回退默认指标 val/accuracy", exc_info=True)
                 if not metric:
                     metric = "val/accuracy"
                 if higher_better is None:
@@ -238,4 +247,5 @@ def _read_metrics(path: Path) -> dict[str, Any]:
         data = json.loads(mpath.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (ValueError, OSError):
+        # 训练进程可能正在写 metrics.json，读取失败按无指标处理
         return {}

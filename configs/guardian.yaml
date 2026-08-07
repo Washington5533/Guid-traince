@@ -60,3 +60,20 @@ inference:
   scripts_dir: ./scripts
   default_batch_size: 32
   device: cuda
+
+# ---------------------------------------------------------------------------
+# 内部限制与日志（通常不需要改）
+# ---------------------------------------------------------------------------
+limits:
+  metrics_history_max: 2000
+  gpu_history_max: 500
+  log_lines_max: 2000
+  import_metrics_max: 100000
+  import_inline_metrics_max: 5000
+  stderr_tail_bytes: 2000
+  mcp_inspect_source_max_lines: 100
+
+logging:
+  level: INFO
+  # file: logs/guardian.log  # 取消注释以启用文件日志
+  # file_level: DEBUG

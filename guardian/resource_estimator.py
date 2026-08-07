@@ -14,6 +14,10 @@ import math
 import time
 from typing import Any
 
+from guardian.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 class ResourceEstimator:
     """训练前资源预估。"""
@@ -125,6 +129,7 @@ class ResourceEstimator:
                 torch.cuda.current_device()
             )
         except Exception:
+            logger.warning("torch.cuda.mem_get_info() 失败，回退 nvidia-smi / GPUtil 读取", exc_info=True)
             # 回退：用 nvidia-smi 或 GPUtil
             try:
                 import GPUtil
@@ -138,6 +143,7 @@ class ResourceEstimator:
                         "free_mem_gb": round(g.memoryFree / 1024, 1),
                     }
             except ImportError:
+                # GPUtil 为可选依赖，缺失时回退返回空显存信息
                 pass
             return {"available": True, "name": "CUDA GPU", "total_mem_gb": None,
                     "free_mem_gb": None, "note": "无法读取显存信息"}
@@ -199,6 +205,7 @@ class ResourceEstimator:
                 else:
                     results.append({"batch_size": bs, "error": str(exc)[:200]})
             except Exception as exc:
+                # 错误已记录进 results 条目（调用方可见），不再单独记日志
                 results.append({"batch_size": bs, "error": str(exc)[:200]})
             finally:
                 # 每次测量后清理，避免上一次的显存残留影响下一次
@@ -420,7 +427,7 @@ class ResourceEstimator:
             lines.append(f"  时间预估: 错误 — {tm['error']}")
 
         lines.append("=" * 56)
-        print("\n".join(lines), flush=True)
+        logger.info("%s", "\n".join(lines))
 
 
 # -----------------------------------------------------------------------

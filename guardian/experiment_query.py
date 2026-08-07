@@ -19,6 +19,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from guardian.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 # ---------------------------------------------------------------------------
 # 查询 DSL（AI 翻译目标格式，规则引擎执行）
@@ -93,6 +97,7 @@ class ExperimentQuery:
             try:
                 data = json.loads(fpath.read_text(encoding="utf-8"))
             except (ValueError, OSError):
+                # 损坏/不可读的 summary 文件属正常情况，静默跳过
                 continue
 
             training = data.get("training") or {}
@@ -176,7 +181,7 @@ class ExperimentQuery:
                             e["experiment_id"] = name_map[old]
                             e["_renamed_by"] = "agent"
             except Exception:
-                pass
+                logger.warning("实验重名 AI 批量命名失败，回退为时间戳后缀区分", exc_info=True)
 
         # 仍未区分的重复项：追加时间戳后缀
         for e in index:
@@ -223,6 +228,7 @@ class ExperimentQuery:
                     try:
                         return json.loads(Path(src).read_text(encoding="utf-8"))
                     except (ValueError, OSError):
+                        # 完整 JSON 加载失败时回退返回索引条目，静默跳过
                         pass
                 return e
         return None
@@ -264,7 +270,7 @@ class ExperimentQuery:
                     interpretation = raw.get("interpretation")
                     source = "agent"
             except Exception:
-                pass
+                logger.warning("AI 查询翻译失败，回退为模板查询", exc_info=True)
 
         # 回退：模板匹配
         if structured is None:
@@ -346,7 +352,7 @@ class ExperimentQuery:
                     "param_diffs": param_diffs,
                 })
             except Exception:
-                pass
+                logger.warning("AI 实验对比分析失败，analysis 字段将为空", exc_info=True)
 
         return {
             "experiment_a": {"id": id_a, "status": exp_a.get("status"), "duration": exp_a.get("duration")},
@@ -400,7 +406,7 @@ class ExperimentQuery:
                 if reasoning:
                     rec["reasoning"] = reasoning
             except Exception:
-                pass
+                logger.warning("AI 参数推荐推理失败，仅返回规则推荐结果", exc_info=True)
 
         return rec
 

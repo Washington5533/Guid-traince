@@ -1,0 +1,16 @@
+{
+  "process_id": "mnist-guardian",
+  "name": "MNIST Guardian Demo · 1000 Epochs",
+  "command": "guarftrain watch --agent --with-dashboard --with-mcp -- python train.py --epochs 1000",
+  "project_dir": "",
+  "status": "completed",
+  "registered_at": 1750000000.0,
+  "finished_at": 1750086400.0,
+  "config": {
+    "agent_enabled": true,
+    "mcp_enabled": true,
+    "dashboard_enabled": true
+  },
+  "model_entry": "train:build_model",
+  "log_file": "logs/train.log"
+}

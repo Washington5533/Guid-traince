@@ -1,0 +1,12 @@
+{"epoch": 48, "type": "loss_spike", "detail": "Loss 突增 +185%，当前 1.8500，窗口均值 0.6500", "severity": "warning", "response": {"action": "alert_only", "source": "rule_default", "restart": false}}
+{"epoch": 135, "type": "gpu_idle", "detail": "GPU 0 利用率持续偏低（14%，连续 6 次），可能存在数据加载瓶颈", "severity": "warning", "response": {"action": "alert_only", "source": "rule_default", "restart": false}}
+{"epoch": 198, "type": "oom_recovery", "detail": "OOM 崩溃，batch_size 从 64 降至 32，从 cp_197 恢复", "severity": "error", "response": {"action": "restart_with_lower_batch", "source": "rule_default", "restart": true}}
+{"epoch": 245, "type": "gpu_temp", "detail": "GPU 0 温度过高（89°C > 85°C）", "severity": "warning", "response": {"action": "alert_only", "source": "rule_default", "restart": false}}
+{"epoch": 298, "type": "agent_restart_lr", "detail": "Agent 检测到 loss 下降趋缓，决策：restart_with_lower_lr (ratio=0.5)，lr 0.0010 → 0.0005", "severity": "info", "response": {"action": "restart_with_lower_lr", "source": "agent", "restart": true, "param": {"ratio": 0.5}}}
+{"epoch": 350, "type": "loss_stagnation", "detail": "Loss 停滞 500 步，下降仅 0.000001", "severity": "warning", "response": {"action": "suggest_lr_increase", "source": "agent", "restart": false}}
+{"epoch": 445, "type": "crash_recovery", "detail": "训练进程被 kill -9，自动从 cp_444 续训，参数不变", "severity": "error", "response": {"action": "resume", "source": "rule_default", "restart": true}}
+{"epoch": 520, "type": "loss_spike", "detail": "Loss 突增 +320%，当前 0.8900，窗口均值 0.2100", "severity": "warning", "response": {"action": "alert_only", "source": "rule_default", "restart": false}}
+{"epoch": 598, "type": "agent_restart_lr", "detail": "Agent 二次决策：restart_with_lower_lr (ratio=0.2)，lr 0.000500 → 0.000100", "severity": "info", "response": {"action": "restart_with_lower_lr", "source": "agent", "restart": true, "param": {"ratio": 0.2}}}
+{"epoch": 684, "type": "gpu_idle", "detail": "GPU 0 利用率持续偏低（13%，连续 5 次），建议检查 DataLoader num_workers", "severity": "warning", "response": {"action": "ignore", "source": "agent", "restart": false}}
+{"epoch": 748, "type": "nan_inf", "detail": "loss 为 nan，回滚到 cp_747 并降 LR 到 0.000050", "severity": "error", "response": {"action": "rollback_to_last_ckpt", "source": "rule_default", "restart": true}}
+{"epoch": 795, "type": "code_error", "detail": "TypeError: unsupported operand type(s) for +: 'int' and 'str'，判定为不可恢复错误，停止重试", "severity": "error", "response": {"action": "stop", "source": "rule_default", "restart": false}}

@@ -1,0 +1,489 @@
+{
+  "experiment_id": "mnist-guardian",
+  "status": "completed",
+  "duration_seconds": 86400,
+  "duration": "24h 0m 0s",
+  "exit_code": 0,
+  "training": {
+    "total_epochs": 1000,
+    "final_loss": 0.0387,
+    "final_val_acc": 0.99,
+    "best_val_acc": 0.99,
+    "records": 1000
+  },
+  "anomaly_events": [
+    {
+      "epoch": 48,
+      "type": "loss_spike",
+      "detail": "Loss 突增 +185%，当前 1.8500，窗口均值 0.6500",
+      "severity": "warning",
+      "response": {
+        "action": "alert_only",
+        "source": "rule_default",
+        "restart": false
+      }
+    },
+    {
+      "epoch": 135,
+      "type": "gpu_idle",
+      "detail": "GPU 0 利用率持续偏低（14%，连续 6 次），可能存在数据加载瓶颈",
+      "severity": "warning",
+      "response": {
+        "action": "alert_only",
+        "source": "rule_default",
+        "restart": false
+      }
+    },
+    {
+      "epoch": 198,
+      "type": "oom_recovery",
+      "detail": "OOM 崩溃，batch_size 从 64 降至 32，从 cp_197 恢复",
+      "severity": "error",
+      "response": {
+        "action": "restart_with_lower_batch",
+        "source": "rule_default",
+        "restart": true
+      }
+    },
+    {
+      "epoch": 245,
+      "type": "gpu_temp",
+      "detail": "GPU 0 温度过高（89°C > 85°C）",
+      "severity": "warning",
+      "response": {
+        "action": "alert_only",
+        "source": "rule_default",
+        "restart": false
+      }
+    },
+    {
+      "epoch": 298,
+      "type": "agent_restart_lr",
+      "detail": "Agent 检测到 loss 下降趋缓，决策：restart_with_lower_lr (ratio=0.5)，lr 0.0010 → 0.0005",
+      "severity": "info",
+      "response": {
+        "action": "restart_with_lower_lr",
+        "source": "agent",
+        "restart": true,
+        "param": {
+          "ratio": 0.5
+        }
+      }
+    },
+    {
+      "epoch": 350,
+      "type": "loss_stagnation",
+      "detail": "Loss 停滞 500 步，下降仅 0.000001",
+      "severity": "warning",
+      "response": {
+        "action": "suggest_lr_increase",
+        "source": "agent",
+        "restart": false
+      }
+    },
+    {
+      "epoch": 445,
+      "type": "crash_recovery",
+      "detail": "训练进程被 kill -9，自动从 cp_444 续训，参数不变",
+      "severity": "error",
+      "response": {
+        "action": "resume",
+        "source": "rule_default",
+        "restart": true
+      }
+    },
+    {
+      "epoch": 520,
+      "type": "loss_spike",
+      "detail": "Loss 突增 +320%，当前 0.8900，窗口均值 0.2100",
+      "severity": "warning",
+      "response": {
+        "action": "alert_only",
+        "source": "rule_default",
+        "restart": false
+      }
+    },
+    {
+      "epoch": 598,
+      "type": "agent_restart_lr",
+      "detail": "Agent 二次决策：restart_with_lower_lr (ratio=0.2)，lr 0.000500 → 0.000100",
+      "severity": "info",
+      "response": {
+        "action": "restart_with_lower_lr",
+        "source": "agent",
+        "restart": true,
+        "param": {
+          "ratio": 0.2
+        }
+      }
+    },
+    {
+      "epoch": 684,
+      "type": "gpu_idle",
+      "detail": "GPU 0 利用率持续偏低（13%，连续 5 次），建议检查 DataLoader num_workers",
+      "severity": "warning",
+      "response": {
+        "action": "ignore",
+        "source": "agent",
+        "restart": false
+      }
+    },
+    {
+      "epoch": 748,
+      "type": "nan_inf",
+      "detail": "loss 为 nan，回滚到 cp_747 并降 LR 到 0.000050",
+      "severity": "error",
+      "response": {
+        "action": "rollback_to_last_ckpt",
+        "source": "rule_default",
+        "restart": true
+      }
+    },
+    {
+      "epoch": 795,
+      "type": "code_error",
+      "detail": "TypeError: unsupported operand type(s) for +: 'int' and 'str'，判定为不可恢复错误，停止重试",
+      "severity": "error",
+      "response": {
+        "action": "stop",
+        "source": "rule_default",
+        "restart": false
+      }
+    }
+  ],
+  "restarts": [
+    {
+      "epoch": 198,
+      "trigger": "oom",
+      "cmd_before": "--batch_size 64",
+      "cmd_after": "--batch_size 32",
+      "applied": {
+        "dataloader.batch_size": {
+          "from": 64,
+          "to": 32
+        }
+      },
+      "resumed_from": "cp_197",
+      "wasted_epochs": 1,
+      "success": true
+    },
+    {
+      "epoch": 298,
+      "trigger": "agent_decision",
+      "cmd_before": "--lr 0.001",
+      "cmd_after": "--lr 0.0005",
+      "applied": {
+        "optimizer.lr": {
+          "from": 0.001,
+          "to": 0.0005
+        }
+      },
+      "resumed_from": "cp_297",
+      "wasted_epochs": 1,
+      "success": true
+    },
+    {
+      "epoch": 445,
+      "trigger": "crash",
+      "cmd_before": "--batch_size 32 --lr 0.0005",
+      "cmd_after": "--batch_size 32 --lr 0.0005 --resume cp_444",
+      "applied": {},
+      "resumed_from": "cp_444",
+      "wasted_epochs": 1,
+      "success": true
+    },
+    {
+      "epoch": 598,
+      "trigger": "agent_decision",
+      "cmd_before": "--lr 0.0005",
+      "cmd_after": "--lr 0.0001",
+      "applied": {
+        "optimizer.lr": {
+          "from": 0.0005,
+          "to": 0.0001
+        }
+      },
+      "resumed_from": "cp_597",
+      "wasted_epochs": 1,
+      "success": true
+    },
+    {
+      "epoch": 748,
+      "trigger": "nan_inf",
+      "cmd_before": "--batch_size 32 --lr 0.0001",
+      "cmd_after": "--batch_size 32 --lr 5e-05 --resume cp_747",
+      "applied": {
+        "optimizer.lr": {
+          "from": 0.0001,
+          "to": 5e-05
+        }
+      },
+      "resumed_from": "cp_747",
+      "wasted_epochs": 1,
+      "success": true
+    }
+  ],
+  "checkpoints": {
+    "total": 20,
+    "latest": "cp_950",
+    "best": "cp_300",
+    "metric": "accuracy",
+    "metric_source": {
+      "name": "accuracy",
+      "direction": "max",
+      "source": "contract",
+      "task_type": "classification"
+    },
+    "checkpoints": [
+      {
+        "epoch": 0,
+        "path": "checkpoints/cp_0",
+        "metrics": {
+          "epoch": 0,
+          "train/loss": 2.2964,
+          "val/accuracy": 0.2912,
+          "lr": 0.001,
+          "batch_size": 64
+        }
+      },
+      {
+        "epoch": 50,
+        "path": "checkpoints/cp_50",
+        "metrics": {
+          "epoch": 50,
+          "train/loss": 1.2831,
+          "val/accuracy": 0.4897,
+          "lr": 0.001,
+          "batch_size": 64
+        }
+      },
+      {
+        "epoch": 100,
+        "path": "checkpoints/cp_100",
+        "metrics": {
+          "epoch": 100,
+          "train/loss": 0.6589,
+          "val/accuracy": 0.7172,
+          "lr": 0.001,
+          "batch_size": 64
+        }
+      },
+      {
+        "epoch": 150,
+        "path": "checkpoints/cp_150",
+        "metrics": {
+          "epoch": 150,
+          "train/loss": 0.3568,
+          "val/accuracy": 0.8596,
+          "lr": 0.001,
+          "batch_size": 64
+        }
+      },
+      {
+        "epoch": 200,
+        "path": "checkpoints/cp_200",
+        "metrics": {
+          "epoch": 200,
+          "train/loss": 0.2115,
+          "val/accuracy": 0.9531,
+          "lr": 0.001,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 250,
+        "path": "checkpoints/cp_250",
+        "metrics": {
+          "epoch": 250,
+          "train/loss": 0.1112,
+          "val/accuracy": 0.9782,
+          "lr": 0.001,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 300,
+        "path": "checkpoints/cp_300",
+        "metrics": {
+          "epoch": 300,
+          "train/loss": 0.0879,
+          "val/accuracy": 0.99,
+          "lr": 0.0005,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 350,
+        "path": "checkpoints/cp_350",
+        "metrics": {
+          "epoch": 350,
+          "train/loss": 0.0628,
+          "val/accuracy": 0.9848,
+          "lr": 0.0005,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 400,
+        "path": "checkpoints/cp_400",
+        "metrics": {
+          "epoch": 400,
+          "train/loss": 0.0393,
+          "val/accuracy": 0.989,
+          "lr": 0.0005,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 450,
+        "path": "checkpoints/cp_450",
+        "metrics": {
+          "epoch": 450,
+          "train/loss": 0.0512,
+          "val/accuracy": 0.99,
+          "lr": 0.0005,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 500,
+        "path": "checkpoints/cp_500",
+        "metrics": {
+          "epoch": 500,
+          "train/loss": 0.0406,
+          "val/accuracy": 0.99,
+          "lr": 0.0005,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 550,
+        "path": "checkpoints/cp_550",
+        "metrics": {
+          "epoch": 550,
+          "train/loss": 0.0442,
+          "val/accuracy": 0.99,
+          "lr": 0.0005,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 600,
+        "path": "checkpoints/cp_600",
+        "metrics": {
+          "epoch": 600,
+          "train/loss": 0.0397,
+          "val/accuracy": 0.99,
+          "lr": 0.0001,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 650,
+        "path": "checkpoints/cp_650",
+        "metrics": {
+          "epoch": 650,
+          "train/loss": 0.0304,
+          "val/accuracy": 0.99,
+          "lr": 0.0001,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 700,
+        "path": "checkpoints/cp_700",
+        "metrics": {
+          "epoch": 700,
+          "train/loss": 0.0416,
+          "val/accuracy": 0.99,
+          "lr": 0.0001,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 750,
+        "path": "checkpoints/cp_750",
+        "metrics": {
+          "epoch": 750,
+          "train/loss": 0.0456,
+          "val/accuracy": 0.99,
+          "lr": 5e-05,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 800,
+        "path": "checkpoints/cp_800",
+        "metrics": {
+          "epoch": 800,
+          "train/loss": 0.0433,
+          "val/accuracy": 0.99,
+          "lr": 5e-05,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 850,
+        "path": "checkpoints/cp_850",
+        "metrics": {
+          "epoch": 850,
+          "train/loss": 0.0417,
+          "val/accuracy": 0.99,
+          "lr": 5e-05,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 900,
+        "path": "checkpoints/cp_900",
+        "metrics": {
+          "epoch": 900,
+          "train/loss": 0.0425,
+          "val/accuracy": 0.99,
+          "lr": 5e-05,
+          "batch_size": 32
+        }
+      },
+      {
+        "epoch": 950,
+        "path": "checkpoints/cp_950",
+        "metrics": {
+          "epoch": 950,
+          "train/loss": 0.0605,
+          "val/accuracy": 0.9867,
+          "lr": 5e-05,
+          "batch_size": 32
+        }
+      }
+    ]
+  },
+  "resources": {
+    "gpu_util_avg": 78.5,
+    "gpu_hours": 24.0,
+    "gpu_mem_peak_mb": 8192,
+    "gpu_mem_peak_gb": 8.0,
+    "gpu_temp_avg": 68.5,
+    "gpu_temp_max": 89.0,
+    "gpu_count": 1,
+    "gpu_name": "NVIDIA RTX 4090"
+  },
+  "lr_schedule": [
+    {
+      "epoch": 0,
+      "lr": 0.001
+    },
+    {
+      "epoch": 300,
+      "lr": 0.0005
+    },
+    {
+      "epoch": 600,
+      "lr": 0.0001
+    },
+    {
+      "epoch": 750,
+      "lr": 5e-05
+    }
+  ],
+  "ai_narrative": "本次训练任务历时 24 小时完成 1000 epoch，经历了丰富的故障场景。\n\n训练初期（epoch 0-50），模型快速学习，loss 从 2.3 急剧下降至 0.65。epoch 48 时出现一次 loss_spike（突增 185%），规则判定为告警级别，未触发重启。epoch 130-140 期间 GPU 利用率下降至 14%，系统检测到 gpu_idle 并发出数据加载瓶颈告警。\n\n训练中期（epoch 198），发生 OOM 崩溃。Guardian 自动将 batch_size 从 64 降至 32，从 cp_197 恢复，损失 1 个 epoch 算力。epoch 245 GPU 温度飙升至 89C，触发温度告警（硬件安全不交给 Agent 决策）。\n\nepoch 298，Agent 分析 loss 曲线后主动决策 restart_with_lower_lr（ratio=0.5），lr 从 0.001 降至 0.0005。epoch 350 检测到 loss_stagnation（500 步仅下降 0.000001），Agent 建议 suggest_lr_increase 但未自动执行。\n\nepoch 445，训练进程意外被 kill -9。Watchdog 检测到崩溃后自动从 cp_444 续训，参数保持不变（kill 不是 OOM）。epoch 520 再次出现 loss_spike（+320%），系统告警。\n\nepoch 598，Agent 二次决策重启降 LR（ratio=0.2），lr 降至 0.0001。epoch 680 GPU 再次 idle，Agent 判定为 ignore。\n\nepoch 748 遭遇最严重故障 - loss 变为 NaN。系统立即回滚到 cp_747 并将 LR 减半至 0.00005。\n\nepoch 795，发生 TypeError 代码错误。Guardian 判定为不可恢复（code_error），停止重试，符合 S3 验收标准。虽然训练提前终止，但已产出 16 个 checkpoint，最佳 val_acc 在 epoch 750 达到。\n\n总结：本次训练充分展示了 Guardian 的故障处理能力：OOM 恢复（S1）、崩溃续训（S2）、代码错误不反复重启（S3）、batch 下限保护（S5）、Agent 智能决策、NaN 回滚、GPU 监控告警等全部核心场景。"
+}

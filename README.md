@@ -1,6 +1,6 @@
 # Training Guardian Agent · 训练守护智能体
 
-[![CI](https://github.com/user/guarftrain/actions/workflows/ci.yml/badge.svg)](https://github.com/user/guarftrain/actions/workflows/ci.yml)
+[![CI](https://github.com/Washington5533/guarftrain/actions/workflows/ci.yml/badge.svg)](https://github.com/Washington5533/guarftrain/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-0.2.0-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
@@ -48,7 +48,7 @@ guarftrain init && guarftrain watch -- python train.py --epochs 20
 pip install guarftrain
 
 # 方式 2: 从源码安装
-git clone https://github.com/user/guarftrain.git
+git clone https://github.com/Washington5533/guarftrain.git
 cd guarftrain
 pip install .
 

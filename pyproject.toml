@@ -75,10 +75,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/user/guarftrain"
-Documentation = "https://github.com/user/guarftrain/blob/main/README.md"
-Repository = "https://github.com/user/guarftrain"
-Issues = "https://github.com/user/guarftrain/issues"
+Homepage = "https://github.com/Washington5533/guarftrain"
+Documentation = "https://github.com/Washington5533/guarftrain/blob/main/README.md"
+Repository = "https://github.com/Washington5533/guarftrain"
+Issues = "https://github.com/Washington5533/guarftrain/issues"
 
 [project.scripts]
 guarftrain = "guardian.cli:main"

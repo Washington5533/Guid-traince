@@ -560,66 +560,74 @@ def _assign_paradigms(tree: dict) -> None:
 # ---------------------------------------------------------------------------
 
 _RENDER_HTML = """<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{model_name} — Model Architecture</title>
+<title>{model_name} - Model Architecture</title>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
+:root {{
+  --bg: #ffffff; --bg2: #f6f8fa; --bg3: #f3f4f6;
+  --border: #d0d7de; --border2: #d8dee4;
+  --text: #1f2328; --text2: #656d76; --text3: #8b949e;
+  --blue: #0969da; --green: #1a7f37; --red: #cf222e;
+  --orange: #bf8700; --purple: #8250df;
+  --radius: 6px; --font: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --mono: ui-monospace,SFMono-Regular,Consolas,monospace;
+}}
 *{{margin:0;padding:0;box-sizing:border-box}}
-body{{font-family:'Segoe UI',system-ui,sans-serif;background:#0f0a1a;color:#e8e0f0;overflow:hidden;height:100vh}}
-.header{{height:48px;background:linear-gradient(90deg,rgba(168,85,247,.12),rgba(6,182,212,.08));border-bottom:1px solid #2d2145;display:flex;align-items:center;padding:0 20px;justify-content:space-between}}
-.header h1{{font-size:15px;font-weight:700;background:linear-gradient(135deg,#a855f7,#06b6d4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}}
-.header-stats{{display:flex;gap:16px;font-size:12px;color:#8b7fa8}}
-.header-stats b{{color:#e8e0f0;font-weight:600}}
+body{{font-family:var(--font);background:var(--bg);color:var(--text);overflow:hidden;height:100vh}}
+.header{{height:48px;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;justify-content:space-between;box-shadow:0 1px 0 rgba(31,35,40,.04)}}
+.header h1{{font-size:15px;font-weight:600;color:var(--text)}}
+.header-stats{{display:flex;gap:16px;font-size:12px;color:var(--text2)}}
+.header-stats b{{color:var(--text);font-weight:600}}
 .main{{display:flex;height:calc(100vh - 48px)}}
-.sidebar{{width:280px;min-width:280px;background:#1a1128;border-right:1px solid #2d2145;padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:12px}}
+.sidebar{{width:260px;min-width:260px;background:var(--bg2);border-right:1px solid var(--border);padding:14px;overflow-y:auto;display:flex;flex-direction:column;gap:10px}}
 .sidebar::-webkit-scrollbar{{width:4px}}
-.sidebar::-webkit-scrollbar-thumb{{background:#2d2145;border-radius:2px}}
-.section-title{{font-size:11px;font-weight:600;color:#a855f7;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}}
-.sort-btns{{display:flex;gap:4px}}
-.sort-btn{{padding:4px 10px;font-size:11px;background:#241a35;border:1px solid #2d2145;border-radius:6px;color:#8b7fa8;cursor:pointer;transition:all .2s}}
-.sort-btn.active{{background:rgba(168,85,247,.15);border-color:#a855f7;color:#a855f7}}
-.sort-btn:hover{{border-color:#a855f7}}
-.filter-group{{display:flex;flex-direction:column;gap:4px}}
-.filter-group label{{font-size:11px;color:#8b7fa8}}
-.filter-group input[type=range]{{width:100%;accent-color:#a855f7;height:4px}}
-.filter-val{{font-size:11px;color:#a855f7;text-align:right}}
-.legend{{display:flex;flex-wrap:wrap;gap:8px;font-size:11px;color:#8b7fa8}}
-.legend-item{{display:inline-flex;align-items:center;gap:4px}}
-.legend-dot{{width:8px;height:8px;border-radius:2px}}
-.bn-card{{background:#241a35;border-radius:6px;padding:8px 10px;margin:4px 0;border-left:3px solid #f87171;font-size:11px;cursor:pointer;transition:all .2s}}
-.bn-card:hover{{border-left-color:#a855f7;background:#2d2145}}
-.bn-card.warning{{border-left-color:#a855f7}}
-.bn-card.info{{border-left-color:#06b6d4}}
-.bn-card .nm{{font-weight:600;color:#e8e0f0;word-break:break-all}}
-.bn-card .pct{{color:#8b7fa8;margin-top:2px}}
-.backbone-area{{flex:1;overflow:auto;position:relative;background:#0f0a1a}}
+.sidebar::-webkit-scrollbar-thumb{{background:var(--border);border-radius:2px}}
+.section-title{{font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}}
+.sort-btns{{display:flex;gap:3px}}
+.sort-btn{{padding:3px 8px;font-size:11px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text2);cursor:pointer;transition:all .15s}}
+.sort-btn.active{{background:var(--blue);border-color:var(--blue);color:#fff}}
+.sort-btn:hover{{border-color:var(--blue)}}
+.filter-group{{display:flex;flex-direction:column;gap:3px}}
+.filter-group label{{font-size:10px;color:var(--text2)}}
+.filter-group input[type=range]{{width:100%;accent-color:var(--blue);height:3px}}
+.filter-val{{font-size:10px;color:var(--blue);text-align:right}}
+.legend{{display:flex;flex-wrap:wrap;gap:6px;font-size:10px;color:var(--text2)}}
+.legend-item{{display:inline-flex;align-items:center;gap:3px}}
+.legend-dot{{width:6px;height:6px;border-radius:2px}}
+.bn-card{{background:var(--bg);border-radius:4px;padding:6px 8px;margin:3px 0;border-left:3px solid var(--red);font-size:10px;cursor:pointer;transition:all .15s;border:1px solid var(--border2);border-left-width:3px}}
+.bn-card:hover{{border-left-color:var(--blue)}}
+.bn-card.warning{{border-left-color:var(--orange)}}
+.bn-card.info{{border-left-color:var(--blue)}}
+.bn-card .nm{{font-weight:600;color:var(--text);word-break:break-all;font-size:11px}}
+.bn-card .pct{{color:var(--text2);margin-top:1px}}
+.backbone-area{{flex:1;overflow:auto;position:relative;background:var(--bg)}}
 .backbone-area svg{{width:100%;height:100%}}
-.detail-panel{{width:0;overflow:hidden;background:rgba(26,17,40,.95);border-left:1px solid #2d2145;transition:width .3s;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}}
-.detail-panel.open{{width:360px;min-width:360px}}
-.dp-inner{{padding:16px;width:360px;height:100%;overflow-y:auto}}
+.detail-panel{{width:0;overflow:hidden;background:var(--bg);border-left:1px solid var(--border);transition:width .25s}}
+.detail-panel.open{{width:340px;min-width:340px}}
+.dp-inner{{padding:14px;width:340px;height:100%;overflow-y:auto}}
 .dp-inner::-webkit-scrollbar{{width:4px}}
-.dp-inner::-webkit-scrollbar-thumb{{background:#2d2145;border-radius:2px}}
-.dp-head{{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}}
-.dp-title{{font-size:14px;font-weight:700;color:#e8e0f0}}
-.dp-close{{width:28px;height:28px;border-radius:6px;border:1px solid #2d2145;background:0 0;color:#8b7fa8;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .2s}}
-.dp-close:hover{{background:#241a35;color:#e8e0f0}}
-.dp-badge{{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(168,85,247,.15);color:#a855f7;margin-left:8px}}
-.dp-stat{{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(45,33,69,.5);font-size:12px}}
-.dp-stat .k{{color:#8b7fa8}}.dp-stat .v{{color:#e8e0f0;font-weight:600}}
-.dp-bar{{height:4px;border-radius:2px;background:#241a35;margin:4px 0 8px;overflow:hidden}}
+.dp-inner::-webkit-scrollbar-thumb{{background:var(--border);border-radius:2px}}
+.dp-head{{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}}
+.dp-title{{font-size:13px;font-weight:700;color:var(--text)}}
+.dp-close{{width:24px;height:24px;border-radius:4px;border:1px solid var(--border);background:none;color:var(--text2);cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center}}
+.dp-close:hover{{background:var(--bg2)}}
+.dp-badge{{display:inline-block;padding:1px 6px;border-radius:2em;font-size:10px;font-weight:600;background:#ddf4ff;color:var(--blue);margin-left:6px}}
+.dp-stat{{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #f0f0f0;font-size:11px}}
+.dp-stat .k{{color:var(--text2)}}.dp-stat .v{{color:var(--text);font-weight:600}}
+.dp-bar{{height:3px;border-radius:2px;background:var(--bg3);margin:3px 0 6px;overflow:hidden}}
 .dp-bar-fill{{height:100%;border-radius:2px;transition:width .3s}}
-.dp-sub{{margin-top:12px}}.dp-sub h4{{font-size:12px;color:#a855f7;margin-bottom:8px;font-weight:600}}
-.dp-viz{{width:100%;height:260px;border:1px solid #2d2145;border-radius:8px;background:#0f0a1a;overflow:hidden;margin-top:8px}}
-.dp-viz svg{{width:100%;height:100%}}
-.dp-imp{{margin-top:10px;padding:8px 10px;background:#241a35;border-radius:6px;border-left:3px solid #fbbf24;font-size:11px;color:#8b7fa8;line-height:1.6}}
-.dp-imp b{{color:#fbbf24}}
-.tooltip{{position:absolute;padding:10px 14px;background:rgba(36,26,53,.92);border:1px solid rgba(168,85,247,.3);border-radius:8px;font-size:11px;color:#e8e0f0;pointer-events:none;opacity:0;transition:opacity .15s;max-width:280px;z-index:100;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 4px 20px rgba(0,0,0,.3);line-height:1.6}}
-.tooltip b{{color:#a855f7}}
-.empty-state{{text-align:center;padding:40px 20px;color:#5a4f73;font-size:13px}}
-@media(max-width:768px){{.sidebar{{width:100%;min-width:unset;max-height:140px;border-right:none;border-bottom:1px solid #2d2145}}.main{{flex-direction:column}}.detail-panel.open{{width:100%;min-width:unset;position:absolute;right:0;top:0;height:100%;z-index:50}}}}
+.dp-sub{{margin-top:10px}}.dp-sub h4{{font-size:11px;color:var(--text);margin-bottom:6px;font-weight:600}}
+.dp-viz{{width:100%;height:240px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg2);overflow:hidden;margin-top:6px}}
+.dp-imp{{margin-top:8px;padding:7px 8px;background:#fff8c5;border-radius:4px;border-left:3px solid var(--orange);font-size:10px;color:var(--text2);line-height:1.5}}
+.dp-imp b{{color:var(--orange)}}
+.tooltip{{position:absolute;padding:8px 12px;background:#fff;border:1px solid var(--border);border-radius:6px;font-size:11px;color:var(--text);pointer-events:none;opacity:0;transition:opacity .12s;max-width:260px;z-index:100;box-shadow:0 3px 12px rgba(140,149,159,.2);line-height:1.5}}
+.tooltip b{{color:var(--blue)}}
+.empty-state{{text-align:center;padding:30px;color:var(--text3);font-size:12px}}
+@media(max-width:768px){{.sidebar{{width:100%;min-width:unset;max-height:120px;border-right:none;border-bottom:1px solid var(--border)}}.main{{flex-direction:column}}.detail-panel.open{{width:100%;min-width:unset;position:absolute;right:0;top:0;height:100%;z-index:50}}}}
 </style>
 </head>
 <body>
@@ -645,9 +653,9 @@ body{{font-family:'Segoe UI',system-ui,sans-serif;background:#0f0a1a;color:#e8e0
     </div>
     <div><div class="section-title">Legend</div>
       <div class="legend">
-        <span class="legend-item"><span class="legend-dot" style="background:#34d399"></span>Low</span>
-        <span class="legend-item"><span class="legend-dot" style="background:#a855f7"></span>Mid</span>
-        <span class="legend-item"><span class="legend-dot" style="background:#f87171"></span>High</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#1a7f37"></span>Low</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#8250df"></span>Mid</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#cf222e"></span>High</span>
       </div></div>
     <div><div class="section-title">Bottlenecks</div><div id="bn-list"></div></div>
   </div>
@@ -661,82 +669,74 @@ const bottlenecks = {bottlenecks_json};
 const improvements = {improvements_json};
 const colorBy = "{color_by}";
 
-// --- Utilities ---
 const fp = p => !p ? "0" : p >= 1e6 ? (p/1e6).toFixed(1)+"M" : p >= 1e3 ? (p/1e3).toFixed(0)+"K" : ""+p;
 const ff = f => !f ? "" : f >= 1e6 ? (f/1e6).toFixed(1)+"M" : f >= 1e3 ? (f/1e3).toFixed(0)+"K" : ""+f;
-const pn = {{tree:"🌳",mesh:"🕸",treemap:"📊",pipeline:"🔄",blocks:"🧱"}};
-const pl = {{tree:"Tree",mesh:"Mesh",treemap:"Treemap",pipeline:"Pipeline",blocks:"Blocks"}};
+const pn = {{tree:"Tree",mesh:"Mesh",treemap:"Treemap",pipeline:"Pipeline",blocks:"Blocks"}};
 const tip = document.getElementById("tooltip");
 function showTip(e,h){{tip.innerHTML=h;tip.style.opacity=1;tip.style.left=(e.pageX+12)+"px";tip.style.top=(e.pageY-10)+"px"}}
 function hideTip(){{tip.style.opacity=0}}
 const bbNodes = treeData.children || [];
 const maxP = Math.max(1,...bbNodes.map(n=>n.params||0));
 const maxF = Math.max(1,...bbNodes.map(n=>n.flops||0));
-const cP = d3.scaleLinear().domain([0,maxP]).range(["#a855f7","#f87171"]);
-const cF = d3.scaleLinear().domain([0,maxF]).range(["#06b6d4","#fbbf24"]);
+const cLo = "#1a7f37", cMid = "#8250df", cHi = "#cf222e";
+function cP(v){{const r=v/maxP;return r<0.25?cLo:r<0.5?cMid:cHi}}
+function cF(v){{const r=v/maxF;return r<0.25?"#0969da":r<0.5?"#8250df":"#bf8700"}}
 const sortOrd = {{default:bbNodes.map((_,i)=>i),params:[...bbNodes].sort((a,b)=>(b.params||0)-(a.params||0)).map(n=>bbNodes.indexOf(n)),flops:[...bbNodes].sort((a,b)=>(b.flops||0)-(a.flops||0)).map(n=>bbNodes.indexOf(n))}};
 let curSort="default",curFilter=0,selectedNode=null;
 
-// --- Bottleneck cards ---
 const bnL=document.getElementById("bn-list");
 bottlenecks.forEach(b=>{{const c=document.createElement("div");c.className="bn-card "+(b.severity||"info");c.innerHTML='<div class="nm">'+b.layer+'</div><div class="pct">P:'+(b.params_pct||0).toFixed(1)+'% | F:'+(b.flops_pct||0).toFixed(1)+'%</div>';c.onclick=()=>{{const n=bbNodes.find(x=>x.name===b.layer);if(n)openDetail(n)}};bnL.appendChild(c)}});
 if(!bottlenecks.length)bnL.innerHTML='<div class="empty-state">No bottlenecks</div>';
 
-// --- Backbone SVG ---
 function drawBB(){{
   const area=document.getElementById("bb-area"),svg=d3.select("#bb-svg");svg.selectAll("*").remove();
-  const n=bbNodes.length;if(!n){{svg.append("text").attr("x",200).attr("y",100).attr("fill","#5a4f73").attr("font-size",14).text("No model data");return}}
-  const nw=150,nh=80,gap=70,mx=80,my=60;
-  const tw=n*(nw+gap)-gap+mx*2,th=nh+my*2+40;
+  const n=bbNodes.length;if(!n){{svg.append("text").attr("x",200).attr("y",100).attr("fill","#656d76").attr("font-size",14).text("No model data");return}}
+  const nw=140,nh=72,gap=60,mx=60,my=50;
+  const tw=n*(nw+gap)-gap+mx*2,th=nh+my*2+30;
   const aw=area.clientWidth,ah=area.clientHeight;
   svg.attr("viewBox",[0,0,Math.max(tw,aw),Math.max(th,ah)]);
-  const defs=svg.append("defs");
-  const gr=defs.append("linearGradient").attr("id","lg").attr("x1","0%").attr("x2","100%");
-  gr.append("stop").attr("offset","0%").attr("stop-color","#a855f7");
-  gr.append("stop").attr("offset","100%").attr("stop-color","#06b6d4");
+  const gr=svg.append("defs").append("linearGradient").attr("id","lg").attr("x1","0%").attr("x2","100%");
+  gr.append("stop").attr("offset","0%").attr("stop-color","#0969da");
+  gr.append("stop").attr("offset","100%").attr("stop-color","#8250df");
   const gg=svg.append("g");
   const ord=sortOrd[curSort];
-  // Links
-  for(let i=0;i<n-1;i++){{const j=ord[i],k=ord[i+1];const x1=mx+j*(nw+gap)+nw,y=my+nh/2,x2=mx+k*(nw+gap),tk=Math.max(1,Math.min(6,((bbNodes[j].params||0)/maxP)*6));
-    gg.append("line").attr("x1",x1).attr("y1",y).attr("x2",x2).attr("y2",y).attr("stroke","#2d2145").attr("stroke-width",tk).attr("stroke-linecap","round");
-    gg.append("polygon").attr("points",`${{x2}},${{y}} ${{x2-6}},${{y-4}} ${{x2-6}},${{y+4}}`).attr("fill","#2d2145")}}
-  // Nodes
+  for(let i=0;i<n-1;i++){{const j=ord[i],k=ord[i+1];const x1=mx+j*(nw+gap)+nw,y=my+nh/2,x2=mx+k*(nw+gap),tk=Math.max(1,Math.min(5,((bbNodes[j].params||0)/maxP)*5));
+    gg.append("line").attr("x1",x1).attr("y1",y).attr("x2",x2).attr("y2",y).attr("stroke","#d0d7de").attr("stroke-width",tk).attr("stroke-linecap","round");
+    gg.append("polygon").attr("points",`${{x2}},${{y}} ${{x2-5}},${{y-3}} ${{x2-5}},${{y+3}}`).attr("fill","#d0d7de")}}
   bbNodes.forEach((nd,i)=>{{
     const oi=ord.indexOf(i),x=mx+oi*(nw+gap),y=my;
     const pctP=(nd.params||0)/maxP,pctF=(nd.flops||0)/maxF;
     const isBelow=curFilter>0&&pctP*100<curFilter;
-    const g=gg.append("g").attr("transform",`translate(${{x}},${{y}})`).style("opacity",isBelow?0.1:1).style("cursor","pointer")
+    const g=gg.append("g").attr("transform",`translate(${{x}},${{y}})`).style("opacity",isBelow?0.08:1).style("cursor","pointer")
       .on("click",()=>openDetail(nd))
       .on("mouseenter",(ev)=>showTip(ev,`<b>${{nd.name}}</b><br>${{nd.type||""}} ${{nd.repeat>1?"x"+nd.repeat:""}}<br>Params: ${{fp(nd.params)}} (${{(nd.params_pct||0).toFixed(1)}}%)<br>FLOPs: ${{ff(nd.flops)}}`))
       .on("mouseleave",hideTip).on("mousemove",(ev)=>{{tip.style.left=(ev.pageX+12)+"px";tip.style.top=(ev.pageY-10)+"px"}});
-    g.append("rect").attr("width",nw).attr("height",nh).attr("rx",10).attr("fill","#1a1128").attr("stroke","#2d2145").attr("stroke-width",1.5);
-    g.append("rect").attr("width",nw).attr("height",3).attr("rx",1.5).attr("fill","url(#lg)");
+    g.append("rect").attr("width",nw).attr("height",nh).attr("rx",8).attr("fill","#fff").attr("stroke","#d0d7de").attr("stroke-width",1);
+    g.append("rect").attr("width",nw).attr("height",2).attr("rx",1).attr("fill","url(#lg)");
     const lbl=nd.name.split(".").pop();
-    g.append("text").attr("x",nw/2).attr("y",22).attr("text-anchor","middle").attr("fill","#e8e0f0").attr("font-size",11).attr("font-weight",600).text(lbl.length>16?lbl.slice(0,14)+"..":lbl);
-    g.append("text").attr("x",nw/2).attr("y",35).attr("text-anchor","middle").attr("fill","#8b7fa8").attr("font-size",9).text((nd.type||"")+(nd.repeat>1?" x"+nd.repeat:""));
-    g.append("rect").attr("x",10).attr("y",42).attr("width",nw-20).attr("height",3).attr("rx",1.5).attr("fill","#241a35");
-    g.append("rect").attr("x",10).attr("y",42).attr("width",Math.max(2,(nw-20)*pctP)).attr("height",3).attr("rx",1.5).attr("fill",cP(nd.params||0));
-    g.append("rect").attr("x",10).attr("y",49).attr("width",nw-20).attr("height",3).attr("rx",1.5).attr("fill","#241a35");
-    g.append("rect").attr("x",10).attr("y",49).attr("width",Math.max(2,(nw-20)*pctF)).attr("height",3).attr("rx",1.5).attr("fill",cF(nd.flops||0));
-    g.append("text").attr("x",8).attr("y",66).attr("fill","#8b7fa8").attr("font-size",9).text(fp(nd.params)+" params");
-    g.append("text").attr("x",nw-8).attr("y",66).attr("text-anchor","end").attr("fill","#fbbf24").attr("font-size",8).text(ff(nd.flops));
-    g.append("text").attr("x",nw/2).attr("y",77).attr("text-anchor","middle").attr("fill","#a855f7").attr("font-size",9).text((pn[nd.paradigm]||"")+" "+(pl[nd.paradigm]||""));
+    g.append("text").attr("x",nw/2).attr("y",20).attr("text-anchor","middle").attr("fill","#1f2328").attr("font-size",10).attr("font-weight",600).text(lbl.length>16?lbl.slice(0,14)+"..":lbl);
+    g.append("text").attr("x",nw/2).attr("y",32).attr("text-anchor","middle").attr("fill","#656d76").attr("font-size",8).text((nd.type||"")+(nd.repeat>1?" x"+nd.repeat:""));
+    g.append("rect").attr("x",8).attr("y",38).attr("width",nw-16).attr("height",3).attr("rx",1.5).attr("fill","#f3f4f6");
+    g.append("rect").attr("x",8).attr("y",38).attr("width",Math.max(2,(nw-16)*pctP)).attr("height",3).attr("rx",1.5).attr("fill",cP(nd.params||0));
+    g.append("rect").attr("x",8).attr("y",44).attr("width",nw-16).attr("height",3).attr("rx",1.5).attr("fill","#f3f4f6");
+    g.append("rect").attr("x",8).attr("y",44).attr("width",Math.max(2,(nw-16)*pctF)).attr("height",3).attr("rx",1.5).attr("fill",cF(nd.flops||0));
+    g.append("text").attr("x",6).attr("y",58).attr("fill","#656d76").attr("font-size",8).text(fp(nd.params)+" p");
+    g.append("text").attr("x",nw-6).attr("y",58).attr("text-anchor","end").attr("fill","#bf8700").attr("font-size",7).text(ff(nd.flops));
+    g.append("text").attr("x",nw/2).attr("y",68).attr("text-anchor","middle").attr("fill","#0969da").attr("font-size",8).text(pn[nd.paradigm]||"Tree");
   }});
   svg.call(d3.zoom().scaleExtent([0.3,3]).on("zoom",e=>gg.attr("transform",e.transform)))
 }}
 drawBB();
 
-// --- Interactions ---
 function sortBy(s){{curSort=s;document.querySelectorAll(".sort-btn").forEach(b=>b.classList.toggle("active",b.dataset.sort===s));drawBB()}}
 function filterNodes(v){{curFilter=+v;document.getElementById("fv").textContent=v+"%";drawBB()}}
 
-// --- Detail Panel ---
 function openDetail(nd){{
   selectedNode=nd;const dp=document.getElementById("dp"),inner=document.getElementById("dp-inner");
   dp.classList.add("open");
   const pp=(nd.params_pct||0),fpp=(nd.flops||0)/Math.max(1,maxF)*100;
-  let h='<div class="dp-head"><div class="dp-title">'+nd.name.split(".").pop()+'<span class="dp-badge">'+(pl[nd.paradigm]||"Tree")+"</span></div>";
-  h+='<button class="dp-close" onclick="closeDetail()">\u2715</button></div>';
+  let h='<div class="dp-head"><div class="dp-title">'+nd.name.split(".").pop()+'<span class="dp-badge">'+(pn[nd.paradigm]||"Tree")+"</span></div>";
+  h+='<button class="dp-close" onclick="closeDetail()">x</button></div>';
   h+='<div class="dp-stat"><span class="k">Type</span><span class="v">'+(nd.type||"?")+"</span></div>";
   if(nd.repeat>1)h+='<div class="dp-stat"><span class="k">Repeat</span><span class="v">x'+nd.repeat+"</span></div>";
   h+='<div class="dp-stat"><span class="k">Parameters</span><span class="v">'+fp(nd.params)+" ("+pp.toFixed(1)+"%)</span></div>";
@@ -745,13 +745,12 @@ function openDetail(nd){{
   h+='<div class="dp-bar"><div class="dp-bar-fill" style="width:'+fpp+"%;background:"+cF(nd.flops||0)+'"></div></div>';
   if((nd.children&&nd.children.length)||(nd.repeat&&nd.repeat>1)){{h+='<div class="dp-sub"><h4>'+(nd.repeat>1?'Repeated x'+nd.repeat:'Sub-structure ('+nd.children.length+' children)')+'</h4><div class="dp-viz" id="dp-viz"></div></div>'}}
   const imp=improvements.find(x=>x.layer===nd.name);
-  if(imp){{h+='<div class="dp-imp"><b>Improvement:</b> '+(imp.ai_suggestion||imp.matched_components?.[0]?.description||"Consider optimizing this layer")+"</div>"}}
+  if(imp){{h+='<div class="dp-imp"><b>Suggestion:</b> '+(imp.ai_suggestion||imp.matched_components?.[0]?.description||"Consider optimizing this layer")+"</div>"}}
   inner.innerHTML=h;
   if((nd.children&&nd.children.length)||(nd.repeat&&nd.repeat>1))setTimeout(()=>renderPV(document.getElementById("dp-viz"),nd),50)
 }}
 function closeDetail(){{document.getElementById("dp").classList.remove("open");selectedNode=null}}
 
-// --- Paradigm Renderers ---
 function renderPV(el,nd){{
   const r=({{tree:rTree,mesh:rMesh,treemap:rTmap,pipeline:rPipe,blocks:rBlocks}})[nd.paradigm]||rTree;
   r(el,nd)
@@ -761,60 +760,60 @@ function rTree(el,nd){{
   const root=d3.hierarchy(nd);d3.tree().size([h-20,w/2-40])(root);
   const g=svg.append("g").attr("transform","translate("+(w/4)+",10)");
   const mp=Math.max(1,...root.descendants().map(d=>d.data.params||0));
-  const cs=d3.scaleLinear().domain([0,mp]).range(["#a855f7","#f87171"]);
-  g.selectAll("path").data(root.links()).join("path").attr("fill","none").attr("stroke","#2d2145").attr("stroke-width",1.5)
+  const cs=d3.scaleLinear().domain([0,mp]).range(["#0969da","#cf222e"]);
+  g.selectAll("path").data(root.links()).join("path").attr("fill","none").attr("stroke","#d0d7de").attr("stroke-width",1.5)
     .attr("d",d=>`M${{d.source.y}},${{d.source.x}}C${{(d.source.y+d.target.y)/2}},${{d.source.x}} ${{(d.source.y+d.target.y)/2}},${{d.target.x}} ${{d.target.y}},${{d.target.x}}`);
   const ns=g.selectAll("g").data(root.descendants()).join("g").attr("transform",d=>`translate(${{d.y}},${{d.x}})`);
   ns.append("circle").attr("r",d=>Math.max(2,Math.min(8,Math.sqrt((d.data.params||0)/mp)*10))).attr("fill",d=>cs(d.data.params||0));
-  ns.append("text").attr("dy","0.35em").attr("x",d=>d.children?-8:8).attr("text-anchor",d=>d.children?"end":"start").attr("fill","#8b7fa8").attr("font-size",8).text(d=>{{let n=d.data.name.split(".").pop();return n.length>12?n.slice(0,10)+"..":n}})
+  ns.append("text").attr("dy","0.35em").attr("x",d=>d.children?-8:8).attr("text-anchor",d=>d.children?"end":"start").attr("fill","#656d76").attr("font-size",8).text(d=>{{let n=d.data.name.split(".").pop();return n.length>12?n.slice(0,10)+"..":n}})
 }}
 function rMesh(el,nd){{
   const w=el.clientWidth,h=el.clientHeight,svg=d3.select(el).append("svg").attr("viewBox",[0,0,w,h]);
   const ch=(nd.children||[]).map((c,i)=>({{id:i,name:c.name.split(".").pop(),params:c.params||0,type:c.type||""}}));
   const links=[];for(let i=0;i<ch.length;i++)for(let j=i+1;j<ch.length;j++){{if(["attn","attention","query","key","value","qkv","cross","norm","linear","mlp","ffn"].some(k=>ch[i].name.toLowerCase().includes(k)&&ch[j].name.toLowerCase().includes(k)))links.push({{source:i,target:j}})}}
   const sim=d3.forceSimulation(ch).force("link",d3.forceLink(links).distance(40)).force("charge",d3.forceManyBody().strength(-60)).force("center",d3.forceCenter(w/2,h/2));
-  const mp=Math.max(1,...ch.map(c=>c.params));const cs=d3.scaleLinear().domain([0,mp]).range(["#a855f7","#f87171"]);
+  const mp=Math.max(1,...ch.map(c=>c.params));const cs=d3.scaleLinear().domain([0,mp]).range(["#0969da","#cf222e"]);
   const lg=svg.append("g"),ng=svg.append("g");
-  const ll=lg.selectAll("line").data(links).join("line").attr("stroke","#2d2145").attr("stroke-width",1);
+  const ll=lg.selectAll("line").data(links).join("line").attr("stroke","#d0d7de").attr("stroke-width",1);
   const nn=ng.selectAll("g").data(ch).join("g");
-  nn.append("circle").attr("r",d=>Math.max(4,Math.sqrt(d.params/mp)*12)).attr("fill",d=>cs(d.params)).attr("stroke","#2d2145");
-  nn.append("text").attr("dy",-10).attr("text-anchor","middle").attr("fill","#8b7fa8").attr("font-size",7).text(d=>d.name.length>10?d.name.slice(0,8)+"..":d.name);
-  sim.on("tick",()=>{{ll.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);nn.attr("transform",d=>`translate(${{d.x}},${{d.y}})`);
-  }});
+  nn.append("circle").attr("r",d=>Math.max(4,Math.sqrt(d.params/mp)*12)).attr("fill",d=>cs(d.params)).attr("stroke","#d0d7de");
+  nn.append("text").attr("dy",-10).attr("text-anchor","middle").attr("fill","#656d76").attr("font-size",7).text(d=>d.name.length>10?d.name.slice(0,8)+"..":d.name);
+  sim.on("tick",()=>{{ll.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);nn.attr("transform",d=>`translate(${{d.x}},${{d.y}})`);}});
 }}
 function rTmap(el,nd){{
   const w=el.clientWidth,h=el.clientHeight,svg=d3.select(el).append("svg").attr("viewBox",[0,0,w,h]);
   const ch=(nd.children||[]).length?nd.children:[nd];
   const root=d3.hierarchy({{name:nd.name,children:ch}}).sum(d=>d.params||1);
   d3.treemap().size([w,h]).padding(2)(root);
-  const mp=Math.max(1,...root.leaves().map(d=>d.value));const cs=d3.scaleLinear().domain([0,mp]).range(["#a855f7","#06b6d4"]);
+  const mp=Math.max(1,...root.leaves().map(d=>d.value));const cs=d3.scaleLinear().domain([0,mp]).range(["#0969da","#1a7f37"]);
   svg.selectAll("g").data(root.leaves()).join("g").attr("transform",d=>`translate(${{d.x0}},${{d.y0}})`)
-    .each(function(d){{const g=d3.select(this);g.append("rect").attr("width",d.x1-d.x0).attr("height",d.y1-d.y0).attr("fill",cs(d.value)).attr("rx",3).attr("opacity",.8).attr("stroke","#0f0a1a");
-    if(d.x1-d.x0>35)g.append("text").attr("x",3).attr("y",12).attr("fill","#fff").attr("font-size",8).text(d.data.name.split(".").pop().slice(0,8));
-    if(d.x1-d.x0>35&&d.y1-d.y0>22)g.append("text").attr("x",3).attr("y",22).attr("fill","rgba(255,255,255,.6)").attr("font-size",7).text(fp(d.value))}})
+    .each(function(d){{const g=d3.select(this);g.append("rect").attr("width",d.x1-d.x0).attr("height",d.y1-d.y0).attr("fill",cs(d.value)).attr("rx",2).attr("opacity",.85).attr("stroke","#fff");
+    if(d.x1-d.x0>30)g.append("text").attr("x",2).attr("y",10).attr("fill","#fff").attr("font-size",7).text(d.data.name.split(".").pop().slice(0,8));
+    if(d.x1-d.x0>30&&d.y1-d.y0>20)g.append("text").attr("x",2).attr("y",20).attr("fill","rgba(255,255,255,.7)").attr("font-size",6).text(fp(d.value))}})
 }}
 function rPipe(el,nd){{
   const w=el.clientWidth,h=el.clientHeight,svg=d3.select(el).append("svg").attr("viewBox",[0,0,w,h]);
-  const ch=nd.children||[nd];const n=ch.length,bw=Math.min(60,(w-40)/n-8),bh=36,mx=20,cy=h/2;
-  const mp=Math.max(1,...ch.map(c=>c.params||0));const cs=d3.scaleLinear().domain([0,mp]).range(["#a855f7","#f87171"]);
-  ch.forEach((c,i)=>{{const x=mx+i*(bw+8);
-    if(i<n-1){{svg.append("line").attr("x1",x+bw).attr("y1",cy).attr("x2",x+bw+8).attr("y2",cy).attr("stroke","#2d2145").attr("stroke-width",2);svg.append("polygon").attr("points",`${{x+bw+8}},${{cy}} ${{x+bw+4}},${{cy-3}} ${{x+bw+4}},${{cy+3}}`).attr("fill","#2d2145")}}
+  const ch=nd.children||[nd];const n=ch.length,bw=Math.min(55,(w-30)/n-6),bh=30,mx=15,cy=h/2;
+  const mp=Math.max(1,...ch.map(c=>c.params||0));const cs=d3.scaleLinear().domain([0,mp]).range(["#0969da","#cf222e"]);
+  ch.forEach((c,i)=>{{const x=mx+i*(bw+6);
+    if(i<n-1){{svg.append("line").attr("x1",x+bw).attr("y1",cy).attr("x2",x+bw+6).attr("y2",cy).attr("stroke","#d0d7de").attr("stroke-width",2);svg.append("polygon").attr("points",`${{x+bw+6}},${{cy}} ${{x+bw+3}},${{cy-3}} ${{x+bw+3}},${{cy+3}}`).attr("fill","#d0d7de")}}
     const g=svg.append("g").attr("transform",`translate(${{x}},${{cy-bh/2}})`);
-    g.append("rect").attr("width",bw).attr("height",bh).attr("rx",6).attr("fill","#1a1128").attr("stroke",cs(c.params||0)).attr("stroke-width",1.5);
-    const nm=c.name.split(".").pop();g.append("text").attr("x",bw/2).attr("y",14).attr("text-anchor","middle").attr("fill","#e8e0f0").attr("font-size",7).text(nm.length>8?nm.slice(0,6)+"..":nm);
-    g.append("text").attr("x",bw/2).attr("y",26).attr("text-anchor","middle").attr("fill","#8b7fa8").attr("font-size",6).text(fp(c.params||0))
+    g.append("rect").attr("width",bw).attr("height",bh).attr("rx",4).attr("fill","#fff").attr("stroke",cs(c.params||0)).attr("stroke-width",1.5);
+    const nm=c.name.split(".").pop();g.append("text").attr("x",bw/2).attr("y",12).attr("text-anchor","middle").attr("fill","#1f2328").attr("font-size",7).text(nm.length>8?nm.slice(0,6)+"..":nm);
+    g.append("text").attr("x",bw/2).attr("y",22).attr("text-anchor","middle").attr("fill","#656d76").attr("font-size",6).text(fp(c.params||0))
   }})
 }}
 function rBlocks(el,nd){{
   const w=el.clientWidth,h=el.clientHeight,svg=d3.select(el).append("svg").attr("viewBox",[0,0,w,h]);
-  const rpt=nd.repeat||1,show=Math.min(rpt,6),cw=Math.min(80,w-40),ch2=28,sy=15;
-  const cs=d3.scaleLinear().domain([0,rpt]).range(["#a855f7","#06b6d4"]);
-  for(let i=0;i<show;i++){{const x=(w-cw)/2,y=sy+i*(ch2+4),op=1-i*0.06;
-    svg.append("rect").attr("x",x).attr("y",y).attr("width",cw).attr("height",ch2).attr("rx",6).attr("fill","#1a1128").attr("stroke",cs(i)).attr("stroke-width",1).attr("opacity",op);
-    svg.append("text").attr("x",x+cw/2).attr("y",y+ch2/2+4).attr("text-anchor","middle").attr("fill","#e8e0f0").attr("font-size",9).text(i===0?nd.name.split(".").pop():"Block "+i)
+  const rpt=nd.repeat||1,show=Math.min(rpt,6),cw=Math.min(70,w-30),ch2=24,sy=12;
+  const cs=d3.scaleLinear().domain([0,rpt]).range(["#0969da","#8250df"]);
+  for(let i=0;i<show;i++){{const x=(w-cw)/2,y=sy+i*(ch2+3),op=1-i*0.06;
+    svg.append("rect").attr("x",x).attr("y",y).attr("width",cw).attr("height",ch2).attr("rx",4).attr("fill","#fff").attr("stroke",cs(i)).attr("stroke-width",1).attr("opacity",op);
+    svg.append("text").attr("x",x+cw/2).attr("y",y+ch2/2+3).attr("text-anchor","middle").attr("fill","#1f2328").attr("font-size",8).text(i===0?nd.name.split(".").pop():"Block "+i)
   }}
-  if(rpt>show)svg.append("text").attr("x",w/2).attr("y",sy+show*(ch2+4)+15).attr("text-anchor","middle").attr("fill","#8b7fa8").attr("font-size",10).text("... and "+(rpt-show)+" more (x"+rpt+" total)")
+  if(rpt>show)svg.append("text").attr("x",w/2).attr("y",sy+show*(ch2+3)+12).attr("text-anchor","middle").attr("fill","#656d76").attr("font-size",9).text("... and "+(rpt-show)+" more (x"+rpt+" total)")
 }}
 </script>
 </body>
-</html>"""
+</html>
+"""

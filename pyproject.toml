@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guarftrain"
+version = "0.2.0"
+description = "Training Guardian — sidecar training monitor with crash recovery, agent decisions, MCP & web dashboard"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Training Guardian Contributors" }
+]
+keywords = ["deep-learning", "training", "monitoring", "mcp", "mlops"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+requires-python = ">=3.9"
+
+# === Core dependencies (lightweight, no GPU required) ===
+dependencies = [
+    "pyyaml>=6.0",
+    "psutil>=5.9",
+    "GPUtil>=1.4",
+    "requests>=2.28",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# AI decision layer (LLM agent)
+agent = [
+    "anthropic>=0.40",
+]
+# Alternative: openai
+agent-openai = [
+    "openai>=1.50",
+]
+
+# MCP server (external agent access)
+mcp = [
+    "mcp>=1.0",
+]
+
+# Web dashboard
+dashboard = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.23",
+]
+
+# Model visualization & inference (needs PyTorch)
+viz = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+]
+
+# Everything: training + dashboard + mcp + agent + viz
+full = [
+    "guarftrain[agent,dashboard,mcp,viz]",
+]
+
+# Development & testing
+dev = [
+    "guarftrain[full]",
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/user/guarftrain"
+Documentation = "https://github.com/user/guarftrain/blob/main/README.md"
+Repository = "https://github.com/user/guarftrain"
+Issues = "https://github.com/user/guarftrain/issues"
+
+[project.scripts]
+guarftrain = "guardian.cli:main"
+
+[tool.setuptools]
+packages = ["guardian", "guardian.dashboard"]
+
+[tool.setuptools.package-data]
+guardian = ["dashboard/static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

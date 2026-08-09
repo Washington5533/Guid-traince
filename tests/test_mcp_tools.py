@@ -63,8 +63,10 @@ class TestToolCounts:
     def test_total_tools(self):
         total = (len(READONLY_TOOLS) + len(READONLY_TOOLS_V2) +
                  len(WRITE_TOOLS) + len(WRITE_TOOLS_V2))
-        # trigger_full_validate 已从 WRITE_TOOLS 移除（未实现），共 27 个可用工具
-        assert total == 27
+        # trigger_full_validate 已移除，
+        # 新增 get_post_training_checklist + get_training_log +
+        # get_pending_decisions + resolve_decision
+        assert total == 31
 
     def test_readonly_tool_names_unique(self):
         all_names = [t["name"] for t in READONLY_TOOLS + READONLY_TOOLS_V2 +

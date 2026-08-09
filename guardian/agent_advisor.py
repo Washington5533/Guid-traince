@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from typing import Any
 
@@ -47,20 +48,28 @@ class AgentAdvisor:
         # 彼此的调用方（完整校验表"并发调用安全"）。
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="advisor")
 
-        # MCP 让位机制：外部 Claude Code 接入时，内置 agent 让出决策权
-        self.delegate_to_mcp: bool = False
+        # MCP 让位机制：外部 Claude Code 接入时，内置 agent 进入"临时决策"模式
+        # autonomous = 自主决策（无 MCP 客户端）
+        # provisional = 临时决策（MCP 客户端在线，决策仍然执行但可被覆盖）
+        self._mode: str = "autonomous"
         self._delegation_since: float | None = None
+
+        # 待处理决策队列（provisional 模式下由 MCP server 暴露给外部 agent）
+        self.pending_decisions: list[dict[str, Any]] = []
+        self._max_pending = int(self.cfg.get("max_pending_decisions", 200))
 
     # --- 开关状态 -----------------------------------------------------
 
     def is_enabled(self, decision_point: str | None = None) -> bool:
-        """配置检查 + 熔断状态 + 单点开关 + MCP 让位。"""
+        """配置检查 + 熔断状态 + 单点开关。
+
+        MCP 模式下不再完全让位：agent 继续决策，但标记为 provisional
+        （可被外部 agent 覆盖）。这样外部 agent 不在线时也不会丢失智能决策。
+        """
         if not self.enabled_cfg:
             return False
         if not self._has_credentials():
             return False
-        if self.delegate_to_mcp:
-            return False  # MCP 模式下 agent 让位
         if decision_point is not None and self.decision_points.get(decision_point, True) is False:
             return False
         if self._breaker_until is not None:
@@ -72,34 +81,57 @@ class AgentAdvisor:
         return True
 
     def set_delegated(self, mcp_active: bool) -> None:
-        """MCP 客户端接入/断开时切换让位状态。
+        """MCP 客户端接入/断开时切换模式。
 
-        mcp_active=True:  外部 Claude Code 决策，内置 agent 让位
-        mcp_active=False: 恢复自主决策
+        mcp_active=True:  外部 Claude Code 在线，agent 进入 provisional 模式。
+                          决策仍然执行，但标记为可被覆盖，并推入待处理队列。
+        mcp_active=False: 恢复自主决策，清空待处理队列中未被覆盖的条目。
         """
-        prev = self.delegate_to_mcp
-        self.delegate_to_mcp = mcp_active
-        if mcp_active and not prev:
+        prev_mode = self._mode
+        self._mode = "provisional" if mcp_active else "autonomous"
+
+        if mcp_active and prev_mode != "provisional":
             self._delegation_since = time.time()
             self.decision_log.append({
                 "decision_point": "mcp_delegation",
-                "action": "delegated",
+                "action": "provisional_mode",
                 "source": "system",
                 "latency_ms": 0,
                 "timestamp": self._delegation_since,
-                "context_summary": "MCP 客户端已连接，agent 决策权让位给外部 Claude Code",
+                "context_summary": "MCP 客户端已连接，agent 进入 provisional 模式（决策仍执行，可被覆盖）",
             })
-        elif not mcp_active and prev:
+        elif not mcp_active and prev_mode == "provisional":
             duration = (time.time() - (self._delegation_since or time.time()))
             self._delegation_since = None
+            # 清理未被覆盖的待处理决策
+            stale_count = sum(1 for d in self.pending_decisions if d["status"] == "pending")
+            if stale_count:
+                self.decision_log.append({
+                    "decision_point": "mcp_delegation",
+                    "action": "auto_approved",
+                    "source": "system",
+                    "latency_ms": 0,
+                    "timestamp": time.time(),
+                    "context_summary": f"MCP 客户端已断开，{stale_count} 条未覆盖的 provisional 决策自动转为 approved",
+                })
+            # 将所有 pending 的自动标记为 approved
+            for d in self.pending_decisions:
+                if d["status"] == "pending":
+                    d["status"] = "approved"
+                    d["resolved_at"] = time.time()
             self.decision_log.append({
                 "decision_point": "mcp_delegation",
-                "action": "resumed",
+                "action": "autonomous_mode",
                 "source": "system",
                 "latency_ms": 0,
                 "timestamp": time.time(),
                 "context_summary": f"MCP 客户端已断开，恢复自主决策（让位持续 {duration:.0f}s）",
             })
+
+    @property
+    def mode(self) -> str:
+        """当前决策模式：autonomous | provisional。"""
+        return self._mode
 
     def _has_credentials(self) -> bool:
         """有任一形式的 API 凭据即返回 True。
@@ -518,7 +550,14 @@ class AgentAdvisor:
         source: str,
         latency_ms: float,
     ) -> dict[str, Any]:
-        """记录每次决策：来源、耗时、上下文摘要。供 summary / MCP 工具查询。"""
+        """记录每次决策：来源、耗时、上下文摘要。供 summary / MCP 工具查询。
+
+        provisional 模式下：自动推入 pending_decisions 队列，标记为可被外部覆盖。
+        """
+        # 在 provisional 模式下，将 agent 来源改写为 agent_provisional
+        if source == "agent" and self._mode == "provisional":
+            source = "agent_provisional"
+
         entry = {
             "decision_point": decision_point,
             "action": chosen_action,
@@ -528,10 +567,160 @@ class AgentAdvisor:
             "context_summary": _summarize_context(context),
         }
         self.decision_log.append(entry)
+
+        # provisional 模式的决策推入待处理队列，供外部 agent 查阅/覆盖
+        if source == "agent_provisional":
+            pending = {
+                "id": f"pd_{uuid.uuid4().hex[:12]}",
+                "decision_point": decision_point,
+                "context": context,
+                "provisional_action": chosen_action,
+                "status": "pending",          # pending | approved | overridden
+                "created_at": entry["timestamp"],
+                "ttl": float(self.cfg.get("pending_decision_ttl", 120)),
+                "resolved_by": None,
+                "resolved_action": None,
+                "resolved_at": None,
+            }
+            self.pending_decisions.append(pending)
+            # 限制队列长度，防止内存泄漏
+            if len(self.pending_decisions) > self._max_pending:
+                self.pending_decisions = self.pending_decisions[-self._max_pending:]
+            # 清理过期条目
+            self._expire_pending()
+
         return entry
+
+    def _expire_pending(self) -> None:
+        """清理已过期的待处理决策：超时自动转为 approved。"""
+        now = time.time()
+        for d in self.pending_decisions:
+            if d["status"] == "pending" and (now - d["created_at"]) > d["ttl"]:
+                d["status"] = "approved"
+                d["resolved_at"] = now
+                self.decision_log.append({
+                    "decision_point": d["decision_point"],
+                    "action": "auto_approved",
+                    "source": "system",
+                    "latency_ms": 0,
+                    "timestamp": now,
+                    "context_summary": f"provisional 决策 {d['id']} 超时未覆盖，自动转为 approved",
+                })
+
+    # --- 待处理决策查询与覆盖（MCP 工具调用入口） ---
+
+    def get_pending_decisions(self) -> list[dict[str, Any]]:
+        """返回当前所有 pending 状态的待处理决策（供 MCP 工具 get_pending_decisions）。
+
+        返回的列表不含内部 context 冗余字段，改为摘要形式。
+        """
+        self._expire_pending()
+        result = []
+        for d in self.pending_decisions:
+            if d["status"] != "pending":
+                continue
+            result.append({
+                "id": d["id"],
+                "decision_point": d["decision_point"],
+                "provisional_action": d["provisional_action"],
+                "context_summary": _summarize_context(d.get("context", {})),
+                "created_at": d["created_at"],
+                "ttl": d["ttl"],
+                "remaining_seconds": round(max(0, d["ttl"] - (time.time() - d["created_at"])), 1),
+            })
+        return result
+
+    def resolve_decision(
+        self,
+        decision_id: str,
+        action: str | None = None,
+        param: Any = None,
+        override: bool = False,
+    ) -> dict[str, Any]:
+        """外部 agent 处理一条待处理决策（供 MCP 工具 resolve_decision）。
+
+        override=False: 认可当前 provisional 决策，标记为 approved。
+        override=True:  用新的 action 覆盖。返回的 dict 包含 corrective_info，
+                        供 MCP handler 判断是否需要执行补救操作。
+
+        返回 {"status": "approved"|"overridden"|"not_found"|"already_resolved", ...}
+        """
+        self._expire_pending()
+        for d in self.pending_decisions:
+            if d["id"] != decision_id:
+                continue
+            if d["status"] != "pending":
+                return {
+                    "status": "already_resolved",
+                    "id": decision_id,
+                    "current_status": d["status"],
+                    "resolved_by": d.get("resolved_by"),
+                    "resolved_at": d.get("resolved_at"),
+                }
+
+            now = time.time()
+            if not override:
+                d["status"] = "approved"
+                d["resolved_by"] = "mcp_agent"
+                d["resolved_at"] = now
+                self.decision_log.append({
+                    "decision_point": d["decision_point"],
+                    "action": "mcp_approved",
+                    "source": "mcp_agent",
+                    "latency_ms": 0,
+                    "timestamp": now,
+                    "context_summary": f"外部 agent 认可 provisional 决策 {decision_id}：{d['provisional_action']}",
+                })
+                return {
+                    "status": "approved",
+                    "id": decision_id,
+                    "provisional_action": d["provisional_action"],
+                    "corrective_needed": False,
+                }
+
+            # override: 外部 agent 选择了不同的动作
+            d["status"] = "overridden"
+            d["resolved_by"] = "mcp_agent"
+            d["resolved_action"] = {"action": action, "param": param}
+            d["resolved_at"] = now
+
+            # 生成补救信息，供 MCP handler 执行
+            corrective = {
+                "action": action,
+                "param": param,
+                "original_action": d["provisional_action"],
+                "decision_point": d["decision_point"],
+            }
+            self.decision_log.append({
+                "decision_point": d["decision_point"],
+                "action": "mcp_overridden",
+                "source": "mcp_agent",
+                "latency_ms": 0,
+                "timestamp": now,
+                "context_summary": (
+                    f"外部 agent 覆盖 provisional 决策 {decision_id}："
+                    f"{d['provisional_action']} → {action}"
+                    + (f"（param={param}）" if param is not None else "")
+                ),
+            })
+            return {
+                "status": "overridden",
+                "id": decision_id,
+                "original_action": d["provisional_action"],
+                "corrective_needed": True,
+                "corrective": corrective,
+            }
+
+        return {"status": "not_found", "id": decision_id}
 
     def close(self) -> None:
         """释放线程池，测试/主流程结束时可选调用。"""
+        # 清理未处理的 pending 决策
+        self._expire_pending()
+        for d in self.pending_decisions:
+            if d["status"] == "pending":
+                d["status"] = "approved"
+                d["resolved_at"] = time.time()
         self._executor.shutdown(wait=False, cancel_futures=True)
 
 

@@ -327,6 +327,43 @@ READONLY_TOOLS_V2: list[dict[str, Any]] = [
         },
         "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
     },
+    {
+        "name": "get_training_log",
+        "description": (
+            "读取训练日志文件的尾部内容。支持指定行数和偏移量。"
+            "用于排查训练错误、查看崩溃前的日志、检查输出。只读。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "lines": {"type": "integer", "description": "返回行数，默认 100，上限 1000"},
+                "offset": {"type": "integer", "description": "偏移量（从末尾倒数），0=最新"},
+                "grep": {"type": "string", "description": "过滤关键字（可选），如 'Error'、'epoch'"},
+            },
+            "required": [],
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+    },
+    {
+        "name": "get_post_training_checklist",
+        "description": (
+            "训练结束后的待办清单。列出：哪些 checkpoint 可用、可以生成什么（可视化/推理/图库/摘要）、"
+            "每个操作的推荐命令和参数。训练结束后应优先调用此工具，然后按清单逐项执行。"
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+    },
+    {
+        "name": "get_pending_decisions",
+        "description": (
+            "获取所有待处理的 provisional 决策（MCP 模式下 agent 继续做决策，但标记为可覆盖）。"
+            "每条决策含 id、决策点、临时动作、超时剩余秒数。"
+            "外部 agent 审核后调用 resolve_decision 批准或覆盖。超时未处理自动转为 approved。"
+            "只读。"
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+    },
 ]
 
 # ---- v2 新增写工具（训练后可写） ----
@@ -335,8 +372,8 @@ WRITE_TOOLS_V2: list[dict[str, Any]] = [
     {
         "name": "run_visualization",
         "description": (
-            "触发生成模型管线可视化 HTML。【仅在训练结束后可用】。"
-            "需要 write_token 鉴权。"
+            "触发生成模型管线可视化 HTML（交互式 D3.js 可折叠树，含 FLOPs/瓶颈/改进建议）。"
+            "【仅在训练结束后可用】。生成类工具，不修改训练状态，无需 token。"
         ),
         "inputSchema": {
             "type": "object",
@@ -352,8 +389,8 @@ WRITE_TOOLS_V2: list[dict[str, Any]] = [
     {
         "name": "set_gallery_config",
         "description": (
-            "更新图片筛选策略配置，触发重新筛选。【仅在训练结束后可用】。"
-            "需要 write_token 鉴权。"
+            "更新图片筛选策略配��，触发重新筛选（多策略：汇报精选/难样本/边界案例）。"
+            "【仅在训练结束后可用】。生成类工具，无需 token。"
         ),
         "inputSchema": {
             "type": "object",
@@ -370,8 +407,8 @@ WRITE_TOOLS_V2: list[dict[str, Any]] = [
     {
         "name": "run_inference",
         "description": (
-            "使用指定 checkpoint 对输入数据跑推理（固定脚本，不生成代码）。"
-            "【仅在训练结束后可用】。需要 write_token 鉴权。"
+            "使用指定 checkpoint 对输入数据跑推理（分类/检测/分割，固定脚本）。"
+            "【仅在训练结束后可用】。生成类工具，无需 token。"
         ),
         "inputSchema": {
             "type": "object",
@@ -418,6 +455,29 @@ WRITE_TOOLS_V2: list[dict[str, Any]] = [
             "required": ["meta"],
         },
         "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
+    },
+    {
+        "name": "resolve_decision",
+        "description": (
+            "处理一条待定的 provisional 决策（来自 get_pending_decisions）。\n"
+            "override=false: 认可当前 provisional 决策，标记为 approved。\n"
+            "override=true:  用新的 action 覆盖。如果覆盖的动作是 restart_with_lower_lr / "
+            "reduce_batch / enable_grad_accum，会立即执行重启式干预（kill 训练进程 + 回滚 checkpoint）。\n"
+            "【注意】override=true 且 action=stop_training 会停止训练。\n"
+            "需要 write_token 鉴权。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "decision_id": {"type": "string", "description": "待处理决策 ID（从 get_pending_decisions 获取）"},
+                "override": {"type": "boolean", "description": "是否覆盖（false=批准, true=覆盖）", "default": False},
+                "action": {"type": "string", "description": "覆盖时的动作名（override=true 时必填）"},
+                "param": {"description": "动作参数（ratio 或 steps，视动作类型而定）"},
+                "request_id": {"type": "string", "description": "幂等键"},
+            },
+            "required": ["decision_id"],
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": False},
     },
 ]
 
@@ -664,11 +724,17 @@ class GuardianMCPServer:
 
     def _authorize_post_training(
         self, tool_name: str, token: str | None = None,
+        require_token: bool = False,
     ) -> tuple[bool, str]:
-        """写工具鉴权 + 训练后检查。"""
-        ok, msg = self._authorize(tool_name, token)
-        if not ok:
-            return False, msg
+        """训练后检查 + 可选 token 鉴权。
+
+        require_token=False: 生成类工具（viz/gallery/inference），不破坏训练状态，免 token。
+        require_token=True:  导入类工具（submit_import），修改持久化数据，需 token。
+        """
+        if require_token:
+            ok, msg = self._authorize(tool_name, token)
+            if not ok:
+                return False, msg
         ok, msg = self._check_post_training(tool_name)
         if not ok:
             return False, msg
@@ -1131,7 +1197,7 @@ class GuardianMCPServer:
     def _handle_run_visualization(self, model_entry: str | None = None,
                                   output_path: str | None = None,
                                   request_id: str | None = None, **kwargs) -> str:
-        ok, msg = self._authorize_post_training("run_visualization", kwargs.get("_token"))
+        ok, msg = self._authorize_post_training("run_visualization", require_token=False)
         if not ok:
             return json.dumps({"error": msg}, ensure_ascii=False)
         dup = self.idem.check(request_id)
@@ -1177,7 +1243,7 @@ class GuardianMCPServer:
                                    checkpoint_epoch: int,
                                    data_source: str,
                                    request_id: str | None = None, **kwargs) -> str:
-        ok, msg = self._authorize_post_training("set_gallery_config", kwargs.get("_token"))
+        ok, msg = self._authorize_post_training("set_gallery_config", require_token=False)
         if not ok:
             return json.dumps({"error": msg}, ensure_ascii=False)
         dup = self.idem.check(request_id)
@@ -1226,7 +1292,7 @@ class GuardianMCPServer:
 
     def _handle_run_inference(self, checkpoint_epoch: int, task_type: str, inputs: str,
                               request_id: str | None = None, **kwargs) -> str:
-        ok, msg = self._authorize_post_training("run_inference", kwargs.get("_token"))
+        ok, msg = self._authorize_post_training("run_inference", require_token=False)
         if not ok:
             return json.dumps({"error": msg}, ensure_ascii=False)
         dup = self.idem.check(request_id)
@@ -1350,8 +1416,231 @@ class GuardianMCPServer:
         return json.dumps(result, ensure_ascii=False, indent=2)
 
     # ------------------------------------------------------------------
+    # 待处理决策（MCP 模式下 agent 继续决策但标记为可覆盖）
+    # ------------------------------------------------------------------
+
+    def _handle_get_pending_decisions(self, **kwargs) -> str:
+        """返回所有 pending 状态的 provisional 决策。"""
+        if self.advisor is None:
+            return json.dumps({
+                "pending": [],
+                "note": "agent 未启用，无 provisional 决策。",
+            }, ensure_ascii=False, indent=2)
+        pending = self.advisor.get_pending_decisions()
+        return json.dumps({
+            "mode": self.advisor.mode,
+            "count": len(pending),
+            "pending": pending,
+        }, ensure_ascii=False, indent=2)
+
+    def _handle_resolve_decision(
+        self, decision_id: str,
+        override: bool = False,
+        action: str | None = None,
+        param: Any = None,
+        request_id: str | None = None,
+        **kwargs,
+    ) -> str:
+        """外部 agent 处理一条 provisional 决策。"""
+        ok, msg = self._authorize("resolve_decision", kwargs.get("_token"))
+        if not ok:
+            return json.dumps({"error": msg}, ensure_ascii=False)
+
+        if self.advisor is None:
+            return json.dumps({"error": "agent 未启用，无待处理决策"}, ensure_ascii=False)
+
+        if override and not action:
+            return json.dumps({
+                "error": "override=true 时必须提供 action 参数",
+            }, ensure_ascii=False)
+
+        result = self.advisor.resolve_decision(
+            decision_id, action=action, param=param, override=override,
+        )
+
+        if result["status"] in ("not_found", "already_resolved"):
+            return json.dumps(result, ensure_ascii=False)
+
+        # 如果外部 agent 覆盖了决策且需要补救操作，通过 watchdog 执行
+        if result.get("corrective_needed") and self.watchdog is not None:
+            corrective = result["corrective"]
+            target_action = corrective["action"]
+            target_param = corrective.get("param")
+
+            # 映射到 watchdog 可执行的动作
+            if target_action in ("restart_with_lower_lr", "reduce_batch",
+                                "enable_grad_accum", "resume_unchanged"):
+                self.watchdog.request_intervention(
+                    target_action, param=target_param,
+                    reason=f"MCP resolve_decision 覆盖 {decision_id}：{target_action}",
+                )
+                result["intervention"] = "requested"
+            elif target_action == "stop_training":
+                self.watchdog.stop()
+                result["intervention"] = "stopped"
+            else:
+                result["intervention"] = "skipped"
+                result["note"] = (
+                    f"动作 {target_action!r} 不支持自动执行。"
+                    f"请用 restart_with_params 或 trigger_recovery 手动干预。"
+                )
+
+        self.idem.record(request_id, result)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    # ------------------------------------------------------------------
     # 工具路由
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # 训练日志读取
+    # ------------------------------------------------------------------
+
+    def _handle_get_training_log(self, lines: int = 100, offset: int = 0,
+                                  grep: str | None = None, **kwargs) -> str:
+        """读取训练日志尾部。"""
+        lines = min(max(int(lines or 100), 1), 1000)
+        offset = max(int(offset or 0), 0)
+
+        # 尝试从 task_contract 获取日志路径
+        log_path = None
+        if self.task_contract is not None:
+            ch = self.task_contract.metrics_channel()
+            if ch and isinstance(ch, dict):
+                log_path = ch.get("path")
+
+        # 回退：扫描 state_dir 父目录下的 logs/
+        if not log_path or not Path(log_path).is_file():
+            for candidate in [
+                self.state_dir / "train.log",
+                self.state_dir.parent / "logs" / "train.log",
+                self.state_dir / ".." / "logs" / "train.log",
+            ]:
+                p = Path(candidate).resolve()
+                if p.is_file():
+                    log_path = str(p)
+                    break
+
+        if not log_path:
+            return json.dumps({
+                "error": "未找到训练日志文件",
+                "detail": "请确认 contract.yaml 中 metrics_channel.path 配置正确，或日志文件在 logs/ 目录下",
+            }, ensure_ascii=False)
+
+        try:
+            text = Path(log_path).read_text(encoding="utf-8", errors="replace")
+            all_lines = text.splitlines()
+            total = len(all_lines)
+            start = max(0, total - lines - offset)
+            end = total - offset if offset else total
+            window = all_lines[start:end]
+
+            # 可选过滤
+            if grep:
+                window = [l for l in window if grep.lower() in l.lower()]
+
+            return json.dumps({
+                "log_file": log_path,
+                "total_lines": total,
+                "returned": len(window),
+                "lines": window,
+                "offset": offset,
+                "grep": grep,
+            }, ensure_ascii=False, indent=2)
+        except Exception as e:
+            return json.dumps({"error": f"读取日志失败: {e}"}, ensure_ascii=False)
+
+    # ------------------------------------------------------------------
+    # 训练后待办清单（主动提示 Claude Code 下一步做什么）
+    # ------------------------------------------------------------------
+
+    def _handle_post_training_checklist(self, **kwargs) -> str:
+        """扫描可用资源，生成训练后待办清单。"""
+        items = []
+        training_done = not self._training_active
+
+        # 1. 检查 checkpoint
+        ckpts = self._snapshot_cache.get("checkpoints", [])
+        if not ckpts and self.ckpt_analyzer is not None:
+            try:
+                report = self.ckpt_analyzer.report()
+                ckpts = report.get("checkpoints", [])
+            except Exception:
+                pass
+        if ckpts:
+            best = max(ckpts, key=lambda c: c.get("metrics", {}).get("val/accuracy", 0)) if ckpts else None
+            items.append({
+                "category": "checkpoint",
+                "title": "最佳 Checkpoint 分析",
+                "available": True,
+                "detail": f"共 {len(ckpts)} 个 checkpoint" + (f"，最佳 epoch={best['epoch']}" if best else ""),
+                "suggested_tool": "list_checkpoints",
+                "suggested_args": {},
+            })
+
+        # 2. 模型可视化
+        items.append({
+            "category": "analysis",
+            "title": "模型结构可视化",
+            "available": training_done,
+            "detail": "生成交互式 D3.js 模型管线图（FLOPs + 瓶颈标注 + 改进建议）" if training_done else "训练结束后可用",
+            "suggested_tool": "run_visualization",
+            "suggested_args": {"model_entry": "train:build_model（需根据实际模块名调整）"},
+        })
+
+        # 3. 推理
+        if ckpts:
+            best_epoch = best["epoch"] if best else ckpts[-1]["epoch"]
+            items.append({
+                "category": "evaluation",
+                "title": f"对最佳 Checkpoint (epoch={best_epoch}) 跑推理",
+                "available": training_done,
+                "detail": "分类/检测/分割推理，生成结果 JSON" if training_done else "训练结束后可用",
+                "suggested_tool": "run_inference",
+                "suggested_args": {"checkpoint_epoch": best_epoch, "task_type": "classification"},
+            })
+
+        # 4. 图片筛选
+        if ckpts:
+            best_epoch = best["epoch"] if best else ckpts[-1]["epoch"]
+            items.append({
+                "category": "evaluation",
+                "title": "图片筛选与展示",
+                "available": training_done,
+                "detail": "多策略筛选（汇报精选/难样本/边界案例），可选 Streamlit 展示" if training_done else "训练结束后可用",
+                "suggested_tool": "set_gallery_config",
+                "suggested_args": {"checkpoint_epoch": best_epoch, "data_source": "./data/test"},
+            })
+
+        # 5. 摘要
+        summary = self._snapshot_cache.get("summary.json")
+        items.append({
+            "category": "report",
+            "title": "训练摘要",
+            "available": summary is not None,
+            "detail": "结构化摘要 + AI 解读" if summary else "尚未生成",
+            "suggested_tool": "get_summary",
+            "suggested_args": {},
+        })
+
+        # 6. 实验查询
+        items.append({
+            "category": "cross-experiment",
+            "title": "跨实验对比",
+            "available": True,
+            "detail": "查询历史实验、对比指标、自然语言问答",
+            "suggested_tool": "list_experiments",
+            "suggested_args": {},
+        })
+
+        available_count = sum(1 for it in items if it["available"])
+        return json.dumps({
+            "training_active": not training_done,
+            "total_items": len(items),
+            "available_now": available_count,
+            "checklist": items,
+            "hint": "训练已结束，建议按顺序执行以上待办项。先调用 get_summary 获取概览。" if training_done else "训练进行中，部分项目需要等训练结束后才能执行。",
+        }, ensure_ascii=False, indent=2)
 
     _READ_HANDLERS: dict[str, Any]
     _WRITE_HANDLERS: dict[str, Any]
@@ -1378,6 +1667,12 @@ class GuardianMCPServer:
             # import
             "get_import_format": self._handle_get_import_format,
             "inspect_source": self._handle_inspect_source,
+            # 日志
+            "get_training_log": self._handle_get_training_log,
+            # 训练后主动提示
+            "get_post_training_checklist": self._handle_post_training_checklist,
+            # 待处理决策（MCP 模式下 agent 继续决策但标记为可覆盖）
+            "get_pending_decisions": self._handle_get_pending_decisions,
         }
         self._WRITE_HANDLERS = {
             "trigger_recovery": self._handle_trigger_recovery,
@@ -1392,6 +1687,8 @@ class GuardianMCPServer:
             "run_inference": self._handle_run_inference,
             # import
             "submit_import": self._handle_submit_import,
+            # 待处理决策覆盖
+            "resolve_decision": self._handle_resolve_decision,
         }
 
     def call_tool(self, name: str, arguments: dict) -> str:

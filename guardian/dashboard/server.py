@@ -77,6 +77,7 @@ class DashboardServer:
         self._persist_root = Path(self.cfg.get("project", {}).get("log_dir", "./logs"))
         self._load_history()
 
+        self._start_time = time.monotonic()
         self.app = self._build_app() if _FASTAPI_OK else None
 
     # ------------------------------------------------------------------
@@ -150,11 +151,32 @@ class DashboardServer:
                         lines.append(json.loads(line))
             return lines
         except Exception:
-            logger.warning("读取历史指标文件失败: %s", info.get("metrics_path"), exc_info=True)
+            logger.warning("Failed to read history metrics: %s", info.get("metrics_path"), exc_info=True)
             return []
 
     # ------------------------------------------------------------------
-    # 外部导入
+    # Summary lookup
+    # ------------------------------------------------------------------
+
+    def _find_summary_for_pid(self, process_id: str) -> Path | None:
+        """Find the summary JSON file matching a process_id."""
+        root = self._persist_root
+        if not root.is_dir():
+            return None
+        for f in sorted(root.glob("summary_*.json"), reverse=True):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if data.get("experiment_id") == process_id:
+                    return f
+            except Exception:
+                continue
+        summaries = sorted(root.glob("summary_*.json"), reverse=True)
+        if summaries:
+            return summaries[0]
+        return None
+
+    # ------------------------------------------------------------------
+    # External import
     # ------------------------------------------------------------------
 
     def import_process(self, meta: dict, metrics: list[dict]) -> dict:
@@ -326,6 +348,20 @@ class DashboardServer:
                     s["_log_lines"] = logs[-2000:]
                 await self._broadcast_process(process_id, {"type": "log_line", "line": line})
             return JSONResponse({"ok": True})
+
+        # ---- 健康检查 ----
+        @app.get("/health")
+        async def health():
+            import time as _time
+            live = len(self._processes)
+            hist = len(self._history)
+            return JSONResponse({
+                "status": "ok",
+                "version": "0.2.0",
+                "live_processes": live,
+                "history_processes": hist,
+                "uptime_seconds": round(_time.monotonic() - getattr(self, "_start_time", _time.monotonic()), 0),
+            })
 
         # ---- 静态文件 ----
         @app.get("/", response_class=HTMLResponse)
@@ -503,6 +539,13 @@ class DashboardServer:
                 mv.render_html(graph, stats, viz_config, out_path)
                 url = f"/api/viz/{out_path.name}"
                 return JSONResponse({"url": url, "path": str(out_path)})
+            except ModuleNotFoundError as e:
+                return JSONResponse({
+                    "error": f"缺少依赖: {e}",
+                    "detail": "模型代码需要原始训练环境的全部依赖。guarftrain 作为轻量监控工具，"
+                              "不预装所有深度学习框架。请手动安装缺失的包，或使用 CLI 生成: "
+                              "python run.py visualize --model train:build_model"
+                }, status_code=503)
             except Exception as e:
                 return JSONResponse({"error": str(e)}, 500)
 
@@ -571,7 +614,31 @@ class DashboardServer:
                 return JSONResponse({"error": "not found"}, 404)
             meta = info.get("meta", {})
             hist = self._read_history_metrics(process_id)
+
+            # 尝试加载完整 summary JSON（v2 格式，含异常/重启/资源/checkpoint）
+            summary_path = self._find_summary_for_pid(process_id)
+            summary_data = {}
+            if summary_path:
+                try:
+                    summary_data = json.loads(summary_path.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+            anomalies = summary_data.get("anomaly_events") or []
+            restarts = summary_data.get("restarts") or []
+            resources = summary_data.get("resources") or {}
+            checkpoints = summary_data.get("checkpoints") or {}
+            lr_schedule = summary_data.get("lr_schedule") or []
+            # GPU 数据从 summary 的 resources 或指标历史推断
+            latest_gpu = {}
+            if resources:
+                latest_gpu = {
+                    "util_pct": resources.get("gpu_util_avg"),
+                    "mem_used_mb": resources.get("gpu_mem_peak_mb"),
+                    "mem_total_mb": None,  # summary 不存显存总量
+                }
+
             discovered = _discover_metrics(hist)
+
             return JSONResponse({
                 "process_id": process_id,
                 "name": meta.get("name", process_id),
@@ -580,8 +647,16 @@ class DashboardServer:
                 "registered_at": meta.get("registered_at", 0),
                 "finished_at": meta.get("finished_at"),
                 "latest_metrics": hist[-1] if hist else {},
+                "latest_gpu": latest_gpu,
                 "discovered_metrics": discovered,
                 "metrics_count": len(hist),
+                "anomaly_count": len(anomalies),
+                "restart_count": len(restarts),
+                "anomalies": anomalies[-20:],     # 最近 20 条
+                "restarts": restarts,
+                "resources": resources,
+                "checkpoints": checkpoints,
+                "lr_schedule": lr_schedule,
                 "source": "history",
             })
 
@@ -603,6 +678,196 @@ class DashboardServer:
                 "metrics": hist[max(0, start):end],
                 "total": total, "cursor": cursor, "limit": limit,
             })
+
+        # ---- API: 历史进程日志 ----
+        @app.get("/api/history/{process_id}/log")
+        async def history_log(
+            process_id: str,
+            lines: int = Query(100, ge=10, le=1000),
+            offset: int = Query(0, ge=0),
+            grep: str | None = None,
+        ):
+            info = self._history.get(process_id)
+            if not info:
+                return JSONResponse({"error": "not found"}, 404)
+            meta = info.get("meta", {})
+            # 尝试找到训练日志文件
+            log_path = meta.get("log_file")
+            if not log_path or not Path(log_path).is_file():
+                # 回退：扫描常见位置
+                for candidate in [
+                    self._persist_root / "train.log",
+                    self._persist_root.parent / "logs" / "train.log",
+                    self._persist_root.parent / "train.log",
+                ]:
+                    p = Path(candidate).resolve()
+                    if p.is_file():
+                        log_path = str(p)
+                        break
+            if not log_path or not Path(log_path).is_file():
+                return JSONResponse({"lines": [], "total": 0, "error": "未找到训练日志文件"}, status_code=404)
+            try:
+                text = Path(log_path).read_text(encoding="utf-8", errors="replace")
+                all_lines = text.splitlines()
+                if grep:
+                    all_lines = [l for l in all_lines if grep.lower() in l.lower()]
+                total = len(all_lines)
+                start = max(0, total - lines - offset)
+                end = total - offset if offset else total
+                return JSONResponse({
+                    "lines": all_lines[start:end],
+                    "total": total,
+                    "offset": offset,
+                    "log_file": log_path,
+                })
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, status_code=500)
+
+        # ---- API: 历史进程 AI 分析 ----
+        @app.post("/api/history/{process_id}/ai/analyze")
+        async def history_ai_analyze(process_id: str):
+            info = self._history.get(process_id)
+            if not info:
+                return JSONResponse({"error": "not found"}, 404)
+            meta = info.get("meta", {})
+            hist = self._read_history_metrics(process_id)
+            summary = _summarize_metrics(hist)
+            try:
+                from ..credentials import load_credentials, apply_credentials
+                apply_credentials(load_credentials())
+                from ..agent_advisor import AgentAdvisor
+                import os as _os
+                _provider = _os.environ.get("GUARDIAN_AI_PROVIDER", "anthropic")
+                _model = _os.environ.get("GUARDIAN_AI_MODEL") or None
+                _cfg = {"enabled": True, "provider": _provider, "decision_timeout": 15}
+                if _model:
+                    _cfg["model"] = _model
+                advisor = AgentAdvisor(_cfg)
+                if advisor.is_enabled():
+                    ctx = {"status": meta.get("status"), "latest_metrics": hist[-1] if hist else {},
+                           "metrics_summary": summary, "anomaly_count": 0,
+                           "process_name": meta.get("name", process_id)}
+                    text = advisor.narrate({"type": "dashboard_analysis", **ctx})
+                    if text:
+                        return JSONResponse({"analysis": text, "source": "agent"})
+            except Exception:
+                logger.warning("历史进程 AI 分析失败: %s", process_id, exc_info=True)
+            return JSONResponse({
+                "analysis": f"历史实验 {meta.get('name', process_id)}: 共 {len(hist)} 条指标, 最终 loss: {summary.get('loss_last', '?')}",
+                "source": "summary", "context": {"metrics_summary": summary}
+            })
+
+        # ---- API: 历史进程 AI 对话 ----
+        @app.post("/api/history/{process_id}/ai/chat")
+        async def history_ai_chat(process_id: str, question: str = ""):
+            if not question:
+                return JSONResponse({"answer": "请输入问题"}, status_code=400)
+            info = self._history.get(process_id)
+            if not info:
+                return JSONResponse({"error": "not found"}, 404)
+            meta = info.get("meta", {})
+            hist = self._read_history_metrics(process_id)
+            try:
+                from ..credentials import load_credentials, apply_credentials
+                apply_credentials(load_credentials())
+                from ..agent_advisor import AgentAdvisor
+                import os as _os
+                _provider = _os.environ.get("GUARDIAN_AI_PROVIDER", "anthropic")
+                _model = _os.environ.get("GUARDIAN_AI_MODEL") or None
+                _cfg = {"enabled": True, "provider": _provider, "decision_timeout": 15}
+                if _model:
+                    _cfg["model"] = _model
+                advisor = AgentAdvisor(_cfg)
+                if advisor.is_enabled():
+                    ctx = {"status": meta.get("status"), "question": question,
+                           "latest_metrics": hist[-1] if hist else {},
+                           "metrics_summary": _summarize_metrics(hist),
+                           "process_name": meta.get("name", process_id)}
+                    ans = advisor.narrate({"type": "chat", "question": question, "context": ctx})
+                    if ans:
+                        return JSONResponse({"answer": ans})
+            except Exception:
+                logger.warning("History AI chat failed: %s", process_id, exc_info=True)
+            return JSONResponse({"answer": "AI 调用失败，请检查凭据配置"})
+
+        # ---- API: 历史进程模型结构 ----
+        @app.get("/api/history/{process_id}/model")
+        async def history_model_structure(process_id: str):
+            info = self._history.get(process_id)
+            if not info:
+                return JSONResponse({"error": "not found"}, 404)
+            meta = info.get("meta", {})
+            model_entry = meta.get("model_entry", "")
+            if not model_entry:
+                return JSONResponse({"error": "该历史进程未配置 model_entry"}, 400)
+            try:
+                from ..model_viz import ModelVisualizer
+                proj_dir = meta.get("project_dir", "")
+                if proj_dir and proj_dir not in sys.path:
+                    sys.path.insert(0, proj_dir)
+                mod_parts = model_entry.split(":", 1)
+                if len(mod_parts) != 2:
+                    return JSONResponse({"error": f"invalid model_entry: {model_entry}"}, 400)
+                import importlib
+                mod = importlib.import_module(mod_parts[0])
+                model_fn = getattr(mod, mod_parts[1])
+                mv = ModelVisualizer()
+                graph = mv.parse_model(model_fn)
+                stats = mv.compute_stats(graph)
+                return JSONResponse({**graph, "layer_stats": stats.get("layer_stats", [])})
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, 500)
+
+        # ---- API: 历史进程模型架构图 HTML ----
+        @app.get("/api/history/{process_id}/model/viz-html")
+        async def history_model_viz_html(process_id: str):
+            info = self._history.get(process_id)
+            if not info:
+                return JSONResponse({"error": "not found"}, 404)
+            meta = info.get("meta", {})
+            model_entry = meta.get("model_entry", "")
+            if not model_entry:
+                return JSONResponse({"error": "No model_entry configured"}, 400)
+            try:
+                from ..model_viz import ModelVisualizer, _default_viz_config
+                proj_dir = meta.get("project_dir", "")
+                if proj_dir and proj_dir not in sys.path:
+                    sys.path.insert(0, proj_dir)
+                mod_parts = model_entry.split(":", 1)
+                if len(mod_parts) != 2:
+                    return JSONResponse({"error": f"invalid model_entry: {model_entry}"}, 400)
+                import importlib
+                mod = importlib.import_module(mod_parts[0])
+                model_fn = getattr(mod, mod_parts[1])
+                mv = ModelVisualizer()
+                graph = mv.parse_model(model_fn)
+                stats = mv.compute_stats(graph)
+                viz_config = _default_viz_config(graph, stats)
+                viz_dir = self._persist_root / "viz"
+                viz_dir.mkdir(parents=True, exist_ok=True)
+                safe_name = process_id.replace("/", "_").replace("\\", "_")
+                out_path = viz_dir / f"model_viz_hist_{safe_name}.html"
+                mv.render_html(graph, stats, viz_config, out_path)
+                return JSONResponse({"html": out_path.read_text(encoding="utf-8")})
+            except Exception as e:
+                return JSONResponse({"error": str(e)}, 500)
+
+        # ---- API: 历史进程图库 ----
+        @app.get("/api/history/{process_id}/gallery")
+        async def history_gallery(process_id: str):
+            info = self._history.get(process_id)
+            if not info:
+                return JSONResponse({"error": "not found"}, 404)
+            # 尝试从日志目录加载图库结果
+            pid_dir = self._persist_root / process_id
+            gallery_file = pid_dir / "gallery_results.json"
+            if gallery_file.is_file():
+                try:
+                    data = json.loads(gallery_file.read_text(encoding="utf-8"))
+                    return JSONResponse(content=data)
+                except Exception:
+                    pass
+            return JSONResponse({"galleries": {}, "note": "尚未生成图库，请在 CLI 中运行 gallery 命令"})
 
         # ---- API: MCP 自定义指标推送 ----
         @app.post("/api/process/{process_id}/metrics/custom")
@@ -705,8 +970,87 @@ class DashboardServer:
             s = _get_state(process_id)
             gallery_data = s.get("_gallery_results") if s else None
             if not gallery_data:
-                return JSONResponse({"galleries": {}, "note": "尚未生成图库，请在 CLI 中运行 gallery 或调用 API"})
+                return JSONResponse({"galleries": {}, "note": "尚未生成图库，请在 CLI 中运行 gallery 或点击下方按钮生成"})
             return JSONResponse(content=gallery_data)
+
+        @app.post("/api/process/{process_id}/gallery/generate")
+        async def gallery_generate(process_id: str, payload: dict | None = None):
+            """训练完成后在网页端一键生成图库。"""
+            s = _get_state(process_id)
+            if not s:
+                return JSONResponse({"error": "not found"}, 404)
+
+            # 找最佳 checkpoint epoch
+            ckpt_epoch = (payload or {}).get("ckpt_epoch")
+            if not ckpt_epoch:
+                # 从进程状态推断
+                ckpt_epoch = s.get("epoch")
+            if not ckpt_epoch:
+                return JSONResponse({"error": "无法确定 checkpoint epoch，请先完成至少 1 个 epoch 的训练"}, 400)
+
+            # 确定数据源
+            data_source = (payload or {}).get("data_source")
+            if not data_source:
+                data_source = s.get("project_dir", "")
+                if data_source:
+                    data_source = str(Path(data_source) / "data")
+                else:
+                    data_source = "./data"
+
+            try:
+                from ..gallery import GalleryManager
+                from ..inference import InferenceRunner
+
+                gm = GalleryManager(advisor=getattr(s.get("_advisor"), None, None))
+                ir = InferenceRunner()
+
+                # 确定 checkpoint 路径
+                ckpt_dir = self.cfg.get("project", {}).get("ckpt_dir", "./checkpoints")
+                ckpt_path = Path(ckpt_dir) / f"cp_{ckpt_epoch}" / "model.pth"
+                if not ckpt_path.exists():
+                    # 尝试从进程信息获取
+                    extra = s.get("extra_paths", [])
+                    for ep in extra:
+                        ckpt_path = Path(ep) / f"cp_{ckpt_epoch}" / "model.pth"
+                        if ckpt_path.exists():
+                            break
+                    else:
+                        return JSONResponse(
+                            {"error": f"checkpoint 不存在: {ckpt_path}"}, 400)
+
+                # 判断任务类型并提议策略
+                task_type = gm.infer_task_type()
+                strategies = gm.propose_strategies(task_type)
+
+                # 执行推理 + 筛选
+                results = gm.execute(str(ckpt_path), strategies, data_source, inference_runner=ir)
+
+                if "error" in results:
+                    return JSONResponse(results, 500)
+
+                # 缓存到进程状态
+                with self._lock:
+                    if process_id in self._processes:
+                        self._processes[process_id]["_gallery_results"] = results
+
+                # 保存到磁盘
+                out_dir = self._persist_root / process_id
+                out_dir.mkdir(parents=True, exist_ok=True)
+                (out_dir / "gallery_results.json").write_text(
+                    json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+
+                return JSONResponse({
+                    "status": "completed",
+                    "galleries": {name: len(imgs) for name, imgs in results.items()},
+                })
+            except ModuleNotFoundError as e:
+                return JSONResponse({
+                    "error": f"缺少依赖: {e}",
+                    "detail": "图库生成需要 torch/torchvision。请在训练环境中安装。"
+                }, status_code=503)
+            except Exception as e:
+                logger.error("Gallery generation failed: %s", e, exc_info=True)
+                return JSONResponse({"error": str(e)}, 500)
 
         # ---- API: 多进程对比 ----
         @app.post("/api/compare")

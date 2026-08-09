@@ -7,73 +7,84 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
 <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
 <style>
-/* ===== Deep Purple Theme ===== */
+/* ===== GitHub-Inspired Theme ===== */
 :root {
-  --bg-primary: #0f0a1a;
-  --bg-secondary: #1a1128;
-  --bg-elevated: #241a35;
-  --border: #2d2145;
-  --border-glow: rgba(168,85,247,0.25);
-  --text-primary: #e8e0f0;
-  --text-muted: #8b7fa8;
-  --text-dim: #5a4f73;
-  --accent-1: #a855f7;
-  --accent-2: #06b6d4;
-  --accent-gradient: linear-gradient(135deg, #a855f7, #06b6d4);
-  --success: #34d399;
-  --warning: #fbbf24;
-  --error: #f87171;
-  --chart-palette: #a855f7, #06b6d4, #34d399, #fbbf24, #f87171;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --shadow-glow: 0 0 20px rgba(168,85,247,0.15);
-  --transition: 0.2s ease;
+  --color-bg-canvas: #ffffff;
+  --color-bg-secondary: #f6f8fa;
+  --color-bg-tertiary: #f3f4f6;
+  --color-bg-elevated: #ffffff;
+  --color-border-default: #d0d7de;
+  --color-border-muted: #d8dee4;
+  --color-text-primary: #1f2328;
+  --color-text-secondary: #656d76;
+  --color-text-tertiary: #8b949e;
+  --color-text-link: #0969da;
+  --color-accent-fg: #0969da;
+  --color-accent-emphasis: #0969da;
+  --color-accent-subtle: #ddf4ff;
+  --color-success-fg: #1a7f37;
+  --color-success-subtle: #dafbe1;
+  --color-warning-fg: #9a6700;
+  --color-warning-subtle: #fff8c5;
+  --color-danger-fg: #cf222e;
+  --color-danger-subtle: #ffebe9;
+  --color-purple: #8250df;
+  --color-teal: #0969da;
+  --chart-palette: #0969da, #cf222e, #1a7f37, #9a6700, #8250df;
+  --radius: 6px;
+  --radius-sm: 4px;
+  --shadow-sm: 0 1px 0 rgba(31,35,40,0.04);
+  --shadow-md: 0 3px 6px rgba(140,149,159,0.15);
+  --transition: 0.15s ease;
+  --font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
 }
+
+/* ===== Keyframe Animations ===== */
+@keyframes fadeSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(26,127,55,0.4); } 70% { box-shadow: 0 0 0 6px rgba(26,127,55,0); } 100% { box-shadow: 0 0 0 0 rgba(26,127,55,0); } }
+@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+@keyframes toastSlideIn { from { opacity: 0; transform: translate(-50%, 20px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
 /* ===== Reset ===== */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 body {
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+  background: var(--color-bg-canvas);
+  color: var(--color-text-primary);
   min-height: 100vh;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
-a { color: var(--accent-1); text-decoration: none; }
-a:hover { color: var(--accent-2); }
+a { color: var(--color-text-link); text-decoration: none; }
+a:hover { text-decoration: underline; }
 
 /* ===== Header ===== */
 .site-header {
-  background: linear-gradient(135deg, rgba(168,85,247,0.08), rgba(6,182,212,0.05));
-  border-bottom: 1px solid var(--border);
-  padding: 14px 24px;
+  background: rgba(255,255,255,0.82);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--color-border-default);
+  padding: 12px 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   position: sticky;
   top: 0;
   z-index: 100;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-sm);
 }
 .site-header__title {
-  font-size: 17px;
-  font-weight: 700;
+  font-size: 15px;
+  font-weight: 600;
   cursor: pointer;
-  background: var(--accent-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  text-shadow: 0 0 30px rgba(168,85,247,0.3);
-}
-.site-header__status {
+  color: var(--color-text-primary);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 .ws-indicator {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--color-text-secondary);
   display: flex;
   align-items: center;
   gap: 5px;
@@ -81,634 +92,444 @@ a:hover { color: var(--accent-2); }
 .ws-indicator__dot {
   width: 7px; height: 7px;
   border-radius: 50%;
-  background: var(--warning);
+  background: var(--color-warning-fg);
   transition: background var(--transition);
 }
-.ws-indicator__dot--connected { background: var(--success); box-shadow: 0 0 8px rgba(52,211,153,0.5); }
-.ws-indicator__dot--disconnected { background: var(--error); }
+.ws-indicator__dot--connected { background: var(--color-success-fg); }
+.ws-indicator__dot--disconnected { background: var(--color-danger-fg); }
 
-/* Connection banner */
 .conn-banner {
   position: fixed; top: 0; left: 0; right: 0; z-index: 999;
-  background: linear-gradient(135deg, rgba(251,191,36,0.95), rgba(245,158,11,0.95));
-  color: #1a0e00;
+  background: var(--color-warning-subtle);
+  color: var(--color-warning-fg);
   text-align: center;
-  padding: 8px 16px;
-  font-size: 13px; font-weight: 600;
-  letter-spacing: 0.02em;
-  animation: connBannerPulse 2s ease-in-out infinite;
+  padding: 6px 16px;
+  font-size: 12px; font-weight: 600;
+  border-bottom: 1px solid rgba(154,103,0,0.3);
   display: none;
 }
 .conn-banner--show { display: block; }
-@keyframes connBannerPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.75; }
-}
 
 .global-badge {
   font-size: 11px;
-  padding: 3px 10px;
-  border-radius: 20px;
-  background: rgba(168,85,247,0.15);
-  color: var(--accent-1);
-  border: 1px solid rgba(168,85,247,0.25);
+  padding: 2px 8px;
+  border-radius: 2em;
+  background: var(--color-accent-subtle);
+  color: var(--color-accent-fg);
+  border: 1px solid rgba(9,105,218,0.2);
   display: none;
 }
 
 /* ===== Layout ===== */
-.main-content {
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 20px 24px;
-}
+.main-content { max-width: 1280px; margin: 0 auto; padding: 24px; }
 .view { display: none; }
-.view.active { display: block; }
+.view.active { display: block; animation: fadeSlideIn .3s ease-out; }
 
 /* ===== Card ===== */
 .card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 16px;
   margin-bottom: 16px;
-  transition: border-color var(--transition), box-shadow var(--transition);
+  transition: transform .2s ease, box-shadow .2s ease;
 }
-.card:hover { border-color: rgba(168,85,247,0.2); }
+.card:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
 .card__title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--accent-1);
-  margin-bottom: 14px;
+  color: var(--color-text-primary);
+  margin-bottom: 12px;
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.card__header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 14px;
-}
+.card__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 
 /* ===== Buttons ===== */
 .btn {
-  padding: 7px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  font-size: 12px;
+  padding: 5px 12px;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-size: 12px; font-weight: 500;
   cursor: pointer;
   transition: all var(--transition);
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-family: inherit;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: inherit; white-space: nowrap;
 }
-.btn:hover { background: rgba(168,85,247,0.15); border-color: var(--accent-1); }
-.btn--primary {
-  background: var(--accent-gradient);
-  color: #fff;
-  border: none;
-  font-weight: 600;
-}
-.btn--primary:hover { opacity: 0.9; box-shadow: var(--shadow-glow); }
-.btn--danger { border-color: var(--error); color: var(--error); }
-.btn--danger:hover { background: rgba(248,113,113,0.12); }
-.btn--sm { padding: 4px 12px; font-size: 11px; }
+.btn:hover { background: #eaeef2; }
+.btn:active { transform: scale(0.96); }
+.btn--primary { background: var(--color-accent-fg); color: #fff; border-color: var(--color-accent-fg); }
+.btn--primary:hover { background: #0860ca; }
+.btn--danger { border-color: var(--color-danger-fg); color: var(--color-danger-fg); }
+.btn--danger:hover { background: var(--color-danger-subtle); }
+.btn--sm { padding: 3px 8px; font-size: 11px; }
+.btn--active { background: var(--color-accent-fg) !important; color: #fff !important; border-color: var(--color-accent-fg) !important; }
 
 /* ===== Process Grid ===== */
-.process-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 14px;
-}
-.process-card {
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-}
-.process-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: var(--radius);
-  background: var(--accent-gradient);
-  opacity: 0;
-  transition: opacity var(--transition);
-  z-index: 0;
-  pointer-events: none;
-}
-.process-card:hover::before { opacity: 0.03; }
-.process-card:hover { border-color: var(--accent-1); box-shadow: 0 0 24px rgba(168,85,247,0.1); transform: translateY(-1px); }
-.process-card > * { position: relative; z-index: 1; }
-.process-card__name {
-  font-size: 15px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.process-card__status-dot {
-  width: 8px; height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.process-card__status-dot--running { background: var(--success); box-shadow: 0 0 8px rgba(52,211,153,0.4); }
-.process-card__status-dot--failed { background: var(--error); }
-.process-card__status-dot--completed { background: var(--accent-2); }
+.process-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+.process-card { cursor: pointer; transition: all var(--transition); animation: fadeSlideIn .35s ease-out both; animation-delay: calc(var(--i, 0) * 60ms); }
+.process-card:hover { border-color: var(--color-accent-fg); box-shadow: var(--shadow-md); transform: translateY(-2px); }
+.process-card__name { font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.process-card__status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.process-card__status-dot--running { background: var(--color-success-fg); animation: pulse 2s ease-in-out infinite; }
+.process-card__status-dot--failed { background: var(--color-danger-fg); }
+.process-card__status-dot--completed { background: var(--color-accent-fg); }
 .process-card__status-label {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 400;
+  font-size: 11px; color: var(--color-text-secondary); font-weight: 500;
+  padding: 1px 6px; border-radius: 2em;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-muted);
 }
-.process-card__meta {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin: 6px 0;
-}
-.progress-track {
-  height: 4px;
-  background: var(--border);
-  border-radius: 4px;
-  margin: 10px 0;
-  overflow: hidden;
-}
+.process-card__meta { font-size: 12px; color: var(--color-text-secondary); margin: 6px 0; }
+.progress-track { height: 4px; background: var(--color-bg-tertiary); border-radius: 4px; margin: 10px 0; overflow: hidden; }
 .progress-track__bar {
   height: 100%;
-  background: var(--accent-gradient);
   border-radius: 4px;
-  transition: width 0.4s ease;
+  transition: width .4s;
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--color-accent-fg), var(--color-accent-fg) 8px,
+    rgba(9,105,218,0.6) 8px, rgba(9,105,218,0.6) 16px
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2.5s linear infinite;
 }
-.process-card__stats {
-  display: flex;
-  gap: 16px;
-  font-size: 12px;
-  flex-wrap: wrap;
-}
-.stat-item__value { font-weight: 600; color: var(--text-primary); }
-.stat-item__label { color: var(--text-muted); margin-left: 3px; }
-.process-card__actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.process-card__anomaly {
-  color: var(--warning);
-  font-size: 12px;
-}
+.process-card__stats { display: flex; gap: 14px; font-size: 12px; flex-wrap: wrap; }
+.stat-item__value { font-weight: 600; color: var(--color-text-primary); }
+.stat-item__label { color: var(--color-text-secondary); margin-left: 3px; }
+.process-card__actions { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--color-border-muted); }
+.process-card__anomaly { color: var(--color-warning-fg); font-size: 12px; }
 
-/* ===== Tabs ===== */
-.tabs {
-  display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 16px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.tabs::-webkit-scrollbar { display: none; }
-.tab {
-  padding: 10px 18px;
-  font-size: 13px;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  color: var(--text-muted);
-  transition: all var(--transition);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.tab:hover { color: var(--text-primary); }
-.tab.active {
-  color: var(--accent-1);
-  border-bottom-color: var(--accent-1);
-}
 .tab-panel { display: none; }
 .tab-panel.active { display: block; }
 
 /* ===== Metrics Row ===== */
-.metrics-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 10px;
-  margin-bottom: 16px;
-}
-.metric-card {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-  text-align: center;
-  transition: border-color var(--transition);
-}
-.metric-card:hover { border-color: rgba(168,85,247,0.3); }
-.metric-card__value { font-size: 22px; font-weight: 700; background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
-.metric-card__label { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+.metrics-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-bottom: 16px; }
+.metric-card { background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: var(--radius); padding: 12px; text-align: center; border-top: 2px solid var(--color-border-muted); transition: transform .2s ease, box-shadow .2s ease; }
+.metric-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.metric-card--loss { border-top-color: var(--color-danger-fg); }
+.metric-card--acc { border-top-color: var(--color-success-fg); }
+.metric-card--lr { border-top-color: var(--color-accent-fg); }
+.metric-card--gpu { border-top-color: var(--color-purple); }
+.metric-card--info { border-top-color: var(--color-border-default); }
+.metric-card__value { font-size: 20px; font-weight: 700; color: var(--color-text-primary); }
+.metric-card__label { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; }
 .metric-card__trend { font-size: 11px; }
-.metric-card__trend--up { color: var(--success); }
-.metric-card__trend--down { color: var(--error); }
-.metric-card__trend--warn { color: var(--warning); }
+.metric-card__trend--up { color: var(--color-success-fg); }
+.metric-card__trend--down { color: var(--color-danger-fg); }
+.metric-card__trend--warn { color: var(--color-warning-fg); }
 
 /* ===== Chart ===== */
-.chart-container {
-  width: 100%;
-  height: 300px;
-  margin-bottom: 12px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-}
-.chart-group-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  margin: 8px 0 4px 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.chart-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.chart-container { width: 100%; height: 100%; border-radius: var(--radius); background: var(--color-bg-canvas); border: 1px solid var(--color-border-muted); }
+
+/* Chart Grid (2-col compact / expand-on-click) */
+.charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
+  transition: gap .3s ease;
 }
-.chart-toolbar__left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.chart-actions {
-  display: flex;
-  gap: 4px;
-}
-.chart-actions .btn--sm {
-  padding: 4px 10px;
-  font-size: 11px;
-}
-.btn--active {
-  background: var(--accent-1) !important;
-  color: #fff !important;
-  border-color: var(--accent-1) !important;
-}
-.chart-controls__label { font-size: 13px; color: var(--text-muted); }
-.metric-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
+.charts-grid.has-expanded { gap: 4px; }
+.chart-wrapper {
   cursor: pointer;
-  color: var(--text-muted);
-  padding: 3px 8px;
-  border-radius: 6px;
-  transition: all var(--transition);
-}
-.metric-toggle:hover { background: var(--bg-elevated); color: var(--text-primary); }
-.metric-toggle input { accent-color: var(--accent-1); }
-/* Range slider */
-.chart-range-wrap {
+  border-radius: var(--radius);
+  transition: box-shadow .2s ease;
   position: relative;
-  height: 32px;
-  margin-bottom: 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 0 12px;
-  display: flex;
-  align-items: center;
+  overflow: visible;
 }
-.chart-range-wrap input[type=range] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 4px;
-  background: var(--border);
-  border-radius: 2px;
-  outline: none;
+.chart-wrapper .chart-container { overflow: hidden; }
+.chart-wrapper:hover { box-shadow: var(--shadow-md); }
+.chart-wrapper.expanded {
+  grid-column: 1 / -1;
 }
-.chart-range-wrap input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--accent-1);
-  cursor: pointer;
-  border: 2px solid var(--bg-primary);
+.chart-wrapper .chart-group-title { padding: 6px 10px 2px; margin: 0; }
+.chart-wrapper .chart-container { height: 240px; }
+.chart-wrapper.expanded .chart-container { height: 400px; }
+@media (max-width: 640px) {
+  .charts-grid { grid-template-columns: 1fr; }
+  .chart-wrapper .chart-container { height: 220px; }
+  .chart-wrapper.expanded .chart-container { height: 340px; }
 }
-.chart-range-wrap input[type=range]::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--accent-1);
-  cursor: pointer;
-  border: 2px solid var(--bg-primary);
+
+.chart-group-title { font-size: 12px; font-weight: 600; color: var(--color-text-secondary); margin: 8px 0 4px 2px; text-transform: uppercase; letter-spacing: .5px; }
+.chart-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.chart-toolbar__left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.chart-actions { display: flex; gap: 4px; }
+.chart-controls__label { font-size: 13px; color: var(--color-text-secondary); }
+.metric-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; cursor: pointer; color: var(--color-text-secondary); padding: 2px 6px; border-radius: 4px; }
+.metric-toggle:hover { background: var(--color-bg-secondary); color: var(--color-text-primary); }
+.metric-toggle input { accent-color: var(--color-accent-fg); }
+.chart-range-wrap {
+  position: relative; height: 30px; margin-bottom: 10px;
+  background: var(--color-bg-secondary); border: 1px solid var(--color-border-muted);
+  border-radius: var(--radius); padding: 0 10px; display: flex; align-items: center;
 }
-.chart-range-label {
-  font-size: 10px;
-  color: var(--text-muted);
-  min-width: 32px;
-  text-align: center;
-}
-/* uPlot overrides */
-.uplot { width: 100% !important; }
-.uplot .u-legend { font-size: 11px; color: var(--text-muted); }
-.uplot .u-legend .u-marker { width: 12px; height: 3px; border-radius: 2px; }
-.uplot .u-cursor-x, .uplot .u-cursor-y { border-color: rgba(168,85,247,0.3); }
-.uplot .u-select { background: rgba(168,85,247,0.15); }
-/* Event legend */
-.event-legend {
-  display: flex;
-  gap: 12px;
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-top: 8px;
-  flex-wrap: wrap;
-}
-.event-legend__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.event-legend__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
+.chart-range-wrap input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 3px; background: var(--color-border-muted); border-radius: 2px; outline: none; }
+.chart-range-wrap input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--color-accent-fg); cursor: pointer; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+.chart-range-label { font-size: 10px; color: var(--color-text-secondary); min-width: 28px; text-align: center; }
 
 /* ===== Log Viewer ===== */
-.log-toolbar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-  align-items: center;
-}
-.log-search {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 7px 12px;
-  color: var(--text-primary);
-  font-size: 12px;
-  flex: 1;
-  font-family: inherit;
-  outline: none;
-  transition: border-color var(--transition);
-}
-.log-search:focus { border-color: var(--accent-1); }
-.log-viewer {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  max-height: 500px;
-  overflow-y: auto;
-  font-family: 'Cascadia Code', 'Consolas', 'Fira Code', monospace;
-  font-size: 12px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
+.log-toolbar { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.log-search { background: var(--color-bg-canvas); border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); padding: 2px 8px; color: var(--color-text-primary); font-size: 11px; flex: none; font-family: inherit; outline: none; }
+.log-search:focus { border-color: var(--color-accent-fg); box-shadow: 0 0 0 2px rgba(9,105,218,.15); }
+.log-viewer { background: var(--color-bg-canvas); border: none; border-radius: 0; max-height: none; overflow-y: auto; font-family: var(--font-mono); font-size: 12px; scrollbar-width: thin; scrollbar-color: var(--color-border-muted) transparent; flex: 1; min-height: 0; }
 .log-viewer::-webkit-scrollbar { width: 6px; }
 .log-viewer::-webkit-scrollbar-track { background: transparent; }
-.log-viewer::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-.log-line {
-  padding: 3px 14px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  border-bottom: 1px solid rgba(45,33,69,0.4);
-  transition: background var(--transition);
-}
-.log-line:hover { background: rgba(168,85,247,0.04); }
-.log-line--error { color: var(--error); background: rgba(248,113,113,0.06); }
-.log-line--warning { color: var(--warning); }
+.log-viewer::-webkit-scrollbar-thumb { background: var(--color-border-muted); border-radius: 3px; }
+.log-line { padding: 2px 12px; white-space: pre-wrap; word-break: break-all; border-bottom: 1px solid #f0f0f0; line-height: 1.7; }
+.log-line:hover { background: var(--color-bg-secondary); }
+.log-line--error { color: var(--color-danger-fg); background: #fff0f0; }
+.log-line--warning { color: var(--color-warning-fg); }
 
-/* ===== Model Tree ===== */
-.model-tree {
-  font-family: 'Cascadia Code', 'Consolas', monospace;
-  font-size: 13px;
+/* ===== Model Tree (Interactive Flowchart) ===== */
+.model-tree { font-family: var(--font-mono); font-size: 12px; }
+.model-tree__summary { margin-bottom: 12px; font-size: 12px; color: var(--color-text-secondary); display: flex; gap: 12px; flex-wrap: wrap; }
+.model-tree__summary b { color: var(--color-text-primary); }
+.model-tree ul { list-style: none; margin: 0; padding: 0; }
+.model-tree ul.tree-children { padding-left: 24px; position: relative; overflow: hidden; transition: max-height .3s ease, opacity .25s ease; }
+.model-tree ul.tree-children::before { content: ''; position: absolute; left: 9px; top: 0; bottom: 12px; width: 1px; background: var(--color-border-muted); }
+.model-tree ul.tree-children.collapsed { max-height: 0 !important; opacity: 0; pointer-events: none; }
+.model-tree ul.tree-children > li { position: relative; }
+.model-tree ul.tree-children > li::before {
+  content: ''; position: absolute; left: -15px; top: 17px; width: 14px; height: 0;
+  border-bottom: 1px solid var(--color-border-muted);
 }
-.model-tree ul { list-style: none; padding-left: 22px; }
-.model-tree li { padding: 3px 0; position: relative; }
-.model-tree li::before { content: "├─"; color: var(--text-dim); margin-right: 4px; }
-.model-tree li:last-child::before { content: "└─"; }
-.model-tree .node-type { color: var(--accent-1); }
-.model-tree .node-params { color: var(--text-muted); margin-left: 8px; font-size: 11px; }
-.model-tree .node-flops { color: var(--warning); margin-left: 4px; font-size: 11px; }
-.model-tree .node-repeat { color: var(--accent-2); margin-left: 4px; font-size: 11px; font-weight: 600; }
-.model-tree .bar { display: inline-block; height: 4px; border-radius: 2px; margin-left: 6px; vertical-align: middle; }
+.tree-node {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
+  border: 1px solid var(--color-border-muted); border-radius: var(--radius-sm);
+  background: var(--color-bg-elevated); margin: 3px 0;
+  transition: all .15s ease; cursor: default; flex-wrap: wrap;
+}
+.tree-node:hover { border-color: var(--color-accent-fg); background: var(--color-accent-subtle); transform: scale(1.01); }
+.tree-toggle {
+  cursor: pointer; user-select: none; font-size: 10px; width: 16px; height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 3px; transition: background .15s; flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+.tree-toggle:hover { background: var(--color-bg-secondary); }
+.tree-spacer { width: 16px; flex-shrink: 0; }
+.node-type-badge {
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .3px;
+  padding: 1px 5px; border-radius: 3px; flex-shrink: 0;
+}
+.node-type-badge--conv { background: #ddf4ff; color: #0969da; }
+.node-type-badge--linear { background: #fbefff; color: #8250df; }
+.node-type-badge--norm { background: #dafbe1; color: #1a7f37; }
+.node-type-badge--pool { background: #fff8c5; color: #9a6700; }
+.node-type-badge--act { background: #f3f4f6; color: #656d76; }
+.node-type-badge--drop { background: #ffebe9; color: #cf222e; }
+.node-type-badge--embed { background: #ddf4ff; color: #0550ae; }
+.node-type-badge--default { background: var(--color-bg-secondary); color: var(--color-text-secondary); }
+.node-name { font-weight: 500; color: var(--color-text-primary); }
+.node-params-badge { font-size: 10px; color: var(--color-text-tertiary); }
+.node-flops-badge { font-size: 10px; color: var(--color-warning-fg); }
+.node-repeat-badge { font-size: 10px; font-weight: 600; color: var(--color-purple); }
+.node-bar-track { display: inline-block; width: 60px; height: 4px; background: var(--color-bg-tertiary); border-radius: 2px; overflow: hidden; vertical-align: middle; }
+.node-bar-fill { display: block; height: 100%; border-radius: 2px; transition: width .4s ease; }
+.model-sub-active { background: var(--color-accent-fg) !important; color: #fff !important; border-color: var(--color-accent-fg) !important; }
 
 /* ===== AI Panel ===== */
-.ai-response {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 16px;
-  font-size: 13px;
-  line-height: 1.7;
-  min-height: 60px;
-  max-height: 300px;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-.ai-chat {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
-}
-.ai-chat__input {
-  flex: 1;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px 14px;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: inherit;
-  outline: none;
-  transition: border-color var(--transition);
-}
-.ai-chat__input:focus { border-color: var(--accent-1); box-shadow: 0 0 0 3px rgba(168,85,247,0.1); }
+.ai-response { background: var(--color-bg-canvas); border: none; border-radius: 0; padding: 8px 0; font-size: 13px; line-height: 1.6; min-height: 40px; flex: 1; overflow-y: auto; white-space: pre-wrap; }
+.ai-chat { display: flex; gap: 8px; flex-shrink: 0; padding-top: 8px; border-top: 1px solid var(--color-border-muted); }
+.ai-chat__input { flex: 1; background: var(--color-bg-canvas); border: 1px solid var(--color-border-default); border-radius: var(--radius); padding: 8px 12px; color: var(--color-text-primary); font-size: 13px; font-family: inherit; outline: none; }
+.ai-chat__input:focus { border-color: var(--color-accent-fg); box-shadow: 0 0 0 2px rgba(9,105,218,.15); }
 
 /* ===== Gallery Grid ===== */
-.gallery-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 10px;
-}
-.gallery-item {
-  position: relative;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  cursor: pointer;
-  transition: all var(--transition);
-}
-.gallery-item:hover { border-color: var(--accent-1); transform: translateY(-2px); box-shadow: 0 4px 20px rgba(168,85,247,0.12); }
+.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.gallery-item { position: relative; background: var(--color-bg-elevated); border: 1px solid var(--color-border-default); border-radius: var(--radius); overflow: hidden; cursor: pointer; transition: all var(--transition); }
+.gallery-item:hover { border-color: var(--color-accent-fg); box-shadow: var(--shadow-md); }
 .gallery-item img { width: 100%; height: 120px; object-fit: cover; }
-.gallery-item__placeholder {
-  height: 120px;
-  background: linear-gradient(135deg, var(--bg-elevated), var(--border));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 28px;
-}
-.gallery-item__info { padding: 8px 10px; font-size: 11px; }
-.gallery-item__conf { font-weight: 600; color: var(--accent-1); }
-.gallery-item__label { color: var(--text-muted); margin-left: 4px; }
-.gallery-item--selected { border-color: var(--accent-1); box-shadow: 0 0 0 2px rgba(168,85,247,0.3); }
+.gallery-item__placeholder { height: 120px; background: var(--color-bg-secondary); display: flex; align-items: center; justify-content: center; font-size: 28px; }
+.gallery-item__info { padding: 6px 8px; font-size: 11px; }
+.gallery-item__conf { font-weight: 600; color: var(--color-accent-fg); }
+.gallery-item__label { color: var(--color-text-secondary); margin-left: 4px; }
+.gallery-item--selected { border-color: var(--color-accent-fg); box-shadow: 0 0 0 2px rgba(9,105,218,.3); }
 
 /* ===== Compare ===== */
-.compare-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 16px;
-}
-.compare-card__metric {
-  display: flex;
-  justify-content: space-between;
-  font-size: 13px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-}
-.compare-bar {
-  display: none;
-  align-items: center;
-  gap: 10px;
-}
+.compare-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.compare-card__metric { display: flex; justify-content: space-between; font-size: 12px; padding: 5px 0; border-bottom: 1px solid var(--color-border-muted); }
+.compare-bar { display: none; align-items: center; gap: 8px; }
 .compare-bar.active { display: flex; }
 
 /* ===== Back Link ===== */
-.back-link {
-  font-size: 13px;
-  color: var(--text-muted);
-  cursor: pointer;
-  margin-bottom: 16px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  transition: color var(--transition);
-}
-.back-link:hover { color: var(--accent-1); }
+.back-link { font-size: 13px; color: var(--color-text-link); cursor: pointer; margin-bottom: 14px; display: inline-flex; align-items: center; gap: 4px; }
+.back-link:hover { text-decoration: underline; }
 
 /* ===== Empty State ===== */
-.empty-state {
-  text-align: center;
-  padding: 48px 20px;
-  color: var(--text-muted);
-  font-size: 14px;
-}
-.empty-state__icon { font-size: 40px; margin-bottom: 12px; display: block; }
-.empty-state__hint { font-size: 12px; margin-top: 8px; color: var(--text-dim); }
+.empty-state { text-align: center; padding: 40px 20px; color: var(--color-text-secondary); font-size: 13px; }
+.empty-state__icon { font-size: 36px; margin-bottom: 8px; display: block; opacity: .6; }
+.empty-state__hint { font-size: 11px; margin-top: 6px; color: var(--color-text-tertiary); }
 
-/* ===== New Guardian Form ===== */
-.new-guardian-form {
-  display: flex;
-  gap: 8px;
-  margin-top: 16px;
-}
-.new-guardian-form__input {
-  flex: 1;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 11px 16px;
-  color: var(--text-primary);
-  font-size: 14px;
-  font-family: inherit;
-  outline: none;
-  transition: border-color var(--transition);
-}
-.new-guardian-form__input:focus { border-color: var(--accent-1); box-shadow: 0 0 0 3px rgba(168,85,247,0.1); }
-.new-guardian-form__label {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
+/* ===== Form ===== */
+.new-guardian-form { display: flex; gap: 8px; margin-top: 12px; }
+.new-guardian-form__input { flex: 1; background: var(--color-bg-canvas); border: 1px solid var(--color-border-default); border-radius: var(--radius); padding: 8px 12px; color: var(--color-text-primary); font-size: 13px; font-family: var(--font-mono); outline: none; }
+.new-guardian-form__input:focus { border-color: var(--color-accent-fg); box-shadow: 0 0 0 2px rgba(9,105,218,.15); }
+.new-guardian-form__label { font-size: 12px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 6px; }
+.section-label { font-size: 12px; color: var(--color-text-secondary); }
 
-/* ===== Section Divider ===== */
-.section-label {
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-bottom: 8px;
-}
+/* ===== History ===== */
+.history-card { opacity: .9; }
+.history-card:hover { opacity: 1; }
+.history-card__date { font-size: 11px; color: var(--color-text-tertiary); margin-top: 2px; }
 
-/* ===== History Section ===== */
-.history-card {
-  opacity: 0.85;
+/* ===== Workstation Layout ===== */
+.workstation {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 12px;
+  min-height: calc(100vh - 140px);
 }
-.history-card:hover {
-  opacity: 1;
+.workstation__header { grid-column: 1 / -1; }
+.workstation__metrics { grid-column: 1 / -1; }
+.workstation__left {
+  grid-column: 1;
+  display: flex; flex-direction: column; gap: 12px;
+  min-width: 0;
 }
-.history-card__date {
-  font-size: 11px;
-  color: var(--text-dim);
-  margin-top: 2px;
+.workstation__right {
+  grid-column: 2;
+  display: flex; flex-direction: column; gap: 12px;
+  min-width: 0;
+  max-height: calc(100vh - 200px);
+  overflow: hidden;
 }
-.model-sub-active {
-  background: var(--accent-1) !important;
-  color: #fff !important;
-  border-color: var(--accent-1) !important;
+.panel {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius);
+  display: flex; flex-direction: column;
+  overflow: hidden;
 }
+.panel--grow { flex: 1; min-height: 200px; }
+.panel--fixed { height: 260px; flex-shrink: 0; }
+.panel__titlebar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border-muted);
+  background: var(--color-bg-secondary);
+  font-size: 12px; font-weight: 600; color: var(--color-text-primary);
+  flex-shrink: 0;
+}
+.panel__titlebar-actions { display: flex; gap: 4px; align-items: center; }
+.panel__body { flex: 1; overflow: auto; padding: 12px; min-height: 0; display: flex; flex-direction: column; }
+.panel__body--nopad { padding: 0; }
+
+/* AI Status Indicator */
+.ai-status {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--color-text-secondary);
+}
+.ai-status__dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--color-text-tertiary);
+  transition: background .3s;
+}
+.ai-status__dot--ok { background: var(--color-success-fg); }
+.ai-status__dot--fail { background: var(--color-danger-fg); }
+.ai-status__dot--checking { background: var(--color-warning-fg); animation: pulse 1.5s ease-in-out infinite; }
+
+/* Extra Tabs (Model / Gallery) */
+.extra-tabs { grid-column: 1 / -1; }
+.extra-tabs__bar {
+  display: flex; align-items: center; gap: 0;
+  border-bottom: 1px solid var(--color-border-default);
+}
+.extra-tab {
+  padding: 6px 14px; font-size: 12px; cursor: pointer;
+  color: var(--color-text-secondary);
+  border-bottom: 2px solid transparent;
+  transition: all var(--transition);
+}
+.extra-tab:hover { color: var(--color-text-primary); }
+.extra-tab.active { color: var(--color-text-primary); font-weight: 600; border-bottom-color: var(--color-accent-fg); }
+.extra-panel { display: none; }
+.extra-panel.active { display: block; }
 
 /* ===== Responsive ===== */
+@media (max-width: 900px) {
+  .workstation { grid-template-columns: 1fr; }
+  .workstation__left { grid-column: 1; }
+  .workstation__right { grid-column: 1; max-height: none; }
+}
 @media (max-width: 640px) {
-  .site-header { padding: 12px 16px; }
-  .main-content { padding: 12px 12px; }
-  .process-grid { grid-template-columns: 1fr; }
-  .metrics-row { grid-template-columns: repeat(2, 1fr); }
+  .site-header { padding: 10px 14px; } .main-content { padding: 12px; }
+  .process-grid { grid-template-columns: 1fr; } .metrics-row { grid-template-columns: repeat(2, 1fr); }
   .gallery-grid { grid-template-columns: repeat(2, 1fr); }
-  .tabs { gap: 0; }
-  .tab { padding: 8px 12px; font-size: 12px; }
-  .card { padding: 14px; }
-  .chart-container { height: 260px; }
-  .new-guardian-form { flex-direction: column; }
+  .tab { padding: 6px 10px; font-size: 11px; } .card { padding: 12px; }
+  .chart-container { height: 240px; } .new-guardian-form { flex-direction: column; }
   .compare-grid { grid-template-columns: 1fr; }
 }
-
 @media (min-width: 641px) and (max-width: 1024px) {
   .process-grid { grid-template-columns: repeat(2, 1fr); }
   .gallery-grid { grid-template-columns: repeat(4, 1fr); }
 }
-
 @media (min-width: 1025px) {
   .gallery-grid { grid-template-columns: repeat(6, 1fr); }
 }
+
+/* ===== Event Legend ===== */
+.event-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--color-border-muted); }
+.event-legend__item { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--color-text-secondary); }
+.event-legend__dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+
+/* ===== Skeleton Loading ===== */
+.skeleton-line { height: 12px; border-radius: 4px; margin: 8px 0; background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-bg-tertiary) 50%, var(--color-bg-secondary) 75%); background-size: 200% 100%; animation: shimmer 1.5s ease-in-out infinite; }
+.skeleton-line--short { width: 40%; }
+.skeleton-line--medium { width: 65%; }
+.skeleton-line--long { width: 85%; }
+
+/* ===== Toast ===== */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--color-text-primary); color: #fff; padding: 8px 18px;
+  border-radius: var(--radius); font-size: 13px; z-index: 1000;
+  opacity: 0; transition: all .3s cubic-bezier(.4,0,.2,1); pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0,0,0,.15);
+}
+.toast--show { opacity: 1; transform: translateX(-50%) translateY(0); animation: toastSlideIn .3s ease-out; }
+
+/* ===== Global Scrollbar ===== */
+* { scrollbar-width: thin; scrollbar-color: var(--color-border-muted) transparent; }
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--color-border-muted); border-radius: 3px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--color-text-tertiary); }
 </style>
+
 </head>
 <body>
-<div id="conn-banner" class="conn-banner">&#x26A0; 连接中断，正在重连...</div>
+<div id="conn-banner" class="conn-banner">连接中断，正在重连...</div>
 <header class="site-header">
-  <div class="site-header__title" onclick="showProcessList()">&#x1F6E1; Guardian Dashboard</div>
+  <div class="site-header__title" onclick="showProcessList()">Guardian Dashboard</div>
   <div class="site-header__status">
     <span class="ws-indicator" id="ws-status">
       <span class="ws-indicator__dot"></span>
-      连接中...
+      <span class="ws-indicator__text">连接中...</span>
     </span>
     <span id="global-badge" class="global-badge"></span>
   </div>
 </header>
 
 <main class="main-content">
+<div id="toast" class="toast"></div>
   <!-- ========== Process List ========== -->
   <div id="view-process-list" class="view active">
     <div class="card">
       <div class="card__header">
         <div class="card__title">活跃进程</div>
-        <button class="btn btn--sm" onclick="refreshProcesses()">&#x1F504; 刷新</button>
+        <button class="btn btn--sm" onclick="refreshProcesses()">刷新</button>
       </div>
       <div id="process-grid" class="process-grid"></div>
       <div style="margin-top:20px">
         <div class="new-guardian-form__label">新建守护</div>
         <div class="new-guardian-form">
           <input class="new-guardian-form__input" id="new-command" value="python train.py --epochs 20" placeholder="训练命令...">
-          <button class="btn btn--primary" onclick="alert('请在终端运行: python run.py watch --with-dashboard -- <命令>')">启动</button>
+          <button class="btn btn--primary" onclick="copyGuardianCmd()">启动</button>
         </div>
       </div>
     </div>
@@ -726,105 +547,140 @@ a:hover { color: var(--accent-2); }
     </div>
   </div>
 
-  <!-- ========== Process Detail ========== -->
+  <!-- ========== Process Detail (Workstation) ========== -->
   <div id="view-process-detail" class="view">
-    <div class="back-link" onclick="showProcessList()">&#x2190; 返回进程列表</div>
-    <div id="detail-header" class="card"></div>
-    <div id="detail-metrics" class="metrics-row"></div>
+    <div class="workstation">
+      <!-- Header Row -->
+      <div class="workstation__header">
+        <div class="back-link" onclick="showProcessList()">&larr; 返回进程列表</div>
+        <div id="detail-header" class="card" style="margin-bottom:0"></div>
+      </div>
 
-    <div class="tabs">
-      <div class="tab active" data-tab="overview" onclick="switchTab('overview')">&#x1F4CA; 训练曲线</div>
-      <div class="tab" data-tab="logs" onclick="switchTab('logs')">&#x1F4CB; 日志</div>
-      <div class="tab" data-tab="ai" onclick="switchTab('ai')">&#x1F9E0; AI 分析</div>
-      <div class="tab" data-tab="model" onclick="switchTab('model')">&#x1F3D7; 模型结构</div>
-      <div class="tab" data-tab="gallery" onclick="switchTab('gallery')">&#x1F5BC; 图库</div>
-    </div>
+      <!-- Metrics Row -->
+      <div class="workstation__metrics">
+        <div id="detail-metrics" class="metrics-row"></div>
+      </div>
 
-    <div id="tab-overview" class="tab-panel active">
-      <div class="card">
-        <div class="chart-toolbar">
-          <div class="chart-toolbar__left">
-            <span class="chart-controls__label">显示指标:</span>
-            <div id="metric-toggles"></div>
+      <!-- Left Column: Charts -->
+      <div class="workstation__left">
+        <div class="panel panel--grow">
+          <div class="panel__titlebar">
+            <span>训练曲线</span>
+            <div class="panel__titlebar-actions">
+              <button class="btn btn--sm" onclick="toggleSmoothing()" id="btn-ema">EMA</button>
+              <button class="btn btn--sm" onclick="exportCSV()">CSV</button>
+              <button class="btn btn--sm" onclick="exportPNG()">PNG</button>
+              <button class="btn btn--sm" onclick="resetZoom()">Reset</button>
+            </div>
           </div>
-          <div class="chart-actions">
-            <button class="btn btn--sm" onclick="toggleSmoothing()" id="btn-ema">EMA</button>
-            <button class="btn btn--sm" onclick="exportCSV()">CSV</button>
-            <button class="btn btn--sm" onclick="exportPNG()">PNG</button>
-            <button class="btn btn--sm" onclick="resetZoom()">Reset</button>
-          </div>
-        </div>
-        <div id="chart-panels"></div>
-        <div class="chart-range-wrap">
-          <span class="chart-range-label" id="range-start">0</span>
-          <input type="range" id="chart-range-min" min="0" max="100" value="0" oninput="onRangeChange()">
-          <input type="range" id="chart-range-max" min="0" max="100" value="100" oninput="onRangeChange()">
-          <span class="chart-range-label" id="range-end">100</span>
-        </div>
-        <div class="event-legend">
-          <span class="event-legend__item"><span class="event-legend__dot" style="background:#f87171"></span>Loss Spike</span>
-          <span class="event-legend__item"><span class="event-legend__dot" style="background:#34d399"></span>Checkpoint</span>
-          <span class="event-legend__item"><span class="event-legend__dot" style="background:#06b6d4"></span>LR Change</span>
-          <span class="event-legend__item"><span class="event-legend__dot" style="background:#fbbf24"></span>Alert</span>
-        </div>
-      </div>
-    </div>
-
-    <div id="tab-logs" class="tab-panel">
-      <div class="card">
-        <div class="log-toolbar">
-          <button class="btn btn--sm" onclick="toggleAutoScroll()" id="btn-autoscroll">&#x23F8; 暂停滚动</button>
-          <input class="log-search" placeholder="搜索日志..." oninput="filterLogs(this.value)">
-          <button class="btn btn--sm" onclick="refreshLogs()">&#x1F504;</button>
-        </div>
-        <div id="log-viewer" class="log-viewer"></div>
-      </div>
-    </div>
-
-    <div id="tab-ai" class="tab-panel">
-      <div class="card">
-        <div class="card__header">
-          <span class="section-label">AI 模型: 点击按钮触发分析</span>
-          <button class="btn btn--primary btn--sm" onclick="runAIAnalysis()" id="btn-ai-analyze">&#x1F52E; 分析当前状态</button>
-        </div>
-        <div id="ai-output" class="ai-response">点击上方按钮开始分析...</div>
-        <div class="ai-chat">
-          <input class="ai-chat__input" id="ai-question" placeholder="追问...（如：为什么 loss 在第 8 epoch 突增？）" onkeydown="if(event.key==='Enter')askAI()">
-          <button class="btn btn--sm" onclick="askAI()">发送</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="tab-model" class="tab-panel">
-      <div class="card">
-        <div class="card__header">
-          <div class="card__title">模型结构</div>
-          <div style="display:flex;gap:6px;align-items:center">
-            <button class="btn btn--sm" onclick="switchModelSubTab('tree')" id="btn-model-tree">树形</button>
-            <button class="btn btn--sm" onclick="switchModelSubTab('viz')" id="btn-model-viz-tab">架构图</button>
-            <button class="btn btn--primary btn--sm" onclick="generateModelVizInline()" id="btn-model-viz">&#x1F3D7; 生成</button>
+          <div class="panel__body panel__body--nopad">
+            <div style="padding:8px 12px 0">
+              <div class="chart-toolbar" style="margin-bottom:4px">
+                <div class="chart-toolbar__left">
+                  <span class="chart-controls__label">显示指标:</span>
+                  <div id="metric-toggles"></div>
+                </div>
+              </div>
+            </div>
+            <div id="chart-panels" style="padding:0 12px"></div>
+            <div style="padding:0 12px 8px">
+              <div class="chart-range-wrap">
+                <span class="chart-range-label" id="range-start">0</span>
+                <input type="range" id="chart-range-min" min="0" max="100" value="0" oninput="onRangeChange()">
+                <input type="range" id="chart-range-max" min="0" max="100" value="100" oninput="onRangeChange()">
+                <span class="chart-range-label" id="range-end">100</span>
+              </div>
+              <div class="event-legend">
+                <span class="event-legend__item"><span class="event-legend__dot" style="background:#f87171"></span>Loss Spike</span>
+                <span class="event-legend__item"><span class="event-legend__dot" style="background:#34d399"></span>Checkpoint</span>
+                <span class="event-legend__item"><span class="event-legend__dot" style="background:#06b6d4"></span>LR Change</span>
+                <span class="event-legend__item"><span class="event-legend__dot" style="background:#fbbf24"></span>Alert</span>
+              </div>
+            </div>
           </div>
         </div>
-        <div id="model-sub-tree">
-          <div id="model-tree" class="model-tree"></div>
+      </div>
+
+      <!-- Right Column: Logs + AI -->
+      <div class="workstation__right">
+        <!-- Log Panel -->
+        <div class="panel panel--grow">
+          <div class="panel__titlebar">
+            <span>日志</span>
+            <div class="panel__titlebar-actions">
+              <button class="btn btn--sm" onclick="toggleAutoScroll()" id="btn-autoscroll">暂停滚动</button>
+              <button class="btn btn--sm" onclick="refreshLogs()">刷新</button>
+            </div>
+          </div>
+          <div class="panel__body panel__body--nopad">
+            <input class="log-search" placeholder="搜索日志..." oninput="filterLogs(this.value)" style="margin:3px 8px 2px;flex-shrink:0">
+            <div id="log-viewer" class="log-viewer"></div>
+          </div>
         </div>
-        <div id="model-sub-viz" style="display:none">
-          <div id="model-viz-frame" style="width:100%;height:600px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:auto;background:var(--bg-primary)"></div>
+
+        <!-- AI Panel -->
+        <div class="panel panel--fixed">
+          <div class="panel__titlebar">
+            <span>AI 分析</span>
+            <div class="panel__titlebar-actions">
+              <span class="ai-status" id="ai-status">
+                <span class="ai-status__dot ai-status__dot--checking" id="ai-status-dot"></span>
+                <span id="ai-status-text">检测中</span>
+              </span>
+              <button class="btn btn--primary btn--sm" onclick="runAIAnalysis()" id="btn-ai-analyze">分析</button>
+            </div>
+          </div>
+          <div class="panel__body">
+            <div id="ai-output" class="ai-response">点击分析按钮开始...</div>
+            <div class="ai-chat">
+              <input class="ai-chat__input" id="ai-question" placeholder="追问..." onkeydown="if(event.key==='Enter')askAI()">
+              <button class="btn btn--sm" onclick="askAI()">发送</button>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div id="tab-gallery" class="tab-panel">
-      <div class="card">
-        <div class="section-label">图库需先在 CLI 中生成，或在训练完成后从详情页触发</div>
-        <div id="gallery-grid" class="gallery-grid"></div>
+      <!-- Extra Tabs: Model / Gallery -->
+      <div class="extra-tabs">
+        <div class="extra-tabs__bar">
+          <div class="extra-tab" data-extra-tab="model" onclick="switchExtraTab('model')">模型结构</div>
+          <div class="extra-tab" data-extra-tab="gallery" onclick="switchExtraTab('gallery')">图库</div>
+        </div>
+        <div id="extra-panel-model" class="extra-panel">
+          <div class="card" style="margin-top:12px">
+            <div class="card__header">
+              <div class="card__title">模型结构</div>
+              <div style="display:flex;gap:6px;align-items:center">
+                <button class="btn btn--sm" onclick="switchModelSubTab('tree')" id="btn-model-tree">树形</button>
+                <button class="btn btn--sm" onclick="switchModelSubTab('viz')" id="btn-model-viz-tab">架构图</button>
+                <button class="btn btn--primary btn--sm" onclick="generateModelVizInline()" id="btn-model-viz">生成</button>
+              </div>
+            </div>
+            <div id="model-sub-tree">
+              <div id="model-tree" class="model-tree"></div>
+            </div>
+            <div id="model-sub-viz" style="display:none">
+              <div id="model-viz-frame" style="width:100%;height:600px;border:1px solid var(--color-border-default);border-radius:var(--radius-sm);overflow:auto;background:var(--color-bg-canvas)"></div>
+            </div>
+          </div>
+        </div>
+        <div id="extra-panel-gallery" class="extra-panel">
+          <div class="card" style="margin-top:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span class="section-label">图库 — 训练完成后点击按钮生成</span>
+              <button class="btn btn--primary btn--sm" onclick="generateGallery()" id="btn-gallery-gen">生成图库</button>
+            </div>
+            <div id="gallery-gen-status" style="font-size:12px;color:var(--color-text-secondary);margin-bottom:8px;display:none"></div>
+            <div id="gallery-grid" class="gallery-grid"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
 
   <!-- ========== Compare ========== -->
   <div id="view-compare" class="view">
-    <div class="back-link" onclick="showProcessList()">&#x2190; 返回进程列表</div>
+    <div class="back-link" onclick="showProcessList()">&larr; 返回进程列表</div>
     <div class="card">
       <div class="card__title">对比结果</div>
       <div id="compare-content"></div>
@@ -847,26 +703,27 @@ let isHistoryProcess = false;  // Whether current detail is from history
 
 // ===================== Theme Constants =====================
 const THEME = {
-  bg: '#1a1128',
-  text: '#8b7fa8',
-  border: '#2d2145',
-  grid: 'rgba(168,85,247,0.08)',
-  tooltip: { bg: '#241a35', border: '#a855f7' },
-  palette: ['#a855f7', '#06b6d4', '#34d399', '#fbbf24', '#f87171'],
+  bg: '#ffffff',
+  text: '#656d76',
+  border: '#d0d7de',
+  grid: 'rgba(208,215,222,0.4)',
+  tooltip: { bg: '#ffffff', border: '#0969da' },
+  palette: ['#0969da', '#cf222e', '#1a7f37', '#9a6700', '#8250df'],
 };
 
 // ===================== Init =====================
+function _resizeCharts() {
+  chartInstances.forEach(c => {
+    const el = document.getElementById('chart-group-' + c._groupName);
+    if (el && el.clientWidth > 0 && el.clientHeight > 0) {
+      c.setSize({ width: el.clientWidth, height: el.clientHeight });
+    }
+  });
+}
 function init() {
   connectWS();
   refreshProcesses();
-  window.addEventListener('resize', () => {
-    chartInstances.forEach(c => {
-      if (c && c.over) {
-        const el = c.over.parentElement;
-        if (el) c.setSize({ width: el.clientWidth, height: 300 });
-      }
-    });
-  });
+  window.addEventListener('resize', _resizeCharts);
 }
 document.addEventListener('DOMContentLoaded', init);
 
@@ -895,7 +752,7 @@ function connectWS() {
 function setWSStatus(text, connected) {
   const el = document.getElementById('ws-status');
   const dot = el.querySelector('.ws-indicator__dot');
-  el.lastChild.textContent = ' ' + text;
+  el.querySelector('.ws-indicator__text').textContent = text;
   dot.className = 'ws-indicator__dot' + (connected ? ' ws-indicator__dot--connected' : ' ws-indicator__dot--disconnected');
 }
 
@@ -946,26 +803,26 @@ async function refreshProcesses() {
   const histProcs = procs.filter(p => p.source === 'history');
 
   if (!liveProcs.length) {
-    grid.innerHTML = `<div class="empty-state"><span class="empty-state__icon">&#x1F4ED;</span>暂无活跃进程<br><span class="empty-state__hint">在终端运行 python run.py watch --with-dashboard -- &lt;训练命令&gt;</span></div>`;
+    grid.innerHTML = `<div class="empty-state"><span class="empty-state__icon">&mdash;</span>暂无活跃进程<br><span class="empty-state__hint">在终端运行 python run.py watch --with-dashboard -- &lt;训练命令&gt;</span></div>`;
   } else {
     const badge = document.getElementById('global-badge');
     const runningCount = liveProcs.filter(p => p.status === 'running').length;
     badge.style.display = 'inline';
     badge.textContent = `${runningCount} running`;
-    grid.innerHTML = liveProcs.map(p => renderProcessCard(p, false)).join('');
+    grid.innerHTML = liveProcs.map((p, i) => renderProcessCard(p, false, i)).join('');
   }
 
   // History section
   if (histProcs.length) {
     document.getElementById('history-section').style.display = '';
-    histGrid.innerHTML = histProcs.map(p => renderProcessCard(p, true)).join('');
+    histGrid.innerHTML = histProcs.map((p, i) => renderProcessCard(p, true, i)).join('');
   } else {
     document.getElementById('history-section').style.display = 'none';
   }
   updateCompareBar();
 }
 
-function renderProcessCard(p, isHistory) {
+function renderProcessCard(p, isHistory, idx) {
   const epochStr = p.epoch ? `Epoch ${p.epoch}${p.max_epoch ? '/' + p.max_epoch : ''}` : '';
   const pct = p.max_epoch && p.epoch ? Math.round(p.epoch / p.max_epoch * 100) : 0;
   const m = p.latest_metrics || {};
@@ -975,24 +832,26 @@ function renderProcessCard(p, isHistory) {
   const clickFn = isHistory ? `showHistoryDetail('${p.process_id}')` : `showDetail('${p.process_id}')`;
   const dateStr = p.created_at ? new Date(p.created_at * 1000).toLocaleDateString() : '';
   const extraClass = isHistory ? ' history-card' : '';
-  return `<div class="card process-card${extraClass}" onclick="${clickFn}">
+  const safeName = escapeHtml(p.name || p.process_id);
+  const safeCmd = escapeHtml(p.command ? p.command.slice(0, 60) : '');
+  return `<div class="card process-card${extraClass}" style="--i:${idx || 0}" onclick="${clickFn}">
     <div class="process-card__name">
       <span class="process-card__status-dot ${dotClass}"></span>
-      ${p.name || p.process_id}
+      ${safeName}
       <span class="process-card__status-label">${p.status}</span>
     </div>
     ${isHistory ? `<div class="history-card__date">${dateStr}</div>` : ''}
-    <div class="process-card__meta">${epochStr} ${p.command ? ' · ' + p.command.slice(0, 60) : ''}</div>
+    <div class="process-card__meta">${epochStr}${safeCmd ? ' · ' + safeCmd : ''}</div>
     ${p.max_epoch ? `<div class="progress-track"><div class="progress-track__bar" style="width:${pct}%"></div></div>` : ''}
     <div class="process-card__stats">
       ${m.loss !== undefined ? `<span><span class="stat-item__value">${typeof m.loss === 'number' ? m.loss.toFixed(4) : m.loss}</span><span class="stat-item__label">loss</span></span>` : ''}
       ${m.val_acc !== undefined ? `<span><span class="stat-item__value">${typeof m.val_acc === 'number' ? (m.val_acc * 100).toFixed(1) + '%' : m.val_acc}</span><span class="stat-item__label">acc</span></span>` : ''}
       ${m.lr !== undefined ? `<span><span class="stat-item__value">${m.lr}</span><span class="stat-item__label">lr</span></span>` : ''}
       ${g.util_pct !== undefined ? `<span><span class="stat-item__value">${g.util_pct}%</span><span class="stat-item__label">GPU</span></span>` : ''}
-      ${p.anomaly_count > 0 ? `<span class="process-card__anomaly">&#x26A0; ${p.anomaly_count} events</span>` : ''}
+      ${p.anomaly_count > 0 ? `<span class="process-card__anomaly">${p.anomaly_count} events</span>` : ''}
     </div>
     ${!isHistory ? `<div class="process-card__actions" onclick="event.stopPropagation()">
-      <label class="btn btn--sm" style="cursor:pointer"><input type="checkbox" ${checked} onchange="toggleCompare('${p.process_id}', this.checked)" style="margin-right:4px;accent-color:var(--accent-1)">对比</label>
+      <label class="btn btn--sm" style="cursor:pointer"><input type="checkbox" ${checked} onchange="toggleCompare('${p.process_id}', this.checked)" style="margin-right:4px;accent-color:var(--color-accent-fg)">对比</label>
     </div>` : ''}
   </div>`;
 }
@@ -1043,13 +902,12 @@ async function showDetail(pid) {
   currentDetail = data;
   _populateDetail(data);
 
-  // Switch tab first so chart containers are visible
-  switchTab('overview');
-  // Load sub-views
+  // Load all panels simultaneously (workstation layout)
   refreshLogs();
-  document.getElementById('ai-output').textContent = '点击上方按钮开始分析...';
-  document.getElementById('model-tree').innerHTML = '<span style="color:var(--text-muted)">加载中...</span>';
+  document.getElementById('ai-output').textContent = '点击分析按钮开始...';
+  document.getElementById('model-tree').innerHTML = '<div class="skeleton-line skeleton-line--long"></div><div class="skeleton-line skeleton-line--medium"></div><div class="skeleton-line skeleton-line--short"></div>';
   document.getElementById('gallery-grid').innerHTML = '';
+  checkAIStatus();
   // Defer chart init for DOM layout
   setTimeout(() => loadMetricsChart(pid), 50);
 }
@@ -1069,40 +927,59 @@ async function showHistoryDetail(pid) {
 
   // Load metrics from history API
   const mData = await api(`/api/history/${pid}/metrics?limit=2000`);
-  if (!mData) return;
-  window._allMetrics = mData.metrics || [];
-  chartEvents = detectAnomalies(window._allMetrics);
+  if (mData && mData.metrics) {
+    window._allMetrics = mData.metrics || [];
+    chartEvents = detectAnomalies(window._allMetrics);
+  } else {
+    window._allMetrics = [];
+    chartEvents = [];
+  }
 
-  document.getElementById('ai-output').textContent = '历史进程无法进行 AI 分析';
-  document.getElementById('model-tree').innerHTML = '<span style="color:var(--text-muted)">历史进程无模型数据</span>';
+  // Show anomaly/restart summary in header
+  if (data.anomaly_count > 0 || data.restart_count > 0) {
+    const header = document.getElementById('detail-header');
+    let extra = '';
+    if (data.restarts && data.restarts.length > 0) {
+      const wasted = data.restarts.reduce((s,r) => s + (r.wasted_epochs||0), 0);
+      extra += `<div style="font-size:12px;color:var(--color-warning-fg);margin-top:4px">Restarts: ${data.restart_count} (wasted ~${wasted} epochs)</div>`;
+    }
+    if (data.anomalies && data.anomalies.length > 0) {
+      extra += `<div style="font-size:12px;color:var(--color-text-tertiary);margin-top:2px">Anomalies: ${data.anomaly_count}</div>`;
+    }
+    header.innerHTML += extra;
+  }
+
+  // Load all panels (workstation layout)
+  document.getElementById('ai-output').textContent = '点击分析按钮开始...';
+  document.getElementById('model-tree').innerHTML = '<div class="skeleton-line skeleton-line--long"></div><div class="skeleton-line skeleton-line--medium"></div><div class="skeleton-line skeleton-line--short"></div>';
   document.getElementById('gallery-grid').innerHTML = '';
-  switchTab('overview');
-  setTimeout(() => initCharts(), 50);
+  checkAIStatus();
+  setTimeout(() => { if (window._allMetrics.length) initCharts(); }, 50);
 }
 
 function _populateDetail(data) {
   const pid = data.process_id;
   // Header
   document.getElementById('detail-header').innerHTML = `
-    <div style="font-size:16px;font-weight:600">${data.name || pid} <span style="font-size:12px;color:var(--text-muted)">${data.status}${isHistoryProcess ? ' (历史)' : ''}</span></div>
-    <div style="font-size:12px;color:var(--text-muted);margin-top:4px">${data.command || ''} · ${data.metrics_count || 0} records</div>`;
+    <div style="font-size:16px;font-weight:600">${escapeHtml(data.name || pid)} <span style="font-size:12px;color:var(--color-text-tertiary)">${data.status}${isHistoryProcess ? ' (历史)' : ''}</span></div>
+    <div style="font-size:12px;color:var(--color-text-tertiary);margin-top:4px">${escapeHtml(data.command || '')} · ${data.metrics_count || 0} records</div>`;
 
   // Metric cards
   const m = data.latest_metrics || {};
   const g = data.latest_gpu || {};
   document.getElementById('detail-metrics').innerHTML = [
-    m.loss !== undefined ? { v: typeof m.loss === 'number' ? m.loss.toFixed(4) : m.loss, l: 'Loss', t: 'down' } : null,
-    m.val_acc !== undefined ? { v: typeof m.val_acc === 'number' ? (m.val_acc * 100).toFixed(1) + '%' : m.val_acc, l: 'Val Acc', t: 'up' } : null,
-    m.lr !== undefined ? { v: m.lr, l: 'LR' } : null,
-    g.util_pct !== undefined ? { v: g.util_pct + '%', l: 'GPU Util' } : null,
-    { v: data.metrics_count || 0, l: 'Records' },
-    { v: data.anomaly_count || 0, l: 'Anomalies', t: data.anomaly_count > 0 ? 'warn' : '' },
+    m.loss !== undefined ? { v: typeof m.loss === 'number' ? m.loss.toFixed(4) : m.loss, l: 'Loss', t: 'down', c: 'loss' } : null,
+    m.val_acc !== undefined ? { v: typeof m.val_acc === 'number' ? (m.val_acc * 100).toFixed(1) + '%' : m.val_acc, l: 'Val Acc', t: 'up', c: 'acc' } : null,
+    m.lr !== undefined ? { v: m.lr, l: 'LR', c: 'lr' } : null,
+    g.util_pct !== undefined ? { v: g.util_pct + '%', l: 'GPU Util', c: 'gpu' } : null,
+    { v: data.metrics_count || 0, l: 'Records', c: 'info' },
+    { v: data.anomaly_count || 0, l: 'Anomalies', t: data.anomaly_count > 0 ? 'warn' : '', c: 'info' },
   ].filter(Boolean).map(c => {
     let trendHtml = '';
-    if (c.t === 'down') trendHtml = '<div class="metric-card__trend metric-card__trend--down">&#x2193;</div>';
-    else if (c.t === 'up') trendHtml = '<div class="metric-card__trend metric-card__trend--up">&#x2191;</div>';
-    else if (c.t === 'warn') trendHtml = '<div class="metric-card__trend metric-card__trend--warn">&#x26A0;</div>';
-    return `<div class="metric-card"><div class="metric-card__value">${c.v}</div><div class="metric-card__label">${c.l}</div>${trendHtml}</div>`;
+    if (c.t === 'down') trendHtml = '<div class="metric-card__trend metric-card__trend--down">&darr;</div>';
+    else if (c.t === 'up') trendHtml = '<div class="metric-card__trend metric-card__trend--up">&uarr;</div>';
+    else if (c.t === 'warn') trendHtml = '<div class="metric-card__trend metric-card__trend--warn">!</div>';
+    return `<div class="metric-card metric-card--${c.c}"><div class="metric-card__value">${c.v}</div><div class="metric-card__label">${c.l}</div>${trendHtml}</div>`;
   }).join('');
 
   // Metric toggles
@@ -1110,10 +987,10 @@ function _populateDetail(data) {
   let toggles = '';
   for (const [cat, keys] of Object.entries(disc)) {
     for (const k of (keys || []).slice(0, 8)) {
-      toggles += `<label class="metric-toggle"><input type="checkbox" checked onchange="initCharts()" class="metric-cb" data-key="${k}"> ${k}</label>`;
+      toggles += `<label class="metric-toggle"><input type="checkbox" checked onchange="initCharts()" class="metric-cb" data-key="${k}"> ${escapeHtml(k)}</label>`;
     }
   }
-  document.getElementById('metric-toggles').innerHTML = toggles || '<span style="font-size:11px;color:var(--text-muted)">自动检测中...</span>';
+  document.getElementById('metric-toggles').innerHTML = toggles || '<span style="font-size:11px;color:var(--color-text-tertiary)">自动检测中...</span>';
 }
 
 function showProcessList() {
@@ -1125,14 +1002,36 @@ function showProcessList() {
   refreshProcesses();
 }
 
-// ===================== Tabs =====================
-function switchTab(name) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-  document.querySelector(`[data-tab="${name}"]`)?.classList.add('active');
-  document.getElementById(`tab-${name}`)?.classList.add('active');
+// ===================== Extra Tabs (Model / Gallery) =====================
+function switchExtraTab(name) {
+  document.querySelectorAll('.extra-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.extra-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`[data-extra-tab="${name}"]`)?.classList.add('active');
+  document.getElementById(`extra-panel-${name}`)?.classList.add('active');
   if (name === 'model') loadModelTree(currentProcessId);
   if (name === 'gallery') loadGallery(currentProcessId);
+}
+
+// ===================== AI Status Check =====================
+async function checkAIStatus() {
+  const dot = document.getElementById('ai-status-dot');
+  const text = document.getElementById('ai-status-text');
+  if (!dot || !text) return;
+  dot.className = 'ai-status__dot ai-status__dot--checking';
+  text.textContent = '检测中';
+  try {
+    const r = await fetch('/health', { signal: AbortSignal.timeout(3000) });
+    if (r.ok) {
+      dot.className = 'ai-status__dot ai-status__dot--ok';
+      text.textContent = '服务可用';
+    } else {
+      dot.className = 'ai-status__dot ai-status__dot--fail';
+      text.textContent = '服务异常';
+    }
+  } catch {
+    dot.className = 'ai-status__dot ai-status__dot--fail';
+    text.textContent = '无法连接';
+  }
 }
 
 // ===================== Metrics Chart (uPlot) =====================
@@ -1242,6 +1141,8 @@ function initCharts() {
   chartInstances = [];
 
   const panelsEl = document.getElementById('chart-panels');
+  // Preserve expanded state across rebuilds
+  const prevExpanded = panelsEl.querySelector('.chart-wrapper.expanded')?.getAttribute('data-group') || null;
   panelsEl.innerHTML = '';
 
   const metrics = window._allMetrics || [];
@@ -1269,20 +1170,36 @@ function initCharts() {
   });
 
   const containers = [];
+  const gridEl = document.createElement('div');
+  gridEl.className = 'charts-grid';
+  panelsEl.appendChild(gridEl);
+
   sortedGroups.forEach(groupName => {
     const groupKeys = groups[groupName];
-    // Create container
+    // Create wrapper
+    const wrapper = document.createElement('div');
+    wrapper.className = 'chart-wrapper';
+    wrapper.setAttribute('data-group', groupName);
+    wrapper.onclick = function() { toggleChartExpand(this); };
+    gridEl.appendChild(wrapper);
+
     const titleEl = document.createElement('div');
     titleEl.className = 'chart-group-title';
     titleEl.textContent = groupName.toUpperCase();
-    panelsEl.appendChild(titleEl);
+    wrapper.appendChild(titleEl);
 
     const chartEl = document.createElement('div');
     chartEl.className = 'chart-container';
     chartEl.id = 'chart-group-' + groupName;
-    panelsEl.appendChild(chartEl);
+    wrapper.appendChild(chartEl);
     containers.push({ groupName, groupKeys, chartEl });
   });
+
+  // Restore expanded state
+  if (prevExpanded) {
+    const w = gridEl.querySelector(`[data-group="${prevExpanded}"]`);
+    if (w) { w.classList.add('expanded'); gridEl.classList.add('has-expanded'); }
+  }
 
   // Force layout reflow so all containers have correct dimensions
   panelsEl.offsetHeight;
@@ -1389,7 +1306,7 @@ function initCharts() {
 
     const opts = {
       width: chartEl.clientWidth || panelsEl.clientWidth || 800,
-      height: 300,
+      height: chartEl.clientHeight || 300,
       cursor: {
         drag: { x: true, y: false, setScale: true },
         sync: { key: 'train-sync' },
@@ -1414,15 +1331,8 @@ function initCharts() {
     chart._keys = groupKeys;
   });
 
-  // Final resize pass to ensure all charts are consistent
-  requestAnimationFrame(() => {
-    chartInstances.forEach(c => {
-      const el = document.getElementById('chart-group-' + c._groupName);
-      if (el && el.clientWidth > 0) {
-        c.setSize({ width: el.clientWidth, height: 300 });
-      }
-    });
-  });
+  // Final resize pass
+  requestAnimationFrame(_resizeCharts);
 
   // Update range slider
   const total = metrics.length;
@@ -1434,6 +1344,22 @@ function initCharts() {
   maxSlider.value = total - 1;
   document.getElementById('range-start').textContent = '0';
   document.getElementById('range-end').textContent = total - 1;
+}
+
+function toggleChartExpand(wrapper) {
+  const grid = wrapper.closest('.charts-grid');
+  const wasExpanded = wrapper.classList.contains('expanded');
+  // Collapse all
+  grid.querySelectorAll('.chart-wrapper.expanded').forEach(w => w.classList.remove('expanded'));
+  grid.classList.remove('has-expanded');
+  // Toggle current
+  if (!wasExpanded) {
+    wrapper.classList.add('expanded');
+    grid.classList.add('has-expanded');
+  }
+  // Resize charts after CSS transition
+  setTimeout(_resizeCharts, 50);
+  setTimeout(_resizeCharts, 350);
 }
 
 function assignGroup(key) {
@@ -1534,7 +1460,8 @@ function liveUpdateMetrics(m) {
 // ===================== Logs =====================
 async function refreshLogs() {
   if (!currentProcessId) return;
-  const data = await api(`/api/process/${currentProcessId}/log?lines=200`);
+  const prefix = isHistoryProcess ? '/api/history' : '/api/process';
+  const data = await api(`${prefix}/${currentProcessId}/log?lines=200`);
   if (!data) return;
   const viewer = document.getElementById('log-viewer');
   window._allLogLines = data.lines || [];
@@ -1556,7 +1483,7 @@ function renderLogs(filter = '') {
 function filterLogs(q) { renderLogs(q); }
 function toggleAutoScroll() {
   autoscroll = !autoscroll;
-  document.getElementById('btn-autoscroll').textContent = autoscroll ? '⏸ 暂停滚动' : '▶ 恢复滚动';
+  document.getElementById('btn-autoscroll').textContent = autoscroll ? '暂停滚动' : '恢复滚动';
 }
 function liveLogLine(line) {
   if (!window._allLogLines) window._allLogLines = [];
@@ -1567,77 +1494,117 @@ function liveLogLine(line) {
 
 // ===================== AI =====================
 async function runAIAnalysis() {
-  if (!currentProcessId) return;
-  document.getElementById('ai-output').textContent = '分析中...';
+  if (!currentProcessId) {
+    document.getElementById('ai-output').textContent = '请先选择一个进程';
+    return;
+  }
+  const btn = document.getElementById('btn-ai-analyze');
+  const output = document.getElementById('ai-output');
+  btn.disabled = true;
+  btn.textContent = '分析中...';
+  output.textContent = '正在调用 AI 分析，请稍候...';
   try {
-    const r = await fetch(`/api/process/${currentProcessId}/ai/analyze`, { method: 'POST' });
+    const prefix = isHistoryProcess ? '/api/history' : '/api/process';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    const r = await fetch(`${prefix}/${currentProcessId}/ai/analyze`, {
+      method: 'POST',
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (!r.ok) {
+      const errBody = await r.text().catch(() => '');
+      throw new Error(`HTTP ${r.status}: ${errBody.slice(0, 100)}`);
+    }
     const d = await r.json();
-    document.getElementById('ai-output').textContent = d.analysis || '无响应';
+    output.textContent = d.analysis || 'AI 无响应';
+    if (d.source) output.textContent += `\n\n[来源: ${d.source}]`;
   } catch (e) {
-    document.getElementById('ai-output').textContent = '分析失败: ' + e;
+    if (e.name === 'AbortError') {
+      output.textContent = 'AI 分析超时（30秒），请检查网络连接或凭据配置';
+    } else {
+      output.textContent = '分析失败: ' + e.message;
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '分析';
   }
 }
 
 async function askAI() {
   const q = document.getElementById('ai-question').value.trim();
-  if (!q || !currentProcessId) return;
-  document.getElementById('ai-output').textContent += '\n\n❓ ' + q + '\n⏳ 思考中...';
-  try {
-    const r = await fetch(`/api/process/${currentProcessId}/ai/chat?question=${encodeURIComponent(q)}`, { method: 'POST' });
-    const d = await r.json();
-    document.getElementById('ai-output').textContent = document.getElementById('ai-output').textContent.replace('⏳ 思考中...', '💬 ' + (d.answer || '...'));
-  } catch (e) {
-    document.getElementById('ai-output').textContent += '\n错误: ' + e;
+  if (!q) return;
+  if (!currentProcessId) {
+    document.getElementById('ai-output').textContent += '\n\n请先选择一个进程';
+    return;
   }
-  document.getElementById('ai-question').value = '';
+  const output = document.getElementById('ai-output');
+  output.textContent += '\n\nQ: ' + q + '\n思考中...';
+  const input = document.getElementById('ai-question');
+  input.disabled = true;
+  try {
+    const prefix = isHistoryProcess ? '/api/history' : '/api/process';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    const r = await fetch(`${prefix}/${currentProcessId}/ai/chat?question=${encodeURIComponent(q)}`, {
+      method: 'POST',
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    const answer = d.answer || d.analysis || '无响应';
+    output.textContent = output.textContent.replace('思考中...', 'A: ' + answer);
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      output.textContent = output.textContent.replace('思考中...', '超时，请重试');
+    } else {
+      output.textContent = output.textContent.replace('思考中...', '错误: ' + e.message);
+    }
+  } finally {
+    input.disabled = false;
+    input.value = '';
+    input.focus();
+  }
 }
 
 // ===================== Model Tree =====================
 async function loadModelTree(pid) {
   const el = document.getElementById('model-tree');
+  const prefix = isHistoryProcess ? '/api/history' : '/api/process';
   try {
-    const data = await api(`/api/process/${pid}/model`);
+    const data = await api(`${prefix}/${pid}/model`);
     if (!data) return;
-    if (data.error) { el.innerHTML = `<span style="color:var(--text-muted)">${data.error}</span>`; return; }
+    if (data.error) { el.innerHTML = `<span style="color:var(--color-text-tertiary)">${escapeHtml(data.error)}</span>`; return; }
     const nodes = data.nodes || [];
     const totalP = data.total_params || 1;
     const totalF = data.total_flops_est || 1;
-    el.innerHTML = `<div style="margin-bottom:10px;font-size:12px;color:var(--text-muted)">
-      ${data.model_name || 'Model'} · ${totalP.toLocaleString()} params · ${(totalF / 1e6).toFixed(1)}M FLOPs · ${data.module_count || nodes.length} modules
-    </div><ul>${renderTreeNodes(nodes, totalP, totalF)}</ul>`;
+    el.innerHTML = `<div class="model-tree__summary">
+      <span><b>${escapeHtml(data.model_name || 'Model')}</b></span>
+      <span>${totalP.toLocaleString()} params</span>
+      <span>${(totalF / 1e6).toFixed(1)}M FLOPs</span>
+      <span>${data.module_count || nodes.length} modules</span>
+    </div><ul>${renderTreeNodes(nodes, totalP, totalF, 0)}</ul>`;
   } catch (e) {
-    el.innerHTML = `<span style="color:var(--error)">加载失败</span>`;
+    el.innerHTML = `<span style="color:var(--color-danger-fg)">Load failed</span>`;
   }
-}
-
-function renderTreeNodes(nodes, totalP, totalF) {
-  return nodes.map(n => {
-    const pct = totalP > 0 ? (n.params || 0) / totalP * 100 : 0;
-    const barW = Math.max(1, pct * 2);
-    const color = pct > 25 ? 'var(--error)' : pct > 5 ? 'var(--accent-1)' : 'var(--success)';
-    const repeat = n.repeat > 1 ? `<span class="node-repeat">×${n.repeat}</span>` : '';
-    const params = n.params ? `<span class="node-params">${fmtParams(n.params)}</span>` : '';
-    const flops = n.flops ? `<span class="node-flops">${fmtParams(n.flops)} FLOPs</span>` : '';
-    const bar = pct > 0.1 ? `<span class="bar" style="width:${barW}px;background:${color}"></span>` : '';
-    const children = n.children && n.children.length ? `<ul>${renderTreeNodes(n.children, totalP, totalF)}</ul>` : '';
-    return `<li><span class="node-type">${n.type || '?'}</span> ${n.name.split('.').pop()}${repeat}${params}${flops}${bar}${children}</li>`;
-  }).join('');
 }
 
 async function generateModelVizInline() {
   if (!currentProcessId) return;
   const btn = document.getElementById('btn-model-viz');
   const origText = btn.textContent;
-  btn.textContent = '生成中...';
+  btn.textContent = 'Generating...';
   btn.disabled = true;
   try {
-    const r = await fetch(`/api/process/${currentProcessId}/model/viz-html`);
+    const prefix = isHistoryProcess ? '/api/history' : '/api/process';
+    const r = await fetch(`${prefix}/${currentProcessId}/model/viz-html`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const d = await r.json();
     if (d.error) {
-      alert('生成失败: ' + d.error);
+      alert('Generation failed: ' + d.error);
     } else if (d.html) {
       const frame = document.getElementById('model-viz-frame');
-      // Use iframe with srcdoc for sandboxing
       const iframe = document.createElement('iframe');
       iframe.style.cssText = 'width:100%;height:100%;border:none;';
       iframe.srcdoc = d.html;
@@ -1646,10 +1613,77 @@ async function generateModelVizInline() {
       switchModelSubTab('viz');
     }
   } catch (e) {
-    alert('请求失败: ' + e);
+    alert('Request failed: ' + e);
   } finally {
     btn.textContent = origText;
     btn.disabled = false;
+  }
+}
+
+function _nodeTypeBadge(type) {
+  const t = (type || '').toLowerCase();
+  let cls = 'default';
+  if (t.includes('conv')) cls = 'conv';
+  else if (t.includes('linear') || t.includes('mlp') || t.includes('attention')) cls = 'linear';
+  else if (t.includes('norm') || t.includes('layernorm') || t.includes('batchnorm')) cls = 'norm';
+  else if (t.includes('pool') || t.includes('avg') || t.includes('max')) cls = 'pool';
+  else if (t.includes('relu') || t.includes('sigmoid') || t.includes('softmax') || t.includes('gelu') || t.includes('act')) cls = 'act';
+  else if (t.includes('drop')) cls = 'drop';
+  else if (t.includes('embed')) cls = 'embed';
+  return `<span class="node-type-badge node-type-badge--${cls}">${escapeHtml(type || '?')}</span>`;
+}
+
+function renderTreeNodes(nodes, totalP, totalF, depth) {
+  if (!nodes || !nodes.length) return '';
+  const autoCollapseDepth = 2;
+  return nodes.map(n => {
+    const pct = totalP > 0 ? (n.params || 0) / totalP * 100 : 0;
+    const barColor = pct > 25 ? 'var(--color-danger-fg)' : pct > 5 ? 'var(--color-accent-fg)' : 'var(--color-success-fg)';
+    const hasChildren = n.children && n.children.length > 0;
+    const shortName = escapeHtml(n.name.split('.').pop());
+    const fullName = escapeHtml(n.name);
+    const repeat = n.repeat > 1 ? `<span class="node-repeat-badge">\u00d7${n.repeat}</span>` : '';
+    const params = n.params ? `<span class="node-params-badge">${fmtParams(n.params)}</span>` : '';
+    const flops = n.flops ? `<span class="node-flops-badge">${fmtParams(n.flops)} FLOPs</span>` : '';
+    const bar = pct > 0.1 ? `<span class="node-bar-track"><span class="node-bar-fill" style="width:${Math.min(pct, 100)}%;background:${barColor}"></span></span>` : '';
+
+    const toggleHtml = hasChildren
+      ? `<span class="tree-toggle" onclick="event.stopPropagation();toggleTreeNode(this)">${depth < autoCollapseDepth ? '\u25BE' : '\u25B8'}</span>`
+      : '<span class="tree-spacer"></span>';
+
+    const childrenHtml = hasChildren
+      ? `<ul class="tree-children${depth >= autoCollapseDepth ? ' collapsed' : ''}">${renderTreeNodes(n.children, totalP, totalF, depth + 1)}</ul>`
+      : '';
+
+    return `<li>
+      <div class="tree-node" title="${fullName}">
+        ${toggleHtml}
+        ${_nodeTypeBadge(n.type)}
+        <span class="node-name">${shortName}</span>
+        ${repeat}${params}${flops}${bar}
+      </div>
+      ${childrenHtml}
+    </li>`;
+  }).join('');
+}
+
+function toggleTreeNode(el) {
+  const li = el.closest('li');
+  const children = li.querySelector('.tree-children');
+  if (!children) return;
+  const isCollapsed = children.classList.contains('collapsed');
+  if (isCollapsed) {
+    children.classList.remove('collapsed');
+    children.style.maxHeight = children.scrollHeight + 2000 + 'px';
+    el.textContent = '\u25BE';
+    setTimeout(() => { children.style.maxHeight = 'none'; }, 350);
+  } else {
+    children.style.maxHeight = children.scrollHeight + 'px';
+    requestAnimationFrame(() => {
+      children.classList.add('collapsed');
+      children.style.maxHeight = '';
+    });
+    el.textContent = '\u25B8';
   }
 }
 
@@ -1669,28 +1703,82 @@ function fmtParams(p) {
 
 // ===================== Gallery =====================
 async function loadGallery(pid) {
-  const data = await api(`/api/process/${pid}/gallery`);
+  const prefix = isHistoryProcess ? '/api/history' : '/api/process';
+  const data = await api(`${prefix}/${pid}/gallery`);
   if (!data) return;
   const el = document.getElementById('gallery-grid');
   if (!data.galleries || !Object.keys(data.galleries).length) {
-    el.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><span class="empty-state__icon">&#x1F5BC;</span>暂无图库数据<br><span class="empty-state__hint">在 CLI 运行 gallery 命令或等训练完成后触发</span></div>`;
+    el.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><span class="empty-state__icon">&mdash;</span>暂无图库数据<br><span class="empty-state__hint">在 CLI 运行 gallery 命令或等训练完成后触发</span></div>`;
     return;
   }
   let html = '';
   for (const [name, images] of Object.entries(data.galleries)) {
-    html += `<div style="grid-column:1/-1;font-size:13px;font-weight:600;margin-top:10px;color:var(--accent-1)">${name} (${images.length})</div>`;
+    html += `<div style="grid-column:1/-1;font-size:13px;font-weight:600;margin-top:10px;color:var(--color-accent-fg)">${escapeHtml(name)} (${images.length})</div>`;
     for (const img of (images || []).slice(0, 30)) {
+      const imgContent = (img.url || img.path)
+        ? `<img src="${img.url || img.path}" alt="gallery" style="width:100%;height:120px;object-fit:cover">`
+        : `<div class="gallery-item__placeholder">&mdash;</div>`;
       html += `<div class="gallery-item">
-        <div class="gallery-item__placeholder">&#x1F5BC;</div>
-        <div class="gallery-item__info"><span class="gallery-item__conf">${img.confidence?.toFixed(3) || '?'}</span> <span class="gallery-item__label">${img.predicted_class || img.true_label || ''}</span></div>
+        ${imgContent}
+        <div class="gallery-item__info"><span class="gallery-item__conf">${img.confidence?.toFixed(3) || '?'}</span> <span class="gallery-item__label">${escapeHtml(img.predicted_class || img.true_label || '')}</span></div>
       </div>`;
     }
   }
   el.innerHTML = html || '<div class="empty-state">无图片数据</div>';
 }
 
+async function generateGallery() {
+  if (!currentProcessId) return;
+  const btn = document.getElementById('btn-gallery-gen');
+  const status = document.getElementById('gallery-gen-status');
+  btn.disabled = true;
+  btn.textContent = '生成中...';
+  status.style.display = 'block';
+  status.textContent = '正在推理并筛选图片，这可能需要几分钟...';
+
+  try {
+    const prefix = isHistoryProcess ? '/api/history' : '/api/process';
+    const r = await fetch(`${prefix}/${currentProcessId}/gallery/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const d = await r.json();
+    if (d.error) {
+      status.textContent = '生成失败: ' + d.error;
+      status.style.color = 'var(--color-danger-fg)';
+    } else {
+      status.textContent = '生成完成! ' + Object.entries(d.galleries || {}).map(([k,v]) => `${k}: ${v} 张`).join(', ');
+      status.style.color = 'var(--color-success-fg)';
+      loadGallery(currentProcessId);
+    }
+  } catch (e) {
+    status.textContent = '请求失败: ' + e;
+    status.style.color = 'var(--color-danger-fg)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '生成图库';
+  }
+}
+
 function escapeHtml(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function showToast(msg, durationMs = 2000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('toast--show');
+  setTimeout(() => el.classList.remove('toast--show'), durationMs);
+}
+
+function copyGuardianCmd() {
+  const cmd = document.getElementById('new-command').value.trim();
+  const fullCmd = `python run.py watch --with-dashboard -- ${cmd}`;
+  navigator.clipboard.writeText(fullCmd).then(
+    () => showToast('命令已复制到剪贴板'),
+    () => showToast('复制失败，请手动复制: ' + fullCmd, 4000)
+  );
 }
 </script>
 </body>

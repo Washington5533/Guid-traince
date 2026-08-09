@@ -303,6 +303,7 @@ class DashboardServer:
                     "_metrics_history": [],
                     "_gpu_history": [],
                     "_log_lines": [],
+                    "_dash_config": payload.get("dash_config") or dict(DASH_DEFAULTS),
                 }
             self._persist_meta(pid, self._processes[pid])
             return JSONResponse({"ok": True, "process_id": pid})
@@ -895,6 +896,46 @@ class DashboardServer:
             self._persist_metrics_line(process_id, data)
             await self._broadcast_process(process_id, {"type": "metrics", "data": data})
             return JSONResponse({"ok": True, "group": group})
+
+        # ---- API: Dashboard 配置（远程驱动 + 外部 agent 覆盖）----
+
+        DASH_DEFAULTS = {
+            "template": "training",
+            "charts": {"default_groups": ["loss", "accuracy"], "smoothing": False, "range_mode": "auto"},
+            "panels": {"cursor_info": True, "logs": True, "ai_chat": False},
+        }
+
+        def _get_dash_config(pid: str) -> dict:
+            s = _get_state(pid)
+            if s and "_dash_config" in s:
+                return s["_dash_config"]
+            return dict(DASH_DEFAULTS)
+
+        @app.get("/api/process/{process_id}/dashboard-config")
+        async def get_dashboard_config(process_id: str):
+            s = _get_state(process_id)
+            if not s:
+                return JSONResponse({"error": "not found"}, 404)
+            return JSONResponse(_get_dash_config(process_id))
+
+        @app.post("/api/process/{process_id}/dashboard-config")
+        async def set_dashboard_config(process_id: str, payload: dict):
+            s = _get_state(process_id)
+            if not s:
+                return JSONResponse({"error": "not found"}, 404)
+            with self._lock:
+                current = s.setdefault("_dash_config", dict(DASH_DEFAULTS))
+                # 深度合并（仅顶层 key，charts/panels 整体替换）
+                for key in ("template", "charts", "panels"):
+                    if key in payload:
+                        current[key] = payload[key]
+            # 广播变更给前端
+            await self._broadcast_process(process_id, {
+                "type": "dashboard-config",
+                "data": s["_dash_config"],
+                "source": payload.get("_source", "api"),
+            })
+            return JSONResponse({"ok": True, "config": s["_dash_config"]})
 
         # ---- API: 异常事件 ----
         @app.get("/api/process/{process_id}/anomalies")

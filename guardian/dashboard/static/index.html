@@ -745,6 +745,8 @@ let chartInstances = [];  // Array of uPlot instances (multi-view)
 let smoothingEnabled = false;
 let chartEvents = [];
 let isHistoryProcess = false;  // Whether current detail is from history
+let _dashConfig = null;        // Remote dashboard config (fetched on load)
+let _dashDirty = new Set();    // Keys the user manually changed (protected from remote override)
 
 // ===================== Theme Constants =====================
 const THEME = {
@@ -791,6 +793,7 @@ function connectWS() {
     if (msg.type === 'process_update') refreshProcesses();
     if (msg.type === 'metrics' && currentProcessId === msg.process_id) liveUpdateMetrics(msg.data);
     if (msg.type === 'log_line' && currentProcessId === msg.process_id) liveLogLine(msg.line);
+    if (msg.type === 'dashboard-config' && currentProcessId === msg.process_id) applyRemoteDashConfig(msg.data, msg.source);
   };
 }
 
@@ -817,6 +820,7 @@ function subProcessWS(pid) {
     if (msg.type === 'metrics') liveUpdateMetrics(msg.data);
     if (msg.type === 'log_line') liveLogLine(msg.line);
     if (msg.type === 'state_patch') { if (currentDetail) Object.assign(currentDetail, msg.patch); }
+    if (msg.type === 'dashboard-config') applyRemoteDashConfig(msg.data, msg.source);
   };
 }
 
@@ -949,6 +953,7 @@ async function showDetail(pid) {
 
   // Load all panels simultaneously (workstation layout)
   refreshLogs();
+  loadDashboardConfig(pid);  // Fetch remote dashboard config (with dirty flag protection)
   document.getElementById('ai-output').textContent = '点击分析按钮开始...';
   document.getElementById('model-tree').innerHTML = '<div class="skeleton-line skeleton-line--long"></div><div class="skeleton-line skeleton-line--medium"></div><div class="skeleton-line skeleton-line--short"></div>';
   document.getElementById('gallery-grid').innerHTML = '';
@@ -1001,6 +1006,7 @@ async function showHistoryDetail(pid) {
   }
 
   // Load all panels (workstation layout)
+  loadDashboardConfig(pid);  // History: sets safe defaults
   document.getElementById('ai-output').textContent = '点击分析按钮开始...';
   document.getElementById('model-tree').innerHTML = '<div class="skeleton-line skeleton-line--long"></div><div class="skeleton-line skeleton-line--medium"></div><div class="skeleton-line skeleton-line--short"></div>';
   document.getElementById('gallery-grid').innerHTML = '';
@@ -1038,7 +1044,7 @@ function _populateDetail(data) {
   let toggles = '';
   for (const [cat, keys] of Object.entries(disc)) {
     for (const k of (keys || []).slice(0, 8)) {
-      toggles += `<label class="metric-toggle"><input type="checkbox" checked onchange="initCharts()" class="metric-cb" data-key="${k}"> ${escapeHtml(k)}</label>`;
+      toggles += `<label class="metric-toggle"><input type="checkbox" checked onchange="markDashDirty('chart_groups');initCharts()" class="metric-cb" data-key="${k}"> ${escapeHtml(k)}</label>`;
     }
   }
   document.getElementById('metric-toggles').innerHTML = toggles || '<span style="font-size:11px;color:var(--color-text-tertiary)">自动检测中...</span>';
@@ -1597,6 +1603,68 @@ function onRangeChange() {
   chartInstances.forEach(c => c.setScale('x', { min: lo, max: hi }));
 }
 
+// ===================== Dashboard Remote Config =====================
+
+async function loadDashboardConfig(pid) {
+  if (isHistoryProcess) {
+    // History processes don't have live config; use defaults
+    _dashConfig = { template: "training", charts: { default_groups: ["loss", "accuracy"], smoothing: false, range_mode: "auto" }, panels: { cursor_info: true, logs: true, ai_chat: false } };
+    return;
+  }
+  try {
+    const data = await api(`/api/process/${pid}/dashboard-config`, 5000);
+    if (data && !data.error) {
+      _dashConfig = data;
+    }
+  } catch (e) {
+    // Dashboard config not available, use defaults
+  }
+  if (!_dashConfig) {
+    _dashConfig = { template: "training", charts: { default_groups: ["loss", "accuracy"], smoothing: false, range_mode: "auto" }, panels: { cursor_info: true, logs: true, ai_chat: false } };
+  }
+}
+
+function applyRemoteDashConfig(data, source) {
+  if (!data || source === "user") return; // User-initiated changes already applied locally
+  _dashConfig = data;
+
+  // Apply chart groups — only for non-dirty items
+  if (data.charts && data.charts.default_groups) {
+    if (!_dashDirty.has("chart_groups")) {
+      // Update checkboxes to match remote config
+      const allKeys = getCheckedKeys();
+      const remoteKeys = new Set(data.charts.default_groups);
+      document.querySelectorAll('.metric-toggle').forEach(cb => {
+        const key = cb.dataset.key;
+        const group = assignGroup(key);
+        cb.checked = remoteKeys.has(group);
+      });
+      initCharts();
+    }
+  }
+
+  // Apply smoothing — only if not dirty
+  if (data.charts && typeof data.charts.smoothing === "boolean") {
+    if (!_dashDirty.has("smoothing")) {
+      smoothingEnabled = data.charts.smoothing;
+      document.getElementById('btn-ema').classList.toggle('btn--active', smoothingEnabled);
+      if (chartInstances.length) initCharts();
+    }
+  }
+
+  // Apply panel visibility — only for non-dirty items
+  if (data.panels) {
+    if (!_dashDirty.has("panels")) {
+      const cursorPanel = document.querySelector('.panel .cursor-info')?.closest('.panel');
+      if (cursorPanel) cursorPanel.style.display = data.panels.cursor_info !== false ? '' : 'none';
+    }
+  }
+}
+
+function markDashDirty(key) {
+  _dashDirty.add(key);
+}
+
 function resetZoom() {
   const metrics = window._allMetrics || [];
   const total = metrics.length;
@@ -1607,10 +1675,15 @@ function resetZoom() {
   document.getElementById('range-start').textContent = '0';
   document.getElementById('range-end').textContent = maxIdx;
   chartInstances.forEach(c => c.setScale('x', { min: 0, max: maxIdx }));
+  // Clear all dirty flags — user explicitly reset, accept remote config
+  _dashDirty.clear();
+  // Re-apply remote config defaults
+  if (_dashConfig) applyRemoteDashConfig(_dashConfig, "reset");
 }
 
 function toggleSmoothing() {
   smoothingEnabled = !smoothingEnabled;
+  markDashDirty('smoothing');
   document.getElementById('btn-ema').classList.toggle('btn--active', smoothingEnabled);
   initCharts();
 }

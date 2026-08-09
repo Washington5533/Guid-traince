@@ -364,6 +364,45 @@ READONLY_TOOLS_V2: list[dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}, "required": []},
         "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
     },
+    {
+        "name": "get_dashboard_config",
+        "description": (
+            "获取 Dashboard 当前配置：启用的图表组、面板显隐、平滑开关、布局模板。"
+            "只读，无副作用。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "process_id": {"type": "string", "description": "训练进程 ID，默认当前活动进程"},
+            },
+            "required": [],
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+    },
+    {
+        "name": "recommend_charts",
+        "description": (
+            "让 AI agent 分析当前训练状态（指标趋势、异常数量、训练阶段），"
+            "推荐 Dashboard 应重点关注的图表组和显示配置（是否开平滑等）。只读。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "process_id": {"type": "string", "description": "训练进程 ID，默认当前活动进程"},
+            },
+            "required": [],
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": False},
+    },
+    {
+        "name": "list_dashboard_templates",
+        "description": (
+            "列出可用的 Dashboard 布局模板。training=训练监控（图表+日志），"
+            "comparison=实验对比，minimal=最小面板。只读。"
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "required": []},
+        "annotations": {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True},
+    },
 ]
 
 # ---- v2 新增写工具（训练后可写） ----
@@ -574,6 +613,27 @@ WRITE_TOOLS: list[dict[str, Any]] = [
         "annotations": {"readOnlyHint": False, "destructiveHint": False,
                         "idempotentHint": True},
     },
+    {
+        "name": "set_dashboard_config",
+        "description": (
+            "设置 Dashboard 配置：图表组选择、面板显隐、平滑开关、布局模板。"
+            "【需 write token】。外部 agent 可通过此工具调整 Dashboard 展示，"
+            "Dashboard 前端会通过 WebSocket 实时收到变更。用户手动操作（checkbox/滑块）"
+            "不受此工具覆盖——用户的本地操作优先级始终最高。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "process_id": {"type": "string", "description": "训练进程 ID，默认当前活动进程"},
+                "charts": {"description": "图表配置: {\"default_groups\": [\"loss\",\"accuracy\"], \"smoothing\": true, \"range_mode\": \"auto\"}"},
+                "panels": {"description": "面板显隐: {\"cursor_info\": true, \"logs\": true, \"ai_chat\": false}"},
+                "template": {"type": "string", "description": "布局模板: training | comparison | minimal"},
+                "request_id": {"type": "string", "description": "幂等键"},
+            },
+            "required": [],
+        },
+        "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
+    },
 ]
 
 
@@ -600,6 +660,7 @@ class GuardianMCPServer:
         *,
         mode: str = "shared",
         state_dir: str | Path | None = None,
+        dash_url: str | None = None,
     ):
         self.cfg = config or {}
         self.mcp_cfg = self.cfg.get("mcp") or {}
@@ -628,6 +689,9 @@ class GuardianMCPServer:
         self.access_log_path = self.state_dir / "mcp_access_log.json"
         self._last_snapshot = 0.0
         self._snapshot_cache: dict[str, Any] = {}
+
+        # Dashboard 通信（MCP 工具通过 HTTP 与 Dashboard 交互）
+        self.dash_url = dash_url
 
         # 双模式架构
         self.mode_state = GuardianMode.STANDALONE
@@ -1100,7 +1164,76 @@ class GuardianMCPServer:
                          ensure_ascii=False, indent=2)
 
     def _handle_get_guardian_mode(self, **kwargs) -> str:
-        return json.dumps(self.get_mode(), ensure_ascii=False, indent=2)
+        mode_info = self.get_mode()
+
+        # ---- 使用指南（Agent 连接后首先调用本工具，在此附带上下文）----
+        readonly_tools = [
+            "get_training_status", "get_metrics_history",
+            "list_checkpoints", "compare_checkpoints",
+            "get_anomaly_history", "get_recovery_history",
+            "get_summary", "get_agent_decision_log",
+            "get_contract_status", "list_contract_proposals",
+            "list_experiments", "query_experiment", "compare_experiments",
+            "get_model_structure", "get_guardian_mode",
+            "get_gallery_config", "get_import_format", "inspect_source",
+            "get_training_log", "get_post_training_checklist",
+            "get_pending_decisions",
+        ]
+        write_tools_during = [
+            "trigger_recovery", "restart_with_params", "stop_training",
+            "approve_contract_proposal", "reject_contract_proposal",
+            "submit_import", "resolve_decision",
+        ]
+        write_tools_post = [
+            "run_visualization", "set_gallery_config", "run_inference",
+        ]
+
+        mode_info["usage_guide"] = {
+            "overview": (
+                "Guardian MCP 提供 21 个只读工具 + 10 个写工具，"
+                "覆盖训练全生命周期（监控、恢复、分析、可视化、推理）。"
+            ),
+            "tools": {
+                "read_only": readonly_tools,
+                "write_during_training": write_tools_during,
+                "write_after_training": write_tools_post,
+            },
+            "write_tools": {
+                "enabled": self.write_enabled,
+                "token_configured": bool(self.write_token),
+                "usage": (
+                    "写工具需要 write_token 参数鉴权。"
+                    "token 通过环境变量 GUARDIAN_MCP_TOKEN 配置。"
+                    "如未启用，仅可使用只读工具。"
+                ),
+            },
+            "training_phase": {
+                "active": self._training_active,
+                "note": (
+                    "run_visualization / set_gallery_config / run_inference "
+                    "仅在训练结束后可用，训练中调用会返回错误。"
+                    "训练结束后可调用 get_post_training_checklist 获取待办清单。"
+                ),
+            },
+            "recommended_workflow": [
+                "1. 调用 get_training_status 了解当前状态",
+                "2. 训练中: 用 get_metrics_history / get_anomaly_history 监控",
+                "3. 训练中: 如需干预, 用 restart_with_params (需 token)",
+                "4. 训练后: 先调 get_post_training_checklist 获取待办",
+                "5. 训练后: 调 get_summary 获取摘要 + AI 解读",
+                "6. 训练后: 调 run_visualization / run_inference 分析和测试",
+                "7. 跨实验: 用 list_experiments + query_experiment 探索历史",
+            ],
+            "mcp_mode": (
+                "当前为 MCP delegated 模式: 你（外部 Agent）拥有完整决策权，"
+                "内置 agent 已让位。断开连接后自动恢复 standalone 模式。"
+                if self.mode_state == GuardianMode.MCP_DELEGATED
+                else "当前为 standalone 模式: 内置 agent 自主决策。"
+                      "MCP 连接后可切换为 delegated 模式。"
+            ),
+        }
+
+        return json.dumps(mode_info, ensure_ascii=False, indent=2)
 
     def _handle_get_gallery_config(self, **kwargs) -> str:
         if self._gallery_config is None:
@@ -1489,6 +1622,145 @@ class GuardianMCPServer:
         return json.dumps(result, ensure_ascii=False, indent=2)
 
     # ------------------------------------------------------------------
+    # Dashboard 配置工具
+    # ------------------------------------------------------------------
+
+    def _dash_request(self, method: str, path: str, data: dict | None = None) -> dict:
+        """向 Dashboard HTTP API 发请求，失败返回 error dict。"""
+        if not self.dash_url:
+            return {"error": "Dashboard 未启用（--with-dashboard），此工具不可用"}
+        try:
+            import urllib.request as _ur
+            url = f"{self.dash_url}{path}"
+            req = _ur.Request(url, method=method)
+            if data:
+                req.add_header("Content-Type", "application/json")
+                req.data = json.dumps(data).encode()
+            import time as _time
+            resp = _ur.urlopen(req, timeout=5)
+            result = json.loads(resp.read().decode())
+            resp.close()
+            return result
+        except Exception as exc:
+            return {"error": f"Dashboard 请求失败: {exc}"}
+
+    def _handle_get_dashboard_config(self, process_id: str | None = None, **kwargs) -> str:
+        """读取 Dashboard 当前配置。"""
+        pid = process_id or self._current_process_id()
+        result = self._dash_request("GET", f"/api/process/{pid}/dashboard-config")
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    def _handle_set_dashboard_config(self, process_id: str | None = None,
+                                      charts: dict | None = None,
+                                      panels: dict | None = None,
+                                      template: str | None = None,
+                                      request_id: str | None = None,
+                                      **kwargs) -> str:
+        """设置 Dashboard 配置（需 write token）。"""
+        ok, msg = self._authorize("set_dashboard_config", kwargs.get("_token"))
+        if not ok:
+            return json.dumps({"error": msg}, ensure_ascii=False)
+        pid = process_id or self._current_process_id()
+        payload = {"_source": "mcp_agent"}
+        if charts is not None:
+            payload["charts"] = charts
+        if panels is not None:
+            payload["panels"] = panels
+        if template is not None:
+            payload["template"] = template
+        result = self._dash_request("POST", f"/api/process/{pid}/dashboard-config", payload)
+        self.idem.record(request_id, result)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    def _handle_recommend_charts(self, process_id: str | None = None, **kwargs) -> str:
+        """AI 推荐 Dashboard 图表配置。"""
+        pid = process_id or self._current_process_id()
+        if self.advisor is None or not self.advisor.is_enabled("chart_selection"):
+            return json.dumps({
+                "error": "agent 未启用（需 --agent 且配置 API key），chart_selection 决策点不可用",
+                "fallback": {"groups": ["loss", "accuracy"], "smoothing": False},
+            }, ensure_ascii=False, indent=2)
+
+        # 从 Dashboard 获取当前状态
+        dash = self._dash_request("GET", f"/api/process/{pid}/dashboard-config")
+        # 获取指标摘要
+        try:
+            import urllib.request as _ur
+            url = f"{self.dash_url}/api/process/{pid}/metrics?limit=200"
+            resp = _ur.urlopen(url, timeout=5)
+            mdata = json.loads(resp.read().decode())
+            resp.close()
+            hist = mdata.get("metrics", [])
+        except Exception:
+            hist = []
+
+        # 构建指标摘要
+        summary = {}
+        if hist:
+            for k in hist[-1]:
+                if k in ("step", "epoch", "timestamp", "_group", "_ts"):
+                    continue
+                vals = [m[k] for m in hist[-50:] if k in m and isinstance(m[k], (int, float))]
+                if vals:
+                    summary[k] = {"last": vals[-1], "min": min(vals), "max": max(vals),
+                                  "trend": "rising" if len(vals) > 5 and vals[-1] > vals[-5] else "falling"}
+
+        # 训练阶段推测
+        total = len(hist)
+        if total < 50:
+            phase = "early"
+        elif total < 500:
+            phase = "mid"
+        else:
+            phase = "late"
+
+        # 调用 agent
+        available = dash.get("charts", {}).get("default_groups", ["loss", "accuracy", "lr", "gpu", "custom"])
+        result = self.advisor.recommend_charts(
+            process_id=pid,
+            metrics_summary=summary,
+            chart_groups=available,
+            anomaly_count=0,
+            training_phase=phase,
+        )
+        if result is None:
+            return json.dumps({
+                "error": "agent 推荐失败，使用默认配置",
+                "fallback": {"groups": ["loss", "accuracy"], "smoothing": False},
+            }, ensure_ascii=False, indent=2)
+        return json.dumps({"recommendation": result, "source": "agent"}, ensure_ascii=False, indent=2)
+
+    def _handle_list_dashboard_templates(self, **kwargs) -> str:
+        """列出可用 Dashboard 布局模板。"""
+        templates = {
+            "templates": [
+                {
+                    "name": "training",
+                    "description": "训练监控：图表区（loss/accuracy/lr/gpu）+ 坐标信息 + 日志 + AI 对话",
+                    "panels": {"cursor_info": True, "logs": True, "ai_chat": True},
+                },
+                {
+                    "name": "comparison",
+                    "description": "实验对比：多个进程的图表并列 + 指标对比表格",
+                    "panels": {"cursor_info": False, "logs": False, "ai_chat": True},
+                },
+                {
+                    "name": "minimal",
+                    "description": "最小面板：仅图表区，适合嵌入或低带宽环境",
+                    "panels": {"cursor_info": False, "logs": False, "ai_chat": False},
+                },
+            ],
+            "default": "training",
+        }
+        return json.dumps(templates, ensure_ascii=False, indent=2)
+
+    def _current_process_id(self) -> str:
+        """获取当前活动进程 ID。"""
+        if self.monitor is not None and hasattr(self.monitor, "process_id"):
+            return self.monitor.process_id
+        return "guardian-run"
+
+    # ------------------------------------------------------------------
     # 工具路由
     # ------------------------------------------------------------------
 
@@ -1673,6 +1945,10 @@ class GuardianMCPServer:
             "get_post_training_checklist": self._handle_post_training_checklist,
             # 待处理决策（MCP 模式下 agent 继续决策但标记为可覆盖）
             "get_pending_decisions": self._handle_get_pending_decisions,
+            # Dashboard 配置
+            "get_dashboard_config": self._handle_get_dashboard_config,
+            "recommend_charts": self._handle_recommend_charts,
+            "list_dashboard_templates": self._handle_list_dashboard_templates,
         }
         self._WRITE_HANDLERS = {
             "trigger_recovery": self._handle_trigger_recovery,
@@ -1689,6 +1965,8 @@ class GuardianMCPServer:
             "submit_import": self._handle_submit_import,
             # 待处理决策覆盖
             "resolve_decision": self._handle_resolve_decision,
+            # Dashboard 配置
+            "set_dashboard_config": self._handle_set_dashboard_config,
         }
 
     def call_tool(self, name: str, arguments: dict) -> str:

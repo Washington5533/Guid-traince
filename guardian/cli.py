@@ -613,7 +613,12 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
 
         # 向面板注册当前进程（无论面板是新启动还是已有）
         dash_url = f"http://127.0.0.1:{dash_port}"
+        # MCP server 需要 dash_url 以调用 Dashboard 配置工具
+        if mcp_thread is not None:
+            mcp_srv.dash_url = dash_url
         process_id = project.get("name", "guardian-run")
+        # 从 contract 提取 Dashboard 初始配置
+        dash_config = contract.script.get("dashboard") if hasattr(contract, "script") else None
         try:
             import json as _json
             req = _ur.Request(
@@ -627,6 +632,7 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
                     "project_dir": str(contract.path.parent.parent.resolve()) if contract.path else "",
                     "extra_paths": getattr(ctx, 'extra_paths', []),
                     "log_file": str(Path(project["log_dir"]) / "train.log"),
+                    "dash_config": dash_config,
                 }).encode(),
                 headers={"Content-Type": "application/json"},
             )

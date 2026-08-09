@@ -61,3 +61,15 @@ adjustable_paths:
     max_delta_ratio: 0.5
   - path: "dataloader.num_workers"
     max_delta_ratio: 0.5
+
+# ---- v2: Dashboard 初始配置（外部 agent / 用户可覆盖）----
+dashboard:
+  template: training                # training | comparison | minimal
+  charts:
+    default_groups: [loss, accuracy]   # loss | accuracy | lr | gpu | custom
+    smoothing: false                   # EMA 平滑默认关闭
+    range_mode: auto                   # auto | last_100 | all
+  panels:
+    cursor_info: true
+    logs: true
+    ai_chat: false

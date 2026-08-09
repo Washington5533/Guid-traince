@@ -223,6 +223,45 @@ class AgentAdvisor:
         self._record_success()
         return text
 
+    def recommend_charts(
+        self,
+        process_id: str,
+        metrics_summary: dict[str, Any],
+        chart_groups: list[str] | None = None,
+        anomaly_count: int = 0,
+        training_phase: str = "mid",
+    ) -> dict[str, Any] | None:
+        """图表推荐：根据当前训练状态推荐 Dashboard 应关注的图表组。
+
+        供 MCP 工具 recommend_charts 调用，失败返回 None（降级为当前配置不变）。
+        """
+        if not self.is_enabled("chart_selection"):
+            return None
+
+        available = chart_groups or ["loss", "accuracy", "lr", "gpu", "custom"]
+        context = {
+            "process_id": process_id,
+            "metrics_summary": metrics_summary,
+            "available_groups": available,
+            "anomaly_count": anomaly_count,
+            "training_phase": training_phase,
+        }
+        try:
+            future = self._executor.submit(
+                self._call_llm_chart_recommend, context, self.decision_timeout,
+            )
+            result = future.result(timeout=self.decision_timeout)
+        except FutureTimeoutError:
+            self._record_failure()
+            return None
+        except Exception:
+            logger.warning("recommend_charts() 调用 LLM 失败", exc_info=True)
+            self._record_failure()
+            return None
+
+        self._record_success()
+        return result
+
     def suggest(
         self,
         kind: str,
@@ -270,6 +309,20 @@ class AgentAdvisor:
         "\"kind\": \"metric\"|\"adjustable_path\", \"evidence\": \"依据说明\", "
         "\"entry\": {...具体条目...}}。\n"
         "evidence 必须引用上下文中的具体数据点或趋势，不能写'感觉'或'可能'。"
+    )
+
+    SYSTEM_CHART_RECOMMEND = (
+        "你是一个训练监控专家。根据当前训练状态（指标趋势、异常数量、训练阶段），"
+        "推荐 Dashboard 应重点关注的图表组和显示配置。\n"
+        "规则：\n"
+        "- loss 异常或训练早期 → 必选 loss\n"
+        "- 训练中后期、有 accuracy/metric 数据 → 加选 accuracy\n"
+        "- GPU 温度异常、利用率异常 → 加选 gpu\n"
+        "- lr 只在 warmup 结束/decay 阶段有意义\n"
+        "- 训练接近结束时建议开 smoothing 看趋势\n"
+        "返回 JSON：{\"groups\": [\"loss\", \"accuracy\", ...], \"smoothing\": true|false, "
+        "\"reason\": \"一句话推荐理由（中文）\"}\n"
+        "groups 必须是 available_groups 的子集，smoothing 是布尔值。"
     )
 
     @staticmethod
@@ -491,6 +544,29 @@ class AgentAdvisor:
         result = self._parse_llm_response(raw)
         if not isinstance(result, dict):
             raise ValueError(f"LLM 返回了非 JSON 的提议：{str(result)[:200]}")
+        return result
+
+    def _call_llm_chart_recommend(self, context: dict[str, Any], timeout: float) -> dict[str, Any]:
+        """recommend_charts() 的 LLM 调用：返回推荐配置 dict。"""
+        user = (
+            f"训练状态:\n"
+            f"  指标摘要: {json.dumps(context.get('metrics_summary', {}), ensure_ascii=False)}\n"
+            f"  可用图表组: {context.get('available_groups', [])}\n"
+            f"  异常计数: {context.get('anomaly_count', 0)}\n"
+            f"  训练阶段: {context.get('training_phase', 'mid')}\n"
+            f"\n请推荐图表配置（JSON）。"
+        )
+        if self.provider == "openai":
+            raw = self._call_openai(self.SYSTEM_CHART_RECOMMEND, user, timeout)
+        else:
+            raw = self._call_anthropic(self.SYSTEM_CHART_RECOMMEND, user, timeout)
+        result = self._parse_llm_response(raw)
+        if not isinstance(result, dict):
+            raise ValueError(f"LLM 返回了非 JSON：{str(result)[:200]}")
+        # 确保 groups 是 available 的子集
+        available = set(context.get("available_groups", []))
+        result["groups"] = [g for g in result.get("groups", []) if g in available]
+        result.setdefault("smoothing", False)
         return result
 
     @staticmethod

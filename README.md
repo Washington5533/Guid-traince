@@ -1,8 +1,9 @@
 # Training Guardian Agent · 训练守护智能体
 
+[![PyPI](https://img.shields.io/pypi/v/guarftrain?color=blue)](https://pypi.org/project/guarftrain/)
 [![CI](https://github.com/Washington5533/guarftrain/actions/workflows/ci.yml/badge.svg)](https://github.com/Washington5533/guarftrain/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.2.0-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
+[![Streamlit Demo](https://img.shields.io/badge/demo-streamlit-red)](https://guarftrain-azvjiidegvdmnnkhczmfq2.streamlit.app/)
 
 > **一行命令，训练脚本零行改动，获得完整守护能力。**
 >
@@ -37,7 +38,7 @@ guarftrain init && guarftrain watch -- python train.py --epochs 20
 | 训练中 During | GPU+Loss 监控告警 / 崩溃自动恢复 / LLM 决策 | `guarftrain watch` |
 | 训练后 Post | 摘要+AI 解读 / Checkpoint 分析 / 模型可视化 / 推理 | `guarftrain summarize` |
 | 跨实验 Cross | 自然语言查询 / 实验对比 / 数据导入 | `guarftrain query "best lr?"` |
-| 外部接入 External | MCP 32 工具 + Dashboard 远程配置 + Agent 图表推荐 | `guarftrain start` |
+| 外部接入 External | MCP 35 工具 + Dashboard 远程配置 + Agent 图表推荐 | `guarftrain start` |
 
 ## Quick Start · 快速开始
 
@@ -91,11 +92,11 @@ Missing any one? Only the corresponding capability is disabled — training stil
 ```
 ┌─ Guardian Process (sidecar) ────────────────────────────────────┐
 │                                                                  │
-│  CLI (run.py) ──→ 14 subcommands                                 │
+│  CLI (guarftrain) ──→ 16 subcommands                              │
 │  ├─ watch ──→ Watchdog: Popen + crash recovery + CLI rewrite    │
 │  │             └─ Monitor: log tail + GPU poll + anomaly detect  │
 │  │                  └─ AgentAdvisor: LLM decide → intervene       │
-│  ├─ serve ──→ MCP Server: 32 tools (22 read + 10 write)          │
+│  ├─ serve ──→ MCP Server: 35 tools (24 read + 11 write)          │
 │  ├─ start ──→ Dashboard + MCP one-click                        │
 │  └─ experiments / query / compare ──→ Cross-experiment analysis  │
 │                                                                  │
@@ -172,7 +173,7 @@ export GUARDIAN_MCP_TOKEN=your-secret   # write tool auth
 | Metric | Value |
 |--------|-------|
 | Version | 0.2.0 |
-| Modules | 16 (cp_1 ~ cp_16) |
+| Modules | 19 (cp_1 ~ cp_19) |
 | Production code | ~10,500 lines |
 | Tests | 221 (CI on push) |
 | MCP tools | 35 (24 read + 11 write) |

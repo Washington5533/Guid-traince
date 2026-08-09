@@ -16,7 +16,7 @@ guardian watch --agent -- python train.py
 ┌─────────────────────────────────────────────────────────────────┐
 │                    guardian 进程（训练进程之外）                   │
 │                                                                 │
-│  CLI (run.py)                                                   │
+│  CLI (guarftrain)                                               │
 │  ├─ watch ──→ cp_3 watchdog: 包装训练命令，子进程看护              │
 │  │              └─ on_tick ──→ cp_2 monitor: 读指标 + GPU 轮询    │
 │  │                               └─ 异常 → cp_9 agent: LLM 决策   │
@@ -255,7 +255,7 @@ contract.yaml（dashboard 段: template / charts / panels）
 | **cp_5** | `summary.py` | 结构化摘要 + AI 解读 | 训练后 |
 | **cp_6** | `notifier.py` | 终端/webhook 告警 + 静默期 | 全程 |
 | **cp_7** | `train.py` | MNIST 参考训练脚本（满足契约四项） | 参考 |
-| **cp_8** | `run.py` | CLI 入口: watch/preflight/analyze/serve/dashboard/start | 入口 |
+| **cp_8** | `cli.py` | CLI 入口: watch/preflight/analyze/serve/dashboard/start | 入口 |
 | **cp_9** | `agent_advisor.py` | LLM 决策统一入口 + 熔断/降级 + chart_selection | v1/v0.2 |
 | **cp_10** | `mcp_server.py` | MCP 工具暴露（35 工具：24 只读 + 11 写） | v1/v0.2 |
 | **cp_11** | `task_contract.py` | 契约校验 + 注册表 + 提议审核 | 全程 |

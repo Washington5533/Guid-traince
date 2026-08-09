@@ -18,27 +18,39 @@ Training Guardian Agent 是一个 **sidecar-first** 的训练守护系统。以�
 ### 2.1 安装
 
 ```bash
+# 方式 1: pip 安装（推荐）
+pip install guarftrain
+
+# 按需安装可选组件
+pip install guarftrain[agent]       # AI 决策层
+pip install guarftrain[mcp]         # MCP 外部 Agent 接入
+pip install guarftrain[dashboard]   # Web 控制面板
+pip install guarftrain[full]        # 全部安装
+
+# 方式 2: 从源码安装
+git clone https://github.com/Washington5533/guarftrain.git
+cd guarftrain
 pip install -r requirements-core.txt       # 核心（必需）
-pip install -r requirements-mcp.txt        # MCP 接入（可选，随时可补装）
+pip install -r requirements-mcp.txt        # MCP 接入（可选）
 ```
 
 ### 2.2 一行命令守护训练
 
 ```bash
 # 纯规则守护（零外部依赖）
-python run.py watch -- python train.py --epochs 20
+guarftrain watch -- python train.py --epochs 20
 
 # Agent 智能决策（需 API key）
-python run.py watch --agent -- python train.py --epochs 20
+guarftrain watch --agent -- python train.py --epochs 20
 
 # Agent + Dashboard 控制面板
-python run.py watch --with-dashboard --agent -- python train.py --epochs 20
+guarftrain watch --with-dashboard --agent -- python train.py --epochs 20
 
 # Agent + MCP 外部接入
-python run.py watch --agent --with-mcp -- python train.py --epochs 20
+guarftrain watch --agent --with-mcp -- python train.py --epochs 20
 
 # 带项目配置（自动读取 .guardian-project.yaml 中的路径）
-python run.py watch --with-dashboard --agent \
+guarftrain watch --with-dashboard --agent \
   --config ../my-project/configs/guardian.yaml \
   -- python ../my-project/train_clip.py --epochs 20
 ```
@@ -62,10 +74,10 @@ python run.py watch --with-dashboard --agent \
 
 ```bash
 # 自动扫描项目结构，生成 .guardian-project.yaml
-python run.py project init /path/to/your/project
+guarftrain project init /path/to/your/project
 
 # AI 补全缺失项（model entry、task type 等）
-python run.py project fill --agent
+guarftrain project fill --agent
 ```
 
 ### 3.2 自动发现
@@ -96,16 +108,16 @@ model:
 cd /path/to/project && python /path/to/guarftrain/run.py experiments
 
 # 方式2：显式指定项目目录
-python run.py experiments --project-dir /path/to/project
+guarftrain experiments --project-dir /path/to/project
 
 # 方式3：手动覆盖（优先级最高）
-python run.py experiments --log-dir /custom/logs --ckpt-dir /custom/checkpoints
+guarftrain experiments --log-dir /custom/logs --ckpt-dir /custom/checkpoints
 ```
 
 ## 4. 全部命令
 
 ```
-python run.py <command> [options]
+guarftrain <command> [options]
 
 训练守护：
   watch         守护任意训练命令
@@ -136,13 +148,13 @@ python run.py <command> [options]
 
 ```bash
 # 列出所有实验
-python run.py experiments [--log-dir <path>] [--name <prefix>] [--limit 20]
+guarftrain experiments [--log-dir <path>] [--name <prefix>] [--limit 20]
 
 # NL 查询
-python run.py query "最高准确率的实验，lr是多少" [--agent]
+guarftrain query "最高准确率的实验，lr是多少" [--agent]
 
 # 对比
-python run.py compare exp_a exp_b [--agent]
+guarftrain compare exp_a exp_b [--agent]
 ```
 
 同名实验自动用时间戳去重。`--name` 可手动设置前缀。
@@ -150,7 +162,7 @@ python run.py compare exp_a exp_b [--agent]
 ### 5.2 模型结构可视化（F10）
 
 ```bash
-python run.py visualize --model train_clip:build_model [--agent]
+guarftrain visualize --model train_clip:build_model [--agent]
 ```
 
 输出交互式 HTML（D3.js 可折叠树）：
@@ -168,7 +180,7 @@ python run.py visualize --model train_clip:build_model [--agent]
 
 ```bash
 # 自动选 best checkpoint + 自动检测任务类型
-python run.py infer --ckpt 17 [--task classification] [--inputs <path>]
+guarftrain infer --ckpt 17 [--task classification] [--inputs <path>]
 
 # 在项目目录内不写路径，自动继承 data_dir
 cd /path/to/project && python ../guarftrain/run.py infer --ckpt 17
@@ -182,7 +194,7 @@ cd /path/to/project && python ../guarftrain/run.py infer --ckpt 17
 ### 5.4 图片筛选（F3）
 
 ```bash
-python run.py gallery --ckpt 17 [--data <path>] [--agent]
+guarftrain gallery --ckpt 17 [--data <path>] [--agent]
 ```
 
 交互流程：
@@ -197,13 +209,13 @@ agent 提议多套筛选策略（汇报精选 / 难样本 / 边界案例）
 
 ```bash
 # 独立 MCP server
-python run.py serve --transport stdio
+guarftrain serve --transport stdio
 
 # 或在 watch 时后台启动
-python run.py watch --with-mcp -- python train.py
+guarftrain watch --with-mcp -- python train.py
 ```
 
-MCP 模式下 guardian agent 自动让位，Claude Code 获得全部 28 个工具的读写权限。
+MCP 模式下 guardian agent 进入 provisional 模式，外部 Agent 可接管决策。Claude Code 获得全部 35 个工具的读写权限。
 
 > 完整文档：[MCP.md](MCP.md) · [MCP_API_REFERENCE.md](MCP_API_REFERENCE.md) · [MCP_QUICKSTART.md](MCP_QUICKSTART.md)
 
@@ -347,25 +359,25 @@ GUARDIAN_MCP_TOKEN=your-secret
 #    参见 deepfucking/train_clip.py
 
 # 2. 初始化项目
-python run.py project init ../deepfucking
+guarftrain project init ../deepfucking
 
 # 3. 守护训练 20 epoch
-python run.py watch --agent \
+guarftrain watch --agent \
   --config ../deepfucking/configs/guardian.yaml \
   -- python ../deepfucking/train_clip.py --epochs 20
 
 # 4. 查看训练记录
-python run.py experiments --project-dir ../deepfucking --name clip-pets
-python run.py query "最好的epoch" --project-dir ../deepfucking
+guarftrain experiments --project-dir ../deepfucking --name clip-pets
+guarftrain query "最好的epoch" --project-dir ../deepfucking
 
 # 5. 可视化 CLIP 结构
-python run.py visualize --model clip_adapter:build_model_full
+guarftrain visualize --model clip_adapter:build_model_full
 
 # 6. 推理看效果
-python run.py infer --ckpt 17 --project-dir ../deepfucking
+guarftrain infer --ckpt 17 --project-dir ../deepfucking
 
 # 7. 图片筛选
-python run.py gallery --ckpt 17 --project-dir ../deepfucking --agent
+guarftrain gallery --ckpt 17 --project-dir ../deepfucking --agent
 ```
 
 ## 9. AI 决策边界

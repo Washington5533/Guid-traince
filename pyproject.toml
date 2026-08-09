@@ -7,7 +7,7 @@ name = "guarftrain"
 version = "0.2.0"
 description = "Training Guardian — sidecar training monitor with crash recovery, agent decisions, MCP & web dashboard"
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
 authors = [
     { name = "Training Guardian Contributors" }
 ]
@@ -16,7 +16,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -84,7 +83,7 @@ Issues = "https://github.com/Washington5533/guarftrain/issues"
 guarftrain = "guardian.cli:main"
 
 [tool.setuptools]
-packages = ["guardian", "guardian.dashboard"]
+packages = ["guardian", "guardian.dashboard", "guardian.dashboard.static"]
 
 [tool.setuptools.package-data]
 guardian = ["dashboard/static/*"]

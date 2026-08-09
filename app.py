@@ -183,15 +183,35 @@ tab_overview, tab_dashboard, tab_metrics, tab_faults, tab_checkpoints, tab_ai, t
 with tab_overview:
     # -- 重要说明 --
     st.warning("""
-    **⚠️ 本页面是功能展示 Demo，非 Guardian Dashboard 本身**
+    ⚠️ 友情提示：这是一个「演给你看」的版本
 
-    Guardian 的 Dashboard、Agent 决策、MCP Server 均依赖于**实际运行的训练进程**和 **GPU 硬件**：
-    - Dashboard 通过 WebSocket 实时读取训练进程的 loss/GPU/checkpoint 状态
-    - Agent 需要 LLM API 接入 + 训练进程上下文才能进行智能决策
-    - MCP Server 通过本地端口暴露 35 个工具，供外部 Agent 实时操控训练
+    Guardian 真正的本体需要两样东西：
+    1️⃣ 正在跑的训练进程
+    2️⃣ 一张能算梯度的 GPU
 
-    本页使用 `demo_logs/` 中预生成的仿真数据，仅展示界面结构和数据形态。
-    完整功能请在有 GPU 的服务器上通过 `guarftrain start` 启动。
+    没有这两样，Dashboard 读不到心跳，Agent 拿不到上下文，MCP 也没有端口可监听。
+    所以这一页，是用 `demo_logs/` 里预录的数据"演"出来的——
+    来自一个手写数字识别任务，外加我精心安排的灾难片剧情：
+    OOM、进程暴毙、各种奇葩报错……（比写训练代码难多了 hhh）
+
+    为什么不做 Docker？
+    因为我讨厌为了看个训练曲线，先配三个容器。
+    Guardian 的所有依赖，都是训练环境**本来就该有的**。
+    缺什么就少一个功能，但不会炸，你可以直接 pip 装进现有环境。
+
+    设计上有一点执念：
+    外部 Agent 通过 MCP 进来时，内部 Agent 自动退居二线。
+    人可以把方向盘交给更懂的人，而不是跟另一个机器人抢方向盘。
+
+    > 大家都忙着让 AI 更像人，
+    > 却很少让写 AI 的人更像人一点 [狗头]。
+    > 致敬每一个在服务器前通宵、被报警吵醒、还得给舍友道歉的开发者。
+
+    要解锁完全体，请在有 GPU 的服务器上：
+    ```bash
+    guarftrain start
+    ```
+    然后，安心去睡觉。
     """)
 
     st.subheader("面向用户 & 应用场景")
@@ -199,10 +219,10 @@ with tab_overview:
     st.markdown("""
     | 角色 | 场景 | 核心功能 |
     |------|------|----------|
-    | **AI 研究员 / 算法工程师** | 日常训练 CV/NLP 模型 | `watch` 守护训练、崩溃自动恢复、Agent 智能调参 |
+    | **AI 研究员 / 算法工程师** | 日常训练 CV/NLP 模型 | `watch` 守护训练、崩溃自动恢复、Agent 智能调参并微调策略 |
     | **平台运维 / 实验室管理员** | 管理多卡训练集群 | MCP 远程监控、Dashboard 多进程面板、异常告警 |
     | **外部 AI Agent**（如 Claude Code） | 通过 MCP 连接操控训练 | 35 个工具读写训练状态、动态调整超参 |
-    | **项目经理 / 评委** | 了解 Guardian 能力边界 | 本 Demo 页展示全模块结构和数据流 |
+    | **评委hhh** | 只需要通过该页面了解 Guardian 能力边界 | 本 Demo 页展示全模块结构和数据流, 无需实际运行训练进程。 |
     """)
 
     st.subheader("Agent 功能说明")

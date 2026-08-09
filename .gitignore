@@ -13,6 +13,10 @@ htmlcov/
 # Runtime artifacts (generated at runtime, not source)
 logs/
 checkpoints/
+checkpoints_e2e/
+checkpoints_mcp_test/
+checkpoints_test/
+demo/
 data/
 
 # IDE / Editor

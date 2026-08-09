@@ -181,6 +181,46 @@ tab_overview, tab_dashboard, tab_metrics, tab_faults, tab_checkpoints, tab_ai, t
 
 # ===== Tab 1: 项目概览 =====
 with tab_overview:
+    # -- 重要说明 --
+    st.warning("""
+    **⚠️ 本页面是功能展示 Demo，非 Guardian Dashboard 本身**
+
+    Guardian 的 Dashboard、Agent 决策、MCP Server 均依赖于**实际运行的训练进程**和 **GPU 硬件**：
+    - Dashboard 通过 WebSocket 实时读取训练进程的 loss/GPU/checkpoint 状态
+    - Agent 需要 LLM API 接入 + 训练进程上下文才能进行智能决策
+    - MCP Server 通过本地端口暴露 35 个工具，供外部 Agent 实时操控训练
+
+    本页使用 `demo_logs/` 中预生成的仿真数据，仅展示界面结构和数据形态。
+    完整功能请在有 GPU 的服务器上通过 `guarftrain start` 启动。
+    """)
+
+    st.subheader("面向用户 & 应用场景")
+
+    st.markdown("""
+    | 角色 | 场景 | 核心功能 |
+    |------|------|----------|
+    | **AI 研究员 / 算法工程师** | 日常训练 CV/NLP 模型 | `watch` 守护训练、崩溃自动恢复、Agent 智能调参 |
+    | **平台运维 / 实验室管理员** | 管理多卡训练集群 | MCP 远程监控、Dashboard 多进程面板、异常告警 |
+    | **外部 AI Agent**（如 Claude Code） | 通过 MCP 连接操控训练 | 35 个工具读写训练状态、动态调整超参 |
+    | **项目经理 / 评委** | 了解 Guardian 能力边界 | 本 Demo 页展示全模块结构和数据流 |
+    """)
+
+    st.subheader("Agent 功能说明")
+
+    st.markdown("""
+    Guardian Agent 是运行在训练进程旁的 **LLM 智能决策层**，不是简单的告警机器人：
+
+    | 阶段 | Agent 行为 | 约束 |
+    |------|-----------|------|
+    | **训练中** | 分析 loss/acc 趋势 → 决定降 LR / 改 batch size / 忽略 | 仅限预设动作空间，失败回退规则默认行为 |
+    | **训练后** | 生成训练报告、对比 checkpoint、定义优化策略 | 关键操作需用户确认 |
+    | **MCP 模式** | 内置 Agent 进入 provisional 状态，外部 Agent 可接管决策 | 超时/断连自动恢复 autonomous |
+
+    > **注意：Agent 需要 LLM API 调用能力（用户自行配置 API key）。本 Demo 无法提供 Agent 入口，因为 Agent 决策依赖实际训练进程的实时数据流。**
+    """)
+
+    st.divider()
+
     st.subheader("五大阶段能力")
 
     st.markdown("""

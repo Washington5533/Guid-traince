@@ -2,15 +2,16 @@
 
 ## 1. 概述
 
-Guardian 通过 MCP (Model Context Protocol) 把全部观测与操作能力暴露为标准工具，供 Claude Code、OpenClaw 等外部 agent 客户端接入。28 个工具覆盖 Guardian 全部 16 个功能模块（cp_1 ~ cp_16）。
+Guardian 通过 MCP (Model Context Protocol) 把全部观测与操作能力暴露为标准工具，供 Claude Code、OpenClaw 等外部 agent 客户端接入。35 个工具覆盖 Guardian 全部 19 个功能模块（cp_1 ~ cp_19）。
 
 **关键设计原则：**
 
-- **读操作不受限**：任何连接的客户端都可以查看训练状态（18 个只读工具）
-- **写操作默认关闭**：需要显式配置开启 + 口令鉴权（10 个受限写工具）
+- **读操作不受限**：任何连接的客户端都可以查看训练状态（24 个只读工具）
+- **写操作默认关闭**：需要显式配置开启 + 口令鉴权（11 个受限写工具）
 - **MCP 故障不影响训练**：MCP 崩溃/断连只影响外部接入，训练和守护照常运行
 - **可事后补挂**：训练已经在跑的情况下，随时可以启动 MCP 接入，不需要重启训练进程
-- **双模式架构**：MCP 客户端连接时 guardian 内置 agent 自动让位，断开后自动恢复自主决策
+- **双模式架构**：MCP 客户端连接时 guardian 内置 agent 进入 provisional 模式（照常决策但可被覆盖），断开后自动恢复自主决策
+- **Dashboard 远程配置**：外部 agent 可通过 MCP 控制 Dashboard 图表选择/面板显隐，用户本地操作受 dirty flag 保护
 
 ## 2. 安装
 
@@ -30,7 +31,7 @@ python -c "import mcp; print('MCP OK')"
 ### 3.1 方式一：同进程后台线程（推荐，实时性最好）
 
 ```bash
-python run.py watch --with-mcp -- python train.py --epochs 20
+guarftrain watch --with-mcp -- python train.py --epochs 20
 ```
 
 MCP server 在 guardian 进程内的独立线程运行，**直接共享内存中的 monitor/watchdog 状态**，不需要读盘。
@@ -40,6 +41,9 @@ MCP server 在 guardian 进程内的独立线程运行，**直接共享内存中
 ```bash
 # 训练已经在跑（可能已经跑了几小时）
 python run.py serve --transport stdio
+
+# 或
+guarftrain serve --transport stdio
 ```
 
 独立进程定期读盘刷新状态（默认每 5 秒），可以对着一个已经在跑的 `watch` 补挂，**不需要重启训练**。
@@ -47,13 +51,13 @@ python run.py serve --transport stdio
 ### 3.3 方式三：一键启动 Dashboard + MCP
 
 ```bash
-python run.py start
+guarftrain start
 ```
 
 同时启动 Dashboard 控制面板 (http://127.0.0.1:8765) 和 MCP SSE 端点 (http://127.0.0.1:8766/sse)，可选附带训练守护：
 
 ```bash
-python run.py start -- python train.py --epochs 20
+guarftrain start -- python train.py --epochs 20
 ```
 
 ### 3.4 传输方式对比
@@ -128,7 +132,7 @@ ssh -L 8766:127.0.0.1:8766 user@your-training-server
 请用 get_training_status 查看当前训练状态
 ```
 
-## 5. 工具清单（28 个）
+## 5. 工具清单（35 个）
 
 ### 5.1 只读工具 — 训练监控（6 个）
 
@@ -166,30 +170,52 @@ ssh -L 8766:127.0.0.1:8766 user@your-training-server
 | `get_import_format` | Guardian 导入格式规范（JSON Schema） | 无 |
 | `inspect_source` | 采样外部数据文件前 N 行 | `file_path`(必填), `lines`(默认20，上限100) |
 
-### 5.5 只读工具 — 契约（2 个）
+### 5.5 只读工具 — 日志与清单（3 个）
+
+| 工具名 | 功能 | 关键参数 |
+|--------|------|----------|
+| `get_training_log` | 训练日志尾部（支持 grep 过滤） | `lines`(默认100), `offset`, `grep` |
+| `get_post_training_checklist` | 训练结束后可执行的操作清单 | 无 |
+| `get_pending_decisions` | MCP 模式下待处理的 provisional 决策 | 无 |
+
+### 5.6 只读工具 — 契约（2 个）
 
 | 工具名 | 功能 | 关键参数 |
 |--------|------|----------|
 | `get_contract_status` | 契约四项各自的开启/降级状态 | 无 |
 | `list_contract_proposals` | agent 提议记录（pending/approved/rejected） | `status`(筛选) |
 
-### 5.6 受限写工具 — 训练控制（4 个，训练中可用）
+### 5.7 只读工具 — Dashboard 配置（3 个）🆕
+
+| 工具名 | 功能 | 关键参数 |
+|--------|------|----------|
+| `get_dashboard_config` | 获取 Dashboard 当前配置（图表组/面板显隐/模板） | `process_id`(可选) |
+| `recommend_charts` | AI Agent 分析训练状态，推荐应关注的图表组 | `process_id`(可选) |
+| `list_dashboard_templates` | 列出可用 Dashboard 布局模板 | 无 |
+
+### 5.8 受限写工具 — 训练控制（3 个，训练中可用）
 
 | 工具名 | 功能 | 风险 | 关键参数 |
 |--------|------|------|----------|
 | `trigger_recovery` | 手动触发恢复重启，回滚到最近 ckpt | ⚠️ 高 | `request_id`(幂等键) |
 | `restart_with_params` | 调整参数后重启（受白名单约束） | ⚠️ 高 | `action`, `param`, `request_id` |
 | `stop_training` | 停止训练子进程并终止看护 | ⚠️ 高 | `request_id` |
-| `trigger_full_validate` | 对指定 ckpt 跑完整校验 | 🟡 中 | `epoch`(必填), `request_id` |
+| `resolve_decision` | 批准或覆盖一条待处理决策 | 🟡 中 | `decision_id`(必填), `override`, `action`, `request_id` |
 
-### 5.7 受限写工具 — 契约管理（2 个，训练中可用）
+### 5.9 受限写工具 — Dashboard 配置（1 个，需 token）🆕
+
+| 工具名 | 功能 | 风险 | 关键参数 |
+|--------|------|------|----------|
+| `set_dashboard_config` | 设置 Dashboard 配置（图表选择/面板/模板） | 🟢 低 | `process_id`(可选), `charts`, `panels`, `template`, `request_id` |
+
+### 5.11 受限写工具 — 契约管理（2 个，训练中可用）
 
 | 工具名 | 功能 | 风险 | 关键参数 |
 |--------|------|------|----------|
 | `approve_contract_proposal` | 批准 agent 的契约扩展提议 | 🟡 中 | `proposal_id`(必填), `request_id` |
 | `reject_contract_proposal` | 拒绝并归档契约提议 | 🟢 低 | `proposal_id`(必填), `request_id` |
 
-### 5.8 受限写工具 — 训练后功能（4 个，仅训练结束后可用）
+### 5.12 受限写工具 — 训练后功能（4 个，仅训练结束后可用）
 
 | 工具名 | 功能 | 关键参数 |
 |--------|------|----------|
@@ -310,6 +336,60 @@ get_metrics_history(limit=100, cursor=100) // 再往前 100 条
 - `metrics_path` 存在且为合法 JSONL
 - 单次上限 100,000 条
 
+### 7.5 get_dashboard_config / set_dashboard_config — Dashboard 远程配置
+
+读取/设置 Dashboard 的图表显示和面板布局。外部 agent 可通过此工具调整 Dashboard 展示，Dashboard 前端通过 WebSocket 实时收到变更。
+
+```json
+// 读取当前配置
+get_dashboard_config(process_id="mnist-guardian")
+// → {"template": "training", "charts": {"default_groups": ["loss","accuracy"], "smoothing": false}, "panels": {"cursor_info": true, "logs": true, "ai_chat": false}}
+
+// 设置配置（需 write token）
+set_dashboard_config(
+  process_id="mnist-guardian",
+  charts={"default_groups": ["loss", "accuracy", "gpu"], "smoothing": true},
+  panels={"cursor_info": true, "logs": true, "ai_chat": true}
+)
+// → {"ok": true, "config": {...}}
+```
+
+**重要**：用户在前端手动操作的 checkbox/滑块不受此工具覆盖 —— 用户本地操作优先级始终最高。
+
+### 7.6 recommend_charts — Agent 图表推荐
+
+AI agent 分析当前训练状态（指标趋势、异常数量、训练阶段），推荐 Dashboard 应重点关注的图表组。
+
+```json
+recommend_charts(process_id="mnist-guardian")
+// → {"recommendation": {"groups": ["loss","accuracy","lr"], "smoothing": false, "reason": "训练中后期，loss下降趋缓，建议关注lr变化"}}
+```
+
+无 agent 时降级返回默认配置：
+```json
+{"error": "agent 未启用", "fallback": {"groups": ["loss", "accuracy"], "smoothing": false}}
+```
+
+### 7.7 resolve_decision — MCP 委托决策覆盖
+
+外部 agent 批准或覆盖内置 agent 的 provisional 决策。
+
+```json
+// 查看待处理决策
+get_pending_decisions()
+// → {"mode": "provisional", "count": 1, "pending": [{"id": "pd_a1b2c3", "decision_point": "monitor_response", "provisional_action": "restart_with_lower_lr"}]}
+
+// 批准（认可内置 agent 的决策）
+resolve_decision(decision_id="pd_a1b2c3", override=false)
+// → {"status": "approved", "corrective_needed": false}
+
+// 覆盖（用不同的动作替换）
+resolve_decision(decision_id="pd_a1b2c3", override=true, action="ignore")
+// → {"status": "overridden", "corrective_needed": true, "corrective": {"action": "ignore", "original_action": "restart_with_lower_lr"}}
+```
+
+超时（默认 120s）未处理的决策自动转为 approved。客户端断开时所有 pending 决策自动批准。
+
 ## 8. 幂等保证
 
 所有写工具支持 `request_id` 参数。相同 `request_id` 在 5 分钟（默认）内重复调用返回首次结果，不重复执行：
@@ -389,20 +469,23 @@ restart_with_params(action="reduce_batch", param=0.5, request_id="abc-123")
 ## 12. 双模式架构
 
 ```
-┌─ Standalone ───────────────────────────────────┐
+┌─ Standalone (autonomous) ──────────────────────┐
 │ guardian AgentAdvisor 自主决策                   │
 │ 训练中：预设动作集，失败回退规则默认               │
 │ 训练后：创造性策略（需用户确认）                   │
-├─ MCP Delegated ────────────────────────────────┤
-│ 外部 Claude Code 决策，guardian agent 让位       │
-│ guardian 角色：数据提供者 + 安全执行器            │
-│ Claude Code 断开 → 自动恢复 standalone          │
+├─ MCP Delegated (provisional) ──────────────────┤
+│ 外部 Claude Code 连接时，内置 agent 进入           │
+│ provisional 模式：照常决策但标记为"临时"            │
+│ → 推入 pending_decisions 队列（TTL 120s）         │
+│ → 外部 agent 可调用 resolve_decision 批准或覆盖    │
+│ → 超时/断连 → 自动批准，恢复 autonomous            │
+│ guardian 角色：数据提供者 + 安全执行器              │
 └────────────────────────────────────────────────┘
 ```
 
 模式切换过程：
-1. MCP 客户端连接 → `on_client_connect()` → `advisor.set_delegated(True)`
-2. MCP 客户端断开 → `on_client_disconnect()` → `advisor.set_delegated(False)` → 恢复自主决策
+1. MCP 客户端连接 → `on_client_connect()` → `advisor.set_delegated(True)` → mode = "provisional"
+2. MCP 客户端断开 → `on_client_disconnect()` → `advisor.set_delegated(False)` → 自动批准 pending 决策 → 恢复 autonomous
 
 可通过 `get_guardian_mode` 工具随时查询当前模式。
 

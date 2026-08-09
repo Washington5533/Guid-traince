@@ -21,6 +21,9 @@
 | cp_14 | 实验查询 | `guardian/experiment_query.py` | 待补写 | ✅ 已实现 |
 | cp_15 | 模型可视化 | `guardian/model_viz.py` | 待补写 | ✅ 已实现 |
 | cp_16 | 推理运行器 | `guardian/inference.py` | 待补写 | ✅ 已实现 |
+| cp_17 | Dashboard 远程配置 | `guardian/dashboard/server.py` | 待补写 | ✅ v0.2 |
+| cp_18 | Agent 图表推荐 | `guardian/agent_advisor.py` | 待补写 | ✅ v0.2 |
+| cp_19 | MCP Dashboard 工具 | `guardian/mcp_server.py` | 待补写 | ✅ v0.2 |
 
 ## 辅助模块
 
@@ -31,8 +34,9 @@
 | `guardian/project_context.py` | 项目上下文（`.guardian-project.yaml`） |
 | `guardian/component_library.py` | 经典组件库（11 个优化组件） |
 | `guardian/dashboard/server.py` | Dashboard HTTP + WebSocket 服务 |
-| `guardian/dashboard/static/index.html` | Dashboard 前端 SPA |
+| `guardian/dashboard/static/index.html` | Dashboard 前端 SPA（远程配置 + dirty flag 保护） |
 | `guardian/streamlit_app.py` | 图片筛选 Streamlit 展示 |
+| `contract.yaml > dashboard` | Dashboard 初始配置（template/charts/panels） |
 | `configs/guardian.yaml` | guardian 自身配置 |
 | `configs/contract.yaml` | 训练脚本契约声明 |
 | `scripts/` | 推理脚本（分类/检测/分割） |

@@ -14,6 +14,21 @@ guarftrain init && guarftrain watch -- python train.py --epochs 20
 
 ---
 
+## What's New in v0.2.0
+
+| Feature | Description |
+|---------|-------------|
+| `guarftrain` CLI | `pip install` 后全局可用，替换旧 `python run.py` |
+| `guarftrain init` | 自动扫描训练脚本，生成 contract.yaml |
+| `guarftrain check` | 环境自检：Python/GPU/依赖/项目结构 |
+| Dashboard 远程配置 | 外部 Agent 通过 MCP 控制 Dashboard 图表/面板，用户操作受 dirty flag 保护 |
+| Agent 图表推荐 | `chart_selection` 决策点：Agent 分析训练状态，推荐应关注的指标组 |
+| MCP 委托模式 | 外部 Claude Code 连接时内置 Agent 进入 provisional 模式，决策可被覆盖 |
+| 增量图表更新 | Dashboard 实时推送图表数据，不再全量重建 |
+| 依赖瘦身 | 核心安装 ~2MB，torch/anthropic 按需安装 |
+
+---
+
 ## What does it do? · 它做什么？
 
 | Phase · 阶段 | Capability · 能力 | How · 方式 |
@@ -22,7 +37,7 @@ guarftrain init && guarftrain watch -- python train.py --epochs 20
 | 训练中 During | GPU+Loss 监控告警 / 崩溃自动恢复 / LLM 决策 | `guarftrain watch` |
 | 训练后 Post | 摘要+AI 解读 / Checkpoint 分析 / 模型可视化 / 推理 | `guarftrain summarize` |
 | 跨实验 Cross | 自然语言查询 / 实验对比 / 数据导入 | `guarftrain query "best lr?"` |
-| 外部接入 External | MCP 28 工具 + Dashboard 面板 | `guarftrain start` |
+| 外部接入 External | MCP 32 工具 + Dashboard 远程配置 + Agent 图表推荐 | `guarftrain start` |
 
 ## Quick Start · 快速开始
 
@@ -80,7 +95,7 @@ Missing any one? Only the corresponding capability is disabled — training stil
 │  ├─ watch ──→ Watchdog: Popen + crash recovery + CLI rewrite    │
 │  │             └─ Monitor: log tail + GPU poll + anomaly detect  │
 │  │                  └─ AgentAdvisor: LLM decide → intervene       │
-│  ├─ serve ──→ MCP Server: 27 tools (18 read + 9 write)          │
+│  ├─ serve ──→ MCP Server: 32 tools (22 read + 10 write)          │
 │  ├─ start ──→ Dashboard + MCP one-click                        │
 │  └─ experiments / query / compare ──→ Cross-experiment analysis  │
 │                                                                  │
@@ -88,7 +103,8 @@ Missing any one? Only the corresponding capability is disabled — training stil
 │  ┌─ Contract (hard boundary, human-defined)                     │
 │  ├─ Agent (LLM, optional, within action space)                  │
 │  ├─ Rules (deterministic, always-on fallback)                   │
-│  └─ MCP (external agent access, dual-mode delegation)           │
+│  ├─ MCP (external agent access, dual-mode delegation)           │
+│  └─ Dashboard (remote config, dirty-flag user protection)       │
 │                                                                  │
 │  Training Process: python train.py (0 changes required)          │
 └──────────────────────────────────────────────────────────────────┘
@@ -117,13 +133,13 @@ Missing any one? Only the corresponding capability is disabled — training stil
 
 ## MCP Tools · MCP 工具
 
-**18 read-only** (always available, no auth):
+**24 read-only** (always available, no auth):
 
-`get_training_status` · `get_metrics_history` · `list_checkpoints` · `compare_checkpoints` · `get_anomaly_history` · `get_recovery_history` · `get_summary` · `get_agent_decision_log` · `get_contract_status` · `list_contract_proposals` · `list_experiments` · `query_experiment` · `compare_experiments` · `get_model_structure` · `get_guardian_mode` · `get_gallery_config` · `get_import_format` · `inspect_source`
+`get_training_status` · `get_metrics_history` · `list_checkpoints` · `compare_checkpoints` · `get_anomaly_history` · `get_recovery_history` · `get_summary` · `get_agent_decision_log` · `get_contract_status` · `list_contract_proposals` · `list_experiments` · `query_experiment` · `compare_experiments` · `get_model_structure` · `get_guardian_mode` · `get_gallery_config` · `get_import_format` · `inspect_source` · `get_training_log` · `get_post_training_checklist` · `get_pending_decisions` · `get_dashboard_config` · `recommend_charts` · `list_dashboard_templates`
 
-**9 write** (token auth + training-phase gating):
+**11 write** (token auth + training-phase gating):
 
-`trigger_recovery` · `restart_with_params` · `stop_training` · `approve_contract_proposal` · `reject_contract_proposal` · `run_visualization` · `set_gallery_config` · `run_inference` · `submit_import`
+`trigger_recovery` · `restart_with_params` · `stop_training` · `approve_contract_proposal` · `reject_contract_proposal` · `run_visualization` · `set_gallery_config` · `run_inference` · `submit_import` · `resolve_decision` · `set_dashboard_config`
 
 → Full API reference: [MCP_API_REFERENCE.md](MCP_API_REFERENCE.md)
 
@@ -159,7 +175,7 @@ export GUARDIAN_MCP_TOKEN=your-secret   # write tool auth
 | Modules | 16 (cp_1 ~ cp_16) |
 | Production code | ~10,500 lines |
 | Tests | 221 (CI on push) |
-| MCP tools | 27 (18 read + 9 write) |
+| MCP tools | 35 (24 read + 11 write) |
 | CLI commands | 16 |
 | Test coverage | ~13% (core paths: 100%) |
 | Python | 3.10+ |
@@ -171,7 +187,7 @@ export GUARDIAN_MCP_TOKEN=your-secret   # write tool auth
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Architecture & workflow (ZH) |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | User manual (ZH) |
 | [MCP.md](MCP.md) | MCP integration guide (ZH) |
-| [MCP_API_REFERENCE.md](MCP_API_REFERENCE.md) | 27-tool API reference (ZH) |
+| [MCP_API_REFERENCE.md](MCP_API_REFERENCE.md) | 35-tool API reference (ZH) |
 | [MCP_QUICKSTART.md](MCP_QUICKSTART.md) | 5-minute MCP onboarding (ZH) |
 | [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md) | Per-module completion report (ZH) |
 | [checkpoint/INDEX.md](checkpoint/INDEX.md) | Module index cp_1~cp_16 (ZH) |

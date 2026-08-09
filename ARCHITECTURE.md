@@ -24,6 +24,7 @@ guardian watch --agent -- python train.py
 │  ├─ preflight ──→ cp_1: 显存预估 + batch 推荐                    │
 │  ├─ analyze ──→ cp_4: checkpoint 扫描 + best 判定                │
 │  ├─ serve ──→ cp_10: MCP 工具层（外部 agent 接入）                │
+│  ├─ dashboard ──→ cp_17: HTTP+WS 控制面板（远程配置层）             │
 │  └─ contract ──→ cp_11: 契约校验 + 注册表管理                    │
 │                                                                 │
 │  训练后: cp_5 summary → cp_9 agent: AI 自然语言解读               │
@@ -155,6 +156,7 @@ while 训练子进程存活:
 │  · 异常应对: 告警 / 忽略 / 降lr重启          │
 │  · 恢复策略: 减batch / 梯度累积 / 原样续训    │
 │  · best 指标: accuracy / mAP / mIoU / …    │
+│  · 图表推荐: chart_selection（cp_18）       │
 │  · AI 解读: 自然语言报告（纯输出）            │
 │  超时/失败/越界 → 强制回退规则默认动作         │
 ├──────────────────────────────────────────┤
@@ -165,14 +167,84 @@ while 训练子进程存活:
 ├──────────────────────────────────────────┤
 │  cp_10 MCP 工具层（外部 agent 接入）          │
 │  · Claude Code / OpenClaw 客户端            │
-│  · 18 只读工具 + 10 受限写工具                │
-│  · 幂等保证 / 访问日志 / 非阻塞 / 双模式        │
+│  · 24 只读工具 + 11 受限写工具（共 35）       │
+│  · 委托模式: provisional 可覆盖（见下节）      │
+│  · 幂等保证 / 访问日志 / 非阻塞               │
+├──────────────────────────────────────────┤
+│  cp_17 Dashboard 远程配置层（v0.2）          │
+│  · 初始值: contract.yaml → dashboard 段     │
+│  · 覆盖: MCP set_dashboard_config（token）  │
+│  · 前端: dirty flag 保护用户手动修改          │
 └──────────────────────────────────────────┘
 ```
 
 ---
 
-## 15 个功能模块一览
+## MCP 委托模式（双模式增强，v0.2）
+
+```
+v0 双模式: 外部 Claude Code 连接时，内置 agent 完全让位。
+v0.2 增强: agent 不再让位，而是进入 provisional（临时决策）模式——
+           照常决策，但每条决策标记为 agent_provisional，可被外部覆盖。
+
+  on_client_connect
+    → set_mode(MCP_DELEGATED) → advisor.set_delegated(True)
+        → 模式: autonomous → provisional
+          │
+          ├─ provisional 模式下每次 decide():
+          │   agent 照常决策，来源改写为 agent_provisional
+          │   → 决策推入 pending_decisions 队列（TTL 120s，
+          │     超时未处理自动转 approved）
+          │   → 外部 agent: get_pending_decisions 查看待审决策
+          │   → resolve_decision(id, override, action):
+          │       override=false → approved（认可内置决策）
+          │       override=true  → overridden（用新动作覆盖；
+          │                        已执行则经 watchdog 补救）
+          │
+          └─ on_client_disconnect
+              → set_mode(STANDALONE) → set_delegated(False)
+                  → 队列中未覆盖的 pending 决策自动转 approved
+                  → 恢复 autonomous 自主决策
+```
+
+设计意图: 外部 agent 在线时拥有"审核/否决权"，离线时内置 agent
+决策照常执行——智能决策永不丢失，外部接管只是可选项。
+
+---
+
+## Dashboard 远程配置（v0.2）
+
+外部 agent（Claude Code）经 MCP 工具远程驱动 Dashboard 图表/面板；
+用户手动修改受 dirty flag 保护，远程配置绝不覆盖用户操作。
+
+```
+contract.yaml（dashboard 段: template / charts / panels）
+  │
+  ├─ 启动: cmd_watch 注册进程
+  │   POST /api/register（payload 含 dash_config）
+  │     → Dashboard server 存入进程状态 _dash_config
+  │     → 前端打开详情页 → GET /api/process/<id>/dashboard-config
+  │
+  ├─ 运行中: MCP 工具（cp_19，经 HTTP 调 Dashboard API）
+  │   set_dashboard_config（写，token 鉴权）
+  │     → POST /api/process/<id>/dashboard-config（顶层 key 深度合并）
+  │     → WS 推送 {type: "dashboard-config"} → 前端 applyRemoteDashConfig()
+  │         图表组/平滑/面板逐项应用，_dashDirty 中的项跳过（绝不覆盖）
+  │         用户点"重置"→ 清空 dirty flag，重新接受远程配置
+  │   get_dashboard_config（只读，查询当前配置）
+  │
+  └─ Agent 联动（cp_18）
+      recommend_charts（只读）
+        → cp_9 chart_selection 决策点
+        → 推荐图表组 + 平滑开关 + 理由
+        → 外部 agent 可作为 set_dashboard_config 的输入
+      list_dashboard_templates（只读）
+        → training / comparison / minimal 三种布局模板
+```
+
+---
+
+## 功能模块一览（cp_1 ~ cp_19）
 
 | 模块 | 文件 | 职责 | 阶段 |
 |------|------|------|------|
@@ -183,14 +255,21 @@ while 训练子进程存活:
 | **cp_5** | `summary.py` | 结构化摘要 + AI 解读 | 训练后 |
 | **cp_6** | `notifier.py` | 终端/webhook 告警 + 静默期 | 全程 |
 | **cp_7** | `train.py` | MNIST 参考训练脚本（满足契约四项） | 参考 |
-| **cp_8** | `run.py` | CLI 入口: watch/preflight/analyze/serve | 入口 |
-| **cp_9** | `agent_advisor.py` | LLM 决策统一入口 + 熔断/降级 | v1 |
-| **cp_10** | `mcp_server.py` | MCP 工具暴露（28 工具：18 只读 + 10 写） | v1 |
+| **cp_8** | `run.py` | CLI 入口: watch/preflight/analyze/serve/dashboard/start | 入口 |
+| **cp_9** | `agent_advisor.py` | LLM 决策统一入口 + 熔断/降级 + chart_selection | v1/v0.2 |
+| **cp_10** | `mcp_server.py` | MCP 工具暴露（35 工具：24 只读 + 11 写） | v1/v0.2 |
 | **cp_11** | `task_contract.py` | 契约校验 + 注册表 + 提议审核 | 全程 |
 | **cp_12** | `tests/faultbench/` | 故障注入测试（S1/S2/S3 验收） | 测试 |
+| **cp_13** | `gallery.py` | 图片筛选 + 多策略精选 | v1 |
+| **cp_14** | `experiment_query.py` | 实验查询 + 自然语言检索 | v1 |
+| **cp_15** | `model_viz.py` | 模型结构可视化（D3.js HTML） | v1 |
+| **cp_16** | `inference.py` | checkpoint 推理运行器 | v1 |
+| **cp_17** | `dashboard/server.py` | Dashboard HTTP+WS 面板 + 远程配置 | v0.2 |
+| **cp_18** | `agent_advisor.py` | Agent 图表推荐（chart_selection 决策点） | v0.2 |
+| **cp_19** | `mcp_server.py` | MCP Dashboard 工具（config/recommend/templates） | v0.2 |
 | - | `config.py` | 配置加载: DEFAULTS < 文件 < 环境变量 < CLI | 基础设施 |
 | - | `configs/guardian.yaml` | guardian 自身工作参数 | 配置 |
-| - | `configs/contract.yaml` | 训练脚本契约声明 + 注册表 | 配置 |
+| - | `configs/contract.yaml` | 训练脚本契约声明 + 注册表 + dashboard 段 | 配置 |
 
 ---
 
@@ -210,6 +289,15 @@ while 训练子进程存活:
                     记录 RestartRecord
                                     │
 训练结束 → cp_5 摘要 ← cp_9 AI 解读 ← DeepSeek API
+```
+
+### chart_selection 决策点（v0.2 新增）
+
+```
+Dashboard 图表推荐（cp_18）:
+  输入: metrics_summary / 可用图表组 / anomaly_count / training_phase
+  输出: 推荐图表组（loss/accuracy/lr/gpu/custom）+ 平滑开关 + 理由
+  降级: agent 不可用/超时 → 回退默认 {loss, accuracy}（当前配置不变）
 ```
 
 ### 实测示例
@@ -258,6 +346,8 @@ select_metric({"metrics_seen": ["val/accuracy", "train/loss"]})
 | **纯规则守护** | `guardian watch -- python train.py` | 不依赖 LLM，0 外部依赖 |
 | **+ Agent 决策** | `guardian watch --agent -- python train.py` | LLM 参与异常应对 + AI 报告 |
 | **+ MCP 接入** | `guardian watch --agent --with-mcp -- python train.py` | 外部 Claude Code 可查看/管理 |
+| **+ Dashboard** | `guardian watch --agent --with-dashboard -- python train.py` | Web 控制面板 + 远程配置 |
+| **全功能** | `guardian watch --agent --with-dashboard --with-mcp -- python train.py` | 面板 + 外部 agent + 图表推荐 |
 | **资源预检** | `guardian preflight` | 训练前显存预估 |
 | **断点分析** | `guardian analyze` | 独立扫描已有 checkpoint |
 | **契约校验** | `guardian contract check` | 验证训练脚本满足契约 |

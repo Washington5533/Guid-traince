@@ -1,10 +1,10 @@
 # Guardian MCP — API 参考
 
-> 完整工具参数说明 · 28 个工具 · 版本 0.1.0
+> 完整工具参数说明 · 35 个工具（24 只读 + 11 写）· 版本 0.2.0
 
 ---
 
-## 只读工具（18 个）
+## 只读工具（24 个）
 
 ### get_training_status
 
@@ -378,7 +378,159 @@ Guardian 导入格式规范（JSON Schema）。
 
 ---
 
-## 受限写工具（10 个）
+### get_training_log
+
+读取训练日志文件的尾部内容，用于排查训练错误、查看崩溃前的日志、检查输出。
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `lines` | integer | 否 | 100 | 返回行数（上限 1000） |
+| `offset` | integer | 否 | 0 | 偏移量（从末尾倒数），0=最新 |
+| `grep` | string | 否 | — | 过滤关键字（可选），如 `Error`、`epoch` |
+
+**返回：**
+
+```json
+{
+  "log_file": "logs/train.log",
+  "total_lines": 12034,
+  "returned": 100,
+  "lines": ["...", "..."],
+  "offset": 0,
+  "grep": null
+}
+```
+
+---
+
+### get_post_training_checklist
+
+训练结束后的待办清单：哪些 checkpoint 可用、可以生成什么（可视化/推理/图库/摘要）、每个操作的推荐命令和参数。训练结束后应优先调用此工具，然后按清单逐项执行。
+
+```
+输入：无
+```
+
+**返回：**
+
+```json
+{
+  "training_active": false,
+  "total_items": 6,
+  "available_now": 5,
+  "checklist": [
+    {"category": "checkpoint", "title": "最佳 Checkpoint 分析", "available": true,
+     "detail": "共 50 个 checkpoint，最佳 epoch=47",
+     "suggested_tool": "list_checkpoints", "suggested_args": {}},
+    {"category": "analysis", "title": "模型结构可视化", "available": true,
+     "detail": "生成交互式 D3.js 模型管线图（FLOPs + 瓶颈标注 + 改进建议）",
+     "suggested_tool": "run_visualization", "suggested_args": {"model_entry": "train:build_model"}}
+  ],
+  "hint": "训练已结束，建议按顺序执行以上待办项。先调用 get_summary 获取概览。"
+}
+```
+
+---
+
+### get_pending_decisions
+
+获取所有待处理的 provisional 决策（MCP 模式下 agent 继续做决策，但标记为可覆盖）。每条决策含 id、决策点、临时动作、超时剩余秒数。外部 agent 审核后调用 `resolve_decision` 批准或覆盖；超时未处理自动转为 `approved`。
+
+```
+输入：无
+```
+
+**返回：**
+
+```json
+{
+  "mode": "mcp_delegated",
+  "count": 1,
+  "pending": [
+    {"id": "dec_1234", "decision_point": "monitor_response",
+     "provisional_action": "restart_with_lower_lr",
+     "context_summary": "loss_spike: loss +157% at step 1234",
+     "created_at": 1754300000, "ttl": 120, "remaining_seconds": 45}
+  ]
+}
+```
+
+---
+
+### get_dashboard_config
+
+获取 Dashboard 当前配置：启用的图表组、面板显隐、平滑开关、布局模板。只读，无副作用。需 Dashboard 启用（`--with-dashboard`）。
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `process_id` | string | 否 | 当前活动进程 | 训练进程 ID |
+
+**返回：**
+
+```json
+{
+  "template": "training",
+  "charts": {"default_groups": ["loss", "accuracy"], "smoothing": false, "range_mode": "auto"},
+  "panels": {"cursor_info": true, "logs": true, "ai_chat": false}
+}
+```
+
+---
+
+### recommend_charts
+
+让 AI agent 分析当前训练状态（指标趋势、异常数量、训练阶段），推荐 Dashboard 应重点关注的图表组和显示配置（是否开平滑等）。需 `--agent` 且配置 API key。
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `process_id` | string | 否 | 当前活动进程 | 训练进程 ID |
+
+**返回：**
+
+```json
+{
+  "recommendation": {"groups": ["loss", "accuracy", "gpu"], "smoothing": true,
+                     "reason": "训练进入后期，建议开启平滑观察趋势"},
+  "source": "agent"
+}
+```
+
+agent 未启用或推荐失败时降级返回：
+
+```json
+{"error": "agent 推荐失败，使用默认配置",
+ "fallback": {"groups": ["loss", "accuracy"], "smoothing": false}}
+```
+
+---
+
+### list_dashboard_templates
+
+列出可用的 Dashboard 布局模板。
+
+```
+输入：无
+```
+
+**返回：**
+
+```json
+{
+  "templates": [
+    {"name": "training", "description": "训练监控：图表区（loss/accuracy/lr/gpu）+ 坐标信息 + 日志 + AI 对话",
+     "panels": {"cursor_info": true, "logs": true, "ai_chat": true}},
+    {"name": "comparison", "description": "实验对比：多个进程的图表并列 + 指标对比表格",
+     "panels": {"cursor_info": false, "logs": false, "ai_chat": true}},
+    {"name": "minimal", "description": "最小面板：仅图表区，适合嵌入或低带宽环境",
+     "panels": {"cursor_info": false, "logs": false, "ai_chat": false}}
+  ],
+  "default": "training"
+}
+```
+
+---
+
+## 受限写工具（11 个）
 
 ### trigger_recovery
 
@@ -418,19 +570,6 @@ Guardian 导入格式规范（JSON Schema）。
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `request_id` | string | 否 | 幂等键 |
-
-**鉴权：** 需要 `write_token`
-
----
-
-### trigger_full_validate
-
-手动触发指定 checkpoint 的完整校验。占用算力，可能与训练争抢 GPU。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `epoch` | integer | **是** | 要校验的 checkpoint epoch |
 | `request_id` | string | 否 | 幂等键 |
 
 **鉴权：** 需要 `write_token`
@@ -533,6 +672,63 @@ Guardian 导入格式规范（JSON Schema）。
 ```json
 {"process_id": "import_a1b2c3d4", "records": 5000, "status": "imported"}
 ```
+
+---
+
+### set_dashboard_config
+
+设置 Dashboard 配置：图表组选择、面板显隐、平滑开关、布局模板。Dashboard 前端通过 WebSocket 实时收到变更。用户的本地操作（checkbox/滑块）优先级始终最高，不受此工具覆盖。需 Dashboard 启用（`--with-dashboard`）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `process_id` | string | 否 | 训练进程 ID，默认当前活动进程 |
+| `charts` | object | 否 | 图表配置：`{"default_groups": ["loss","accuracy"], "smoothing": true, "range_mode": "auto"}` |
+| `panels` | object | 否 | 面板显隐：`{"cursor_info": true, "logs": true, "ai_chat": false}` |
+| `template` | string | 否 | 布局模板：`training` / `comparison` / `minimal` |
+| `request_id` | string | 否 | 幂等键 |
+
+**鉴权：** 需要 `write_token`
+
+**返回：**
+
+```json
+{
+  "ok": true,
+  "config": {
+    "template": "training",
+    "charts": {"default_groups": ["loss", "accuracy"], "smoothing": true, "range_mode": "auto"},
+    "panels": {"cursor_info": true, "logs": true, "ai_chat": false}
+  }
+}
+```
+
+---
+
+### resolve_decision
+
+处理一条待定的 provisional 决策（来自 `get_pending_decisions`）。
+
+- `override=false`：认可当前 provisional 决策，标记为 `approved`。
+- `override=true`：用新的 `action` 覆盖。若覆盖动作是 `restart_with_lower_lr` / `reduce_batch` / `enable_grad_accum`，会立即执行重启式干预（kill 训练进程 + 回滚 checkpoint）；`stop_training` 会停止训练。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `decision_id` | string | **是** | 待处理决策 ID（从 `get_pending_decisions` 获取） |
+| `override` | boolean | 否 | 是否覆盖（false=批准，true=覆盖） |
+| `action` | string | 否* | 覆盖时的动作名（`override=true` 时必填） |
+| `param` | any | 否 | 动作参数（ratio 或 steps，视动作类型而定） |
+| `request_id` | string | 否 | 幂等键 |
+
+**鉴权：** 需要 `write_token`
+
+**返回：**
+
+```json
+{"status": "approved", "id": "dec_1234", "provisional_action": "restart_with_lower_lr",
+ "corrective_needed": false}
+```
+
+`status` 可能值：`approved` | `overridden` | `not_found` | `already_resolved`
 
 ---
 

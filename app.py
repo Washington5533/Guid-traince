@@ -150,9 +150,33 @@ st.code("guarftrain init && guarftrain watch -- python train.py --epochs 20", la
 
 st.divider()
 
+# --- 加载 Dashboard 所需数据 ---
+@st.cache_data
+def _get_dashboard_data():
+    """预加载 Dashboard 所需全部数据。"""
+    exps = _list_experiments()
+    metrics = []
+    anomalies = []
+    summary = {}
+    restarts = []
+    if exps:
+        metrics = _load_metrics(exps[0]["id"])
+        anomalies = _load_anomalies(exps[0]["id"])
+    summary_path = LOGS_DIR / "summary_demo.json"
+    if summary_path.is_file():
+        try:
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            anomalies = summary.get("anomaly_events", anomalies)
+            restarts = summary.get("restarts", [])
+        except (json.JSONDecodeError, OSError):
+            pass
+    return exps, metrics, anomalies, summary, restarts
+
+_dash_exps, _dash_metrics, _dash_anomalies, _dash_summary, _dash_restarts = _get_dashboard_data()
+
 # --- Tab 导航 ---
-tab_overview, tab_metrics, tab_faults, tab_checkpoints, tab_ai, tab_mcp, tab_viz, tab_arch = st.tabs([
-    "📋 项目概览", "📊 指标曲线", "🛡️ 故障处理", "🏆 Checkpoint", "🤖 AI 分析", "🔧 MCP 工具", "🧠 模型可视化", "🏗️ 架构"
+tab_overview, tab_dashboard, tab_metrics, tab_faults, tab_checkpoints, tab_ai, tab_mcp, tab_viz, tab_arch = st.tabs([
+    "📋 项目概览", "📊 Dashboard", "📈 指标曲线", "🛡️ 故障处理", "🏆 Checkpoint", "🤖 AI 分析", "🔧 MCP 工具", "🧠 模型可视化", "🏗️ 架构"
 ])
 
 # ===== Tab 1: 项目概览 =====
@@ -213,7 +237,184 @@ with tab_overview:
         with cols[i % 3]:
             st.markdown(f"{cmd} — {desc}")
 
-# ===== Tab 2: 指标曲线 =====
+# ===== Tab 2: Dashboard =====
+with tab_dashboard:
+    # -- 顶部状态栏 --
+    dcol1, dcol2, dcol3, dcol4 = st.columns([2, 1, 1, 1.5])
+    with dcol1:
+        st.markdown("### 🛡️ Guardian Dashboard")
+    with dcol2:
+        st.markdown("🟢 **Connected**  `ws://localhost:8766`")
+    with dcol3:
+        mode = _dash_summary.get("config", {}).get("agent_enabled", True)
+        st.markdown(f"🧠 Agent: **{'ON' if mode else 'OFF'}**")
+    with dcol4:
+        st.markdown(f"🔧 MCP: **{'35 tools' if _dash_summary.get('config', {}).get('mcp_enabled', True) else 'OFF'}**")
+
+    st.divider()
+
+    # -- KPI 卡片行 --
+    if _dash_metrics:
+        # 取最新值
+        latest = _dash_metrics[-1]
+        # 计算趋势
+        mid_idx = len(_dash_metrics) // 2
+        recent_losses = [m.get("loss") for m in _dash_metrics[-50:] if m.get("loss") is not None]
+        recent_accs = [m.get("val_acc") for m in _dash_metrics[-50:] if m.get("val_acc") is not None]
+        loss_trend = "📉" if len(recent_losses) >= 2 and recent_losses[-1] < recent_losses[0] else "📈"
+        acc_trend = "📈" if len(recent_accs) >= 2 and recent_accs[-1] > recent_accs[0] else "📉"
+
+        kpi1, kpi2, kpi3, kpi4, kpi5, kpi6 = st.columns(6)
+        with kpi1:
+            loss_val = f"{latest.get('loss', '?'):.4f}" if latest.get('loss') is not None else "NaN"
+            st.metric("📉 Loss", loss_val, delta=f"{loss_trend} 下降" if loss_trend == "📉" else "上升中", delta_color="inverse")
+        with kpi2:
+            acc_val = f"{latest.get('val_acc', '?'):.4f}" if latest.get('val_acc') is not None else "NaN"
+            st.metric("🎯 Val Accuracy", acc_val, delta=f"{acc_trend} 提升" if acc_trend == "📈" else "下降中")
+        with kpi3:
+            lr_val = latest.get("lr", "?")
+            st.metric("🔬 Learning Rate", f"{lr_val:.6f}" if isinstance(lr_val, float) else str(lr_val))
+        with kpi4:
+            resources = _dash_summary.get("resources", {})
+            st.metric("💻 GPU Util", f"{resources.get('gpu_util_avg', '?')}%")
+        with kpi5:
+            st.metric("🌡️ GPU Temp", f"{resources.get('gpu_temp_avg', '?')}°C", delta=f"max {resources.get('gpu_temp_max', '?')}°C")
+        with kpi6:
+            total_epoch = len(_dash_metrics)
+            training_info = _dash_summary.get("training", {})
+            st.metric("🔄 Epoch", f"{total_epoch}", delta=f"best acc {training_info.get('best_val_acc', 0):.4f}" if training_info.get('best_val_acc') else None)
+
+        # -- 进度条 --
+        st.progress(min(total_epoch / 1000, 1.0), text=f"训练进度: {total_epoch} / 1000 epochs  |  状态: {_dash_summary.get('status', 'running')}  |  耗时: {_dash_summary.get('duration', '?')}")
+
+    st.divider()
+
+    # -- 图表区：双列布局 --
+    chart_col1, chart_col2 = st.columns(2)
+
+    with chart_col1:
+        st.markdown("#### 📉 Loss 曲线")
+        if _dash_metrics:
+            loss_data = {}
+            for f in ["loss"]:
+                vals = [m.get(f) for m in _dash_metrics if m.get(f) is not None]
+                if vals:
+                    loss_data[f] = vals
+            if loss_data:
+                st.line_chart(loss_data, use_container_width=True, height=220)
+
+    with chart_col2:
+        st.markdown("#### 🎯 Accuracy 曲线")
+        if _dash_metrics:
+            acc_data = {}
+            for f in ["val_acc"]:
+                vals = [m.get(f) for m in _dash_metrics if m.get(f) is not None]
+                if vals:
+                    acc_data[f] = vals
+            if acc_data:
+                st.line_chart(acc_data, use_container_width=True, height=220)
+
+    chart_col3, chart_col4 = st.columns(2)
+
+    with chart_col3:
+        st.markdown("#### 🔬 LR Schedule")
+        if _dash_metrics:
+            lr_data = {}
+            for f in ["lr"]:
+                vals = [m.get(f) for m in _dash_metrics if m.get(f) is not None]
+                if vals:
+                    lr_data[f] = vals
+            if lr_data:
+                st.line_chart(lr_data, use_container_width=True, height=200)
+
+    with chart_col4:
+        st.markdown("#### 📊 Step 分布")
+        if _dash_metrics:
+            steps = [m.get("step", i) for i, m in enumerate(_dash_metrics)]
+            losses = [m.get("loss") for m in _dash_metrics]
+            step_data = {"step": steps, "loss": [l for l in losses if l is not None]}
+            # 取样显示
+            sample_n = min(200, len(_dash_metrics))
+            sample_step = max(1, len(_dash_metrics) // sample_n)
+            sampled = {
+                "loss": [losses[i] for i in range(0, len(_dash_metrics), sample_step) if losses[i] is not None],
+            }
+            if sampled.get("loss"):
+                st.line_chart(sampled, use_container_width=True, height=200)
+
+    st.divider()
+
+    # -- 告警面板 + 重启记录 --
+    alert_col1, alert_col2 = st.columns(2)
+
+    with alert_col1:
+        st.markdown("#### 🚨 最近告警")
+        if _dash_anomalies:
+            recent_alerts = _dash_anomalies[-8:][::-1]  # 最近 8 条，倒序
+            for a in recent_alerts:
+                ep = a.get("epoch", "?")
+                typ = a.get("type", "?")
+                sev = a.get("severity", "info")
+                resp = a.get("response", {})
+                action = resp.get("action", "?")
+                source = resp.get("source", "?")
+
+                sev_icon = {"error": "🔴", "warning": "🟡", "info": "🔵"}.get(sev, "⚪")
+                type_icons = {
+                    "loss_spike": "📈", "gpu_idle": "💤", "oom_recovery": "💥",
+                    "gpu_temp": "🌡️", "agent_restart_lr": "🧠", "loss_stagnation": "📏",
+                    "crash_recovery": "🔫", "nan_inf": "☠️", "code_error": "🐛",
+                }
+                emoji = type_icons.get(typ, "❓")
+
+                st.markdown(
+                    f"{sev_icon} {emoji} **E{ep}** `{typ}` → `{action}` "
+                    f"<small>({source})</small>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("暂无告警")
+
+    with alert_col2:
+        st.markdown("#### 🔄 恢复 / 重启记录")
+        if _dash_restarts:
+            for r in _dash_restarts[-6:][::-1]:
+                ep = r.get("epoch", "?")
+                trigger = r.get("trigger", "?")
+                wasted = r.get("wasted_epochs", 0)
+                success = "✅" if r.get("success") else "❌"
+                resumed = r.get("resumed_from", "?")
+                st.markdown(
+                    f"{success} **E{ep}** `{trigger}` — 从 `{resumed}` 恢复, 损失 {wasted} epoch",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.info("暂无重启记录")
+
+    st.divider()
+
+    # -- 进程卡片 --
+    st.markdown("#### 🖥️ 训练进程")
+    if _dash_exps:
+        for exp in _dash_exps:
+            pcol1, pcol2, pcol3, pcol4, pcol5 = st.columns([2, 1, 1, 1, 1.5])
+            with pcol1:
+                status_dot = {"running": "🟢", "completed": "🔵", "failed": "🔴"}.get(exp.get("status", ""), "⚪")
+                st.markdown(f"{status_dot} **{exp['name']}**")
+            with pcol2:
+                st.markdown(f"`{exp.get('status', '?')}`")
+            with pcol3:
+                st.markdown(f"📊 {exp.get('metrics_count', 0)} 条")
+            with pcol4:
+                st.markdown(f"Epoch {len(_dash_metrics)}/1000")
+            with pcol5:
+                # 简易迷你进度条
+                pct = min(len(_dash_metrics) / 1000, 1.0)
+                st.progress(pct)
+    else:
+        st.info("无运行中进程 — 运行 `guarftrain watch` 启动守护")
+
+# ===== Tab 3: 指标曲线 =====
 with tab_metrics:
     exps = _list_experiments()
     if not exps:
@@ -282,7 +483,7 @@ with tab_metrics:
                 if other_data:
                     st.line_chart(other_data, use_container_width=True, height=250)
 
-# ===== Tab 3: 故障处理展示 =====
+# ===== Tab 4: 故障处理展示 =====
 with tab_faults:
     st.subheader("故障处理能力演示")
     st.markdown("Guardian 覆盖训练全生命周期的 **12 种故障场景**，以下是基于 1000 epoch 仿真数据的完整演示。")
@@ -398,7 +599,7 @@ with tab_faults:
                 st.markdown("")
 
 
-# ===== Tab 4: Checkpoint =====
+# ===== Tab 5: Checkpoint =====
 with tab_checkpoints:
     summaries = _load_summaries()
     found = False
@@ -438,7 +639,7 @@ with tab_checkpoints:
     if not found:
         st.info("暂无 Checkpoint 汇总数据。运行训练后 summary JSON 会自动包含 checkpoint 信息。")
 
-# ===== Tab 4: AI 分析 =====
+# ===== Tab 6: AI 分析 =====
 with tab_ai:
     summaries = _load_summaries()
     found = False
@@ -478,7 +679,7 @@ with tab_ai:
 > **不变式**: Agent 的自由度永远是人显式授予的。任何一层失效都退回上一层的确定性行为。
 """)
 
-# ===== Tab 5: MCP 工具 =====
+# ===== Tab 7: MCP 工具 =====
 with tab_mcp:
     st.subheader("MCP 工具清单")
     st.markdown("共 **35 个工具** (24 只读 + 11 受限写)，覆盖 Guardian 全部功能模块。")
@@ -558,7 +759,7 @@ with tab_mcp:
 - 🔗 MCP 崩溃/断连不影响训练，训练与守护照常运行
 """)
 
-# ===== Tab 6: 模型可视化 =====
+# ===== Tab 8: 模型可视化 =====
 with tab_viz:
     viz_htmls = _get_model_viz_htmls()
     if not viz_htmls:
@@ -573,7 +774,7 @@ with tab_viz:
             except OSError as e:
                 st.error(f"无法加载: {e}")
 
-# ===== Tab 7: 架构 =====
+# ===== Tab 9: 架构 =====
 with tab_arch:
     st.subheader("系统架构")
     st.markdown("""

@@ -272,6 +272,28 @@ def load_config(
             raise ConfigError(msg)
         warnings.append(msg)
 
+    # 类型校验：关键数值字段
+    _INT_KEYS = {
+        "watchdog.max_retries": 0, "watchdog.sigterm_grace": 1,
+        "monitor.sliding_window": 1, "checkpoint.save_top_k": 1, "checkpoint.keep_recent": 0,
+    }
+    _FLOAT_KEYS = {
+        "watchdog.restart_delay": 0.1, "watchdog.oom_batch_reduce_ratio": 0.1,
+        "monitor.poll_interval": 0.5, "monitor.hardware_poll_interval": 1,
+        "monitor.loss_spike_ratio": 0.0,
+    }
+    for key_path, min_val in {**_INT_KEYS, **_FLOAT_KEYS}.items():
+        parts = key_path.split(".")
+        val = cfg
+        for p in parts:
+            val = val.get(p) if isinstance(val, dict) else None
+            if val is None:
+                break
+        if val is not None and not isinstance(val, (int, float)):
+            warnings.append(f"配置 {key_path} 期望数值类型，实际为 {type(val).__name__}，已忽略")
+        elif isinstance(val, (int, float)) and val < min_val:
+            warnings.append(f"配置 {key_path}={val} 小于安全下限 {min_val}，已使用默认值")
+
     cfg["_warnings"] = warnings
     return cfg
 

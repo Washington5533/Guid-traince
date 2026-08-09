@@ -31,10 +31,8 @@ DEFAULT_DATEFMT = "%m-%d %H:%M:%S"
 
 
 def configure(cfg: dict[str, Any] | None = None) -> None:
-    """全局初始化（run.py 启动时调用一次）。"""
+    """全局初始化（run.py 启动时调用）。支持重复调用：后续带 cfg 的调用会覆盖默认配置。"""
     global _initialized, _root_handler, _file_handler
-    if _initialized:
-        return
 
     log_cfg = (cfg or {}).get("logging") or {}
     level_name = log_cfg.get("level", "INFO").upper()
@@ -44,6 +42,17 @@ def configure(cfg: dict[str, Any] | None = None) -> None:
     datefmt = log_cfg.get("datefmt", DEFAULT_DATEFMT)
 
     root = logging.getLogger("guardian")
+
+    # 已初始化：仅当显式传入 cfg 时更新 handler 级别（重新配置）
+    if _initialized:
+        if cfg is not None and _root_handler is not None:
+            _root_handler.setLevel(getattr(logging, level_name, logging.INFO))
+            _root_handler.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
+            if _file_handler is not None:
+                _file_handler.setLevel(getattr(logging, file_level_name, logging.DEBUG))
+                _file_handler.setFormatter(logging.Formatter(fmt, datefmt=datefmt))
+        return
+
     root.setLevel(logging.DEBUG)  # root 设最低，handler 各控各的
 
     formatter = logging.Formatter(fmt, datefmt=datefmt)

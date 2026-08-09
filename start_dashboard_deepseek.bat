@@ -1,6 +1,8 @@
 @echo off
+REM === DeepSeek Dashboard 启动 ===
+REM 请先设置环境变量: set OPENAI_API_KEY=your-key
+REM 或通过 .guardian-credentials.json 配置
 set GUARDIAN_AI_PROVIDER=openai
 set GUARDIAN_AI_MODEL=deepseek-chat
-set OPENAI_API_KEY=sk-9fc3dd081b5c44dea3c2b9bc3c4b82fd
 set OPENAI_BASE_URL=https://api.deepseek.com
-/d/anaconda/envs/DL_gpu/python.exe run.py dashboard
+python run.py dashboard

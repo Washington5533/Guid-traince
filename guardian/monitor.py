@@ -340,6 +340,8 @@ class TrainingMonitor:
         self.gpu_history: list[dict[str, Any]] = []
         self._last_record: dict[str, Any] | None = None
         self._cooldown_seen: set[str] = set()
+        self._max_history = int(self.cfg.get("metrics_history_max", 2000))
+        self._max_gpu_history = int(self.cfg.get("gpu_history_max", 500))
 
     @property
     def enabled(self) -> bool:
@@ -358,6 +360,8 @@ class TrainingMonitor:
         if self.channel is not None:
             for rec in self.channel.poll():
                 self.history.append(rec)
+                if len(self.history) > self._max_history:
+                    self.history = self.history[-self._max_history:]
                 self._last_record = rec
                 events.extend(self._check(rec))
 
@@ -429,6 +433,8 @@ class TrainingMonitor:
         events: list[AnomalyEvent] = []
         for snap in poll_gpu():
             self.gpu_history.append(snap.to_dict())
+            if len(self.gpu_history) > self._max_gpu_history:
+                self.gpu_history = self.gpu_history[-self._max_gpu_history:]
             events.extend(self._check_gpu(snap))
         return events
 

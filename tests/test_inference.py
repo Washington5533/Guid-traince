@@ -22,6 +22,7 @@ class TestInferenceRunner:
     """cp_16 单元测试。"""
 
     def test_detect_task_type_classification(self):
+        pytest.importorskip("torch")
         mock_model = MagicMock()
         import torch
         mock_model.return_value = torch.randn(1, 10)  # [B, num_classes]

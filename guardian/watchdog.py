@@ -546,6 +546,10 @@ class TrainingWatchdog:
                     pass
                 if on_tick is not None:
                     on_tick(self, self.proc)
+                hang = self.check_hang()
+                if hang == "kill":
+                    self._intervention = {"action": "restart", "reason": "no_progress_kill"}
+                    break
                 if self._stop:
                     self._terminate()
                     final.update(status="stopped", exit_code=self.proc.returncode)
@@ -566,6 +570,10 @@ class TrainingWatchdog:
             # --- 主动干预分支 ---
             if interv is not None and self.proc.poll() is None:
                 self._terminate()
+                try:
+                    self.proc.communicate(timeout=5)  # 排空 PIPE 防止资源泄漏
+                except Exception:
+                    pass
                 new_cmd, applied, skipped = self._try_action(
                     cmd, interv["action"], interv.get("param")
                 )

@@ -744,15 +744,21 @@ class DashboardServer:
                 if _model:
                     _cfg["model"] = _model
                 advisor = AgentAdvisor(_cfg)
-                if advisor.is_enabled():
+                try:
+                    _adv_ok = advisor.is_enabled()
+                except Exception:
+                    _adv_ok = False
+                if _adv_ok:
                     ctx = {"status": meta.get("status"), "latest_metrics": hist[-1] if hist else {},
                            "metrics_summary": summary, "anomaly_count": 0,
                            "process_name": meta.get("name", process_id)}
                     text = advisor.narrate({"type": "dashboard_analysis", **ctx})
                     if text:
+                        advisor.close()
                         return JSONResponse({"analysis": text, "source": "agent"})
             except Exception:
                 logger.warning("历史进程 AI 分析失败: %s", process_id, exc_info=True)
+            advisor.close()
             return JSONResponse({
                 "analysis": f"历史实验 {meta.get('name', process_id)}: 共 {len(hist)} 条指标, 最终 loss: {summary.get('loss_last', '?')}",
                 "source": "summary", "context": {"metrics_summary": summary}
@@ -779,16 +785,22 @@ class DashboardServer:
                 if _model:
                     _cfg["model"] = _model
                 advisor = AgentAdvisor(_cfg)
-                if advisor.is_enabled():
+                try:
+                    _adv_ok = advisor.is_enabled()
+                except Exception:
+                    _adv_ok = False
+                if _adv_ok:
                     ctx = {"status": meta.get("status"), "question": question,
                            "latest_metrics": hist[-1] if hist else {},
                            "metrics_summary": _summarize_metrics(hist),
                            "process_name": meta.get("name", process_id)}
                     ans = advisor.narrate({"type": "chat", "question": question, "context": ctx})
                     if ans:
+                        advisor.close()
                         return JSONResponse({"answer": ans})
             except Exception:
                 logger.warning("History AI chat failed: %s", process_id, exc_info=True)
+            advisor.close()
             return JSONResponse({"answer": "AI 调用失败，请检查凭据配置"})
 
         # ---- API: 历史进程模型结构 ----
@@ -963,14 +975,20 @@ class DashboardServer:
                 if _model:
                     _cfg["model"] = _model
                 advisor = AgentAdvisor(_cfg)
-                if advisor.is_enabled():
+                try:
+                    _adv_ok = advisor.is_enabled()
+                except Exception:
+                    _adv_ok = False
+                if _adv_ok:
                     ctx = {"status": s.get("status"), "latest_metrics": hist[-1] if hist else {},
                            "metrics_summary": summary, "anomaly_count": s.get("anomaly_count", 0)}
                     text = advisor.narrate({"type": "dashboard_analysis", **ctx})
                     if text:
+                        advisor.close()
                         return JSONResponse({"analysis": text, "source": "agent"})
             except Exception:
                 logger.warning("AI 分析调用失败", exc_info=True)
+            advisor.close()
             return JSONResponse({
                 "analysis": f"训练状态: {s.get('status')}, 最新 loss: {summary.get('loss_last', '?')}, 异常数: {s.get('anomaly_count', 0)}",
                 "source": "summary", "context": {"status": s.get("status"), "metrics_summary": summary}
@@ -994,15 +1012,21 @@ class DashboardServer:
                 if _model:
                     _cfg["model"] = _model
                 advisor = AgentAdvisor(_cfg)
-                if advisor.is_enabled():
+                try:
+                    _adv_ok = advisor.is_enabled()
+                except Exception:
+                    _adv_ok = False
+                if _adv_ok:
                     ctx = {"status": s.get("status"), "question": question,
                            "latest_metrics": hist[-1] if hist else {},
                            "metrics_summary": _summarize_metrics(hist)}
                     ans = advisor.narrate({"type": "chat", "question": question, "context": ctx})
                     if ans:
+                        advisor.close()
                         return JSONResponse({"answer": ans})
             except Exception:
                 logger.warning("AI 对话调用失败", exc_info=True)
+            advisor.close()
             return JSONResponse({"answer": "AI 调用失败，请检查凭据配置"})
 
         # ---- API: 图库（最小可用） ----
@@ -1042,7 +1066,7 @@ class DashboardServer:
                 from ..gallery import GalleryManager
                 from ..inference import InferenceRunner
 
-                gm = GalleryManager(advisor=getattr(s.get("_advisor"), None, None))
+                gm = GalleryManager(advisor=s.get("_advisor"))
                 ir = InferenceRunner()
 
                 # 确定 checkpoint 路径

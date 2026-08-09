@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from guardian.checkpoint_analyzer import CheckpointAnalyzer
 from guardian.task_contract import TaskContract
 
@@ -103,6 +105,7 @@ def test_empty_dir_not_reported(tmp_path):
 
 def test_required_keys_enforced(tmp_path):
     """契约声明了必需键时，缺键的 checkpoint 不被采信。"""
+    pytest.importorskip("torch")
     root = tmp_path / "checkpoints"
     root.mkdir()
     contract_path = tmp_path / "contract.yaml"

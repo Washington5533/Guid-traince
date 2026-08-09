@@ -13,6 +13,8 @@ import json
 import sys
 from pathlib import Path
 
+import yaml
+
 from . import __version__
 from .checkpoint_analyzer import CheckpointAnalyzer
 from .config import ConfigError, load_config
@@ -1152,31 +1154,45 @@ def cmd_dashboard(args) -> int:
 
 
 def cmd_check(args) -> int:
-    """环境就绪检查：依赖、GPU、项目配置。"""
+    """环境就绪检查：依赖、GPU、项目配置。有严重问题时返回非零退出码。"""
     from .project_context import ProjectContext
+    from .config import load_config, ConfigError
+
+    issues = 0  # 问题计数
+
+    def _ok(msg: str) -> None:
+        print(f"  ✓ {msg}", flush=True)
+
+    def _warn(msg: str) -> None:
+        nonlocal issues
+        issues += 1
+        print(f"  ⚠ {msg}", flush=True)
+
+    def _fail(msg: str) -> None:
+        nonlocal issues
+        issues += 1
+        print(f"  ✗ {msg}", flush=True)
 
     print(f"Training Guardian v{__version__}", flush=True)
     print("=" * 50, flush=True)
 
     # 1. Python 版本
     py_ver = sys.version.split()[0]
-    py_ok = sys.version_info >= (3, 9)
-    print(f"  Python      : {py_ver}  {'✓' if py_ok else '✗ 需要 >= 3.9'}", flush=True)
+    if sys.version_info >= (3, 9):
+        _ok(f"Python {py_ver}")
+    else:
+        _fail(f"Python {py_ver} — 需要 >= 3.9")
 
     # 2. 核心依赖
     core_deps = {
-        "yaml": "pyyaml",
-        "psutil": "psutil",
-        "GPUtil": "GPUtil",
-        "requests": "requests",
-        "numpy": "numpy",
+        "yaml": "pyyaml", "GPUtil": "GPUtil", "requests": "requests", "numpy": "numpy",
     }
     for mod, pkg in core_deps.items():
         try:
             __import__(mod)
-            print(f"  {pkg:<12}: ✓", flush=True)
+            _ok(pkg)
         except ImportError:
-            print(f"  {pkg:<12}: ✗ 未安装 (pip install {pkg})", flush=True)
+            _fail(f"{pkg} 未安装 (pip install {pkg})")
 
     # 3. 可选依赖
     print("", flush=True)
@@ -1193,7 +1209,7 @@ def cmd_check(args) -> int:
             __import__(mod)
             print(f"    {mod:<12}: ✓ ({desc})", flush=True)
         except ImportError:
-            print(f"    {mod:<12}: — 未安装 (pip install guarftrain[{extra}])", flush=True)
+            print(f"    {mod:<12}: — (pip install guarftrain[{extra}])", flush=True)
 
     # 4. GPU 可用性
     print("", flush=True)
@@ -1202,11 +1218,16 @@ def cmd_check(args) -> int:
         gpus = GPUtil.getGPUs()
         if gpus:
             for g in gpus:
-                print(f"  GPU         : {g.name} ({g.memoryTotal}MB)", flush=True)
+                _ok(f"GPU: {g.name} ({g.memoryTotal}MB)")
         else:
             print("  GPU         : 未检测到（CPU 模式运行）", flush=True)
     except Exception:
-        print("  GPU         : 检测失败（GPUtil 不可用）", flush=True)
+        print("  GPU         : 检测失败", flush=True)
+
+    # Also check nvidia-smi (runtime monitoring uses it, not GPUtil)
+    import shutil
+    if shutil.which("nvidia-smi"):
+        _ok("nvidia-smi 可用")
 
     # 5. 项目上下文
     print("", flush=True)
@@ -1219,16 +1240,47 @@ def cmd_check(args) -> int:
         if ctx.model_entry:
             print(f"    model     : {ctx.model_entry}", flush=True)
     else:
-        print("    未探测到训练项目结构，执行 `guarftrain init` 初始化", flush=True)
+        _warn("未探测到训练项目结构 — 执行 `guarftrain init` 初始化")
 
-    # 6. 配置文件
+    # 6. 配置文件校验
     config_path = getattr(args, "config", "configs/guardian.yaml")
-    print(f"", flush=True)
-    print(f"  配置文件    : {config_path}  {'✓' if Path(config_path).exists() else '（使用默认值）'}", flush=True)
+    print("", flush=True)
+    if Path(config_path).exists():
+        try:
+            cfg = load_config(config_path)
+            _ok(f"配置 {config_path} 语法有效")
+            # 检查关键配置
+            project = cfg.get("project", {})
+            ckpt = project.get("ckpt_dir", "./checkpoints")
+            if not Path(ckpt).exists():
+                _warn(f"ckpt_dir '{ckpt}' 目录不存在（首次运行自动创建）")
+        except ConfigError as exc:
+            _fail(f"配置 {config_path} 错误: {exc}")
+        except Exception as exc:
+            _fail(f"配置 {config_path} 解析失败: {exc}")
+    else:
+        print(f"  配置        : {config_path} 不存在（使用内置默认值）", flush=True)
+
+    # 7. contract.yaml 校验
+    contract_path = Path("configs/contract.yaml")
+    if contract_path.exists():
+        try:
+            contract_text = contract_path.read_text(encoding="utf-8")
+            yaml.safe_load(contract_text)
+            _ok(f"契约 {contract_path} 语法有效")
+        except Exception as exc:
+            _fail(f"契约 {contract_path} 解析失败: {exc}")
+    else:
+        _warn(f"契约 {contract_path} 不存在 — 运行 `guarftrain init` 生成")
 
     print("", flush=True)
     print("=" * 50, flush=True)
-    return 0
+    if issues:
+        print(f"  发现 {issues} 个问题（标记 ⚠/✗）", flush=True)
+    else:
+        print(f"  环境就绪 ✓", flush=True)
+    print("=" * 50, flush=True)
+    return 1 if issues > 0 else 0
 
 
 def cmd_init(args) -> int:

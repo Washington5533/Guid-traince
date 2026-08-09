@@ -258,6 +258,133 @@ class ProjectContext:
         return target
 
     # ------------------------------------------------------------------
+    # Contract 自动生成
+    # ------------------------------------------------------------------
+
+    def generate_contract(self, overwrite: bool = False) -> Path | None:
+        """扫描训练脚本，自动生成最小 contract.yaml。
+
+        返回生成的文件路径，如果已存在且不覆盖则返回 None。
+        """
+        import re
+
+        contract_dir = self.start_dir / "configs"
+        contract_path = contract_dir / "contract.yaml"
+
+        if contract_path.exists() and not overwrite:
+            return None
+
+        # 扫描训练脚本
+        resume_flag = "--resume"
+        ckpt_flag = "--ckpt"
+        model_fn = ""
+        dataloader_fn = ""
+        log_pattern = r"epoch (\d+) loss ([\d.naN]+)"
+        train_module = ""
+
+        for py_file in sorted(self.start_dir.glob("*.py")):
+            try:
+                text = py_file.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+
+            # 找 argparse 的 resume/ckpt 参数
+            for match in re.finditer(r'add_argument\([\'"]([^"\']+)[\'"]\s*', text):
+                flag = match.group(1)
+                if "resume" in flag.lower():
+                    resume_flag = flag
+                if "ckpt" in flag.lower() or "checkpoint" in flag.lower():
+                    ckpt_flag = flag
+
+            # 找 build_model / get_dataloaders
+            for func_match in re.finditer(r'def (build_model|get_model|get_dataloaders|get_loaders)\b', text):
+                fn_name = func_match.group(1)
+                module = py_file.stem
+                if "model" in fn_name:
+                    model_fn = f"{module}:{fn_name}"
+                elif "loader" in fn_name or "data" in fn_name:
+                    dataloader_fn = f"{module}:{fn_name}"
+
+            # 找结构化日志模式
+            log_match = re.search(r'epoch.*?\{[^}]*\}.*?loss.*?\{[^}]*\}', text)
+            if log_match:
+                # 用户已有 f-string 格式的日志，推断默认模式
+                pass
+
+            if model_fn and dataloader_fn:
+                train_module = py_file.stem
+                break
+
+        # 确定 entry
+        entry = "cli"
+        for py_file in sorted(self.start_dir.glob("*.py")):
+            try:
+                text = py_file.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+            if "if __name__" in text and "argparse" in text:
+                entry = "cli"
+                break
+
+        # 生成 YAML 内容
+        contract_content = f"""# 自动生成 by guarftrain init
+# 训练脚本接口契约，guardian 在训练进程之外只依赖这里声明的内容。
+# 根据实际情况修改以下值。
+
+script_contract:
+  resumable:
+    entry: {entry}
+    resume_flag: "{resume_flag}"
+    ckpt_flag: "{ckpt_flag}"
+
+  checkpoint_schema:
+    required_keys: [epoch, model_state_dict, optimizer_state_dict]
+
+  metrics_channel:
+    type: log_file
+    path: ../logs/train.log
+    log_pattern: "{log_pattern}"
+
+  buildable_entry:
+    model_fn: "{model_fn}"
+    dataloader_fn: "{dataloader_fn}"
+
+  cli_mappings:
+    optimizer.lr: "--lr"
+    dataloader.batch_size: "--batch_size"
+
+  launcher: python
+  batch_semantics: null
+
+metric_registry:
+  classification:
+    - {{name: accuracy, direction: max}}
+  detection:
+    - {{name: mAP50, direction: max}}
+  segmentation:
+    - {{name: mIoU, direction: max}}
+  _fallback: {{name: val_loss, direction: min}}
+
+adjustable_paths:
+  - path: "optimizer.lr"
+    max_delta_ratio: 0.5
+  - path: "dataloader.batch_size"
+    min_value: 8
+    max_delta_ratio: 0.5
+"""
+
+        # 写入文件
+        contract_dir.mkdir(parents=True, exist_ok=True)
+        contract_path.write_text(contract_content, encoding="utf-8")
+
+        # 更新 project context 的 contract_path 引用
+        self.data.setdefault("paths", {})["contract_path"] = str(
+            contract_path.relative_to(self.start_dir) if contract_path.is_relative_to(self.start_dir) else contract_path
+        )
+
+        return contract_path
+
+    # ------------------------------------------------------------------
     # 便捷属性
     # ------------------------------------------------------------------
 

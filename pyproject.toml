@@ -25,7 +25,7 @@ classifiers = [
 
 requires-python = ">=3.9"
 
-# === Core dependencies (lightweight, no GPU required) ===
+# === Core dependencies (lightweight, torch assumed present in training env) ===
 dependencies = [
     "pyyaml>=6.0",
     "psutil>=5.9",
@@ -39,6 +39,7 @@ dependencies = [
 agent = [
     "anthropic>=0.40",
 ]
+
 # Alternative: openai
 agent-openai = [
     "openai>=1.50",
@@ -55,13 +56,13 @@ dashboard = [
     "uvicorn[standard]>=0.23",
 ]
 
-# Model visualization & inference (needs PyTorch)
+# Model visualization & inference (install only if not already present)
 viz = [
     "torch>=2.0",
     "torchvision>=0.15",
 ]
 
-# Everything: training + dashboard + mcp + agent + viz
+# Everything: agent + dashboard + mcp + viz
 full = [
     "guarftrain[agent,dashboard,mcp,viz]",
 ]

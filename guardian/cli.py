@@ -13,6 +13,7 @@ import json
 import sys
 from pathlib import Path
 
+from . import __version__
 from .checkpoint_analyzer import CheckpointAnalyzer
 from .config import ConfigError, load_config
 from .logging_config import configure, get_logger
@@ -33,17 +34,20 @@ def split_argv(argv: list[str]) -> tuple[list[str], list[str]]:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="run.py",
+        prog="guarftrain",
         description="Training Guardian — sidecar-first 训练守护（训练脚本 0 行改动）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "示例:\n"
-            "  python run.py watch -- python train.py --epochs 20   # 默认路径\n"
-            "  python run.py contract check\n"
-            "  python run.py analyze\n"
-            "  python run.py project init    # 自动探测项目路径"
+            "  guarftrain init                                # 初始化项目\n"
+            "  guarftrain watch -- python train.py --epochs 20 # 守护训练\n"
+            "  guarftrain start                               # Dashboard + MCP\n"
+            "  guarftrain check                               # 环境检查\n"
+            "\n"
+            "兼容旧用法: python run.py <command> ..."
         ),
     )
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     p.add_argument("--config", default="configs/guardian.yaml")
     p.add_argument("--contract", default=None, help="默认取 config 里的 contract.path")
     p.add_argument("--project-dir", default=None, help="项目根目录（自动探测 checkpoints/logs/data 路径）")
@@ -156,6 +160,14 @@ def build_parser() -> argparse.ArgumentParser:
                       help="init=自动探测并保存 | show=显示当前 | scan=仅扫描 | fill=AI补全")
     proj.add_argument("path", nargs="?", default=".", help="项目路径（默认当前目录）")
     proj.add_argument("--agent", action="store_true", help="启用 AI 补全缺失项")
+
+    # ---- init：project init 的顶级别名 ----
+    ini = sub.add_parser("init", help="初始化项目（自动扫描训练脚本，生成配置）")
+    ini.add_argument("path", nargs="?", default=".", help="项目路径（默认当前目录）")
+    ini.add_argument("--agent", action="store_true", help="启用 AI 补全缺失项")
+
+    # ---- check：环境就绪检查 ----
+    sub.add_parser("check", help="检查环境就绪状态（依赖、GPU、项目配置）")
 
     return p
 
@@ -455,26 +467,23 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
 
     cfg, contract = _load(args)
 
-    # ---- 启动前守卫：必须有显式配置或项目上下文 ----
+    # ---- 启动前守卫：自动探测项目结构 ----
     from .project_context import ProjectContext
     ctx = ProjectContext(args.project_dir or ".")
-    has_explicit_config = args.config != "configs/guardian.yaml" or args.contract is not None
     has_project_file = ctx.detected_by != "none"
 
-    if not has_explicit_config and not has_project_file:
+    if not has_project_file:
         print("=" * 56, flush=True)
-        print("  错误: 未找到配置，无法启动守护训练。", flush=True)
+        print("  未检测到训练项目结构。", flush=True)
         print("", flush=True)
-        print("  请选择以下方式之一：", flush=True)
+        print("  请先初始化（推荐）：", flush=True)
+        print("     guarftrain init", flush=True)
         print("", flush=True)
-        print("  1. 初始化项目（推荐）：", flush=True)
-        print("     python run.py project init <项目路径>", flush=True)
+        print("  或显式指定配置：", flush=True)
+        print("     guarftrain watch --config <config.yaml> -- <训练命令>", flush=True)
         print("", flush=True)
-        print("  2. 显式指定配置：", flush=True)
-        print("     python run.py watch --config <config.yaml> --contract <contract.yaml> -- <训练命令>", flush=True)
-        print("", flush=True)
-        print("  3. 在已有项目目录中运行：", flush=True)
-        print("     cd <项目目录> && python ../guarftrain/run.py watch -- <训练命令>", flush=True)
+        print("  或在训练项目目录中运行：", flush=True)
+        print("     cd <训练项目> && guarftrain watch -- python train.py", flush=True)
         print("=" * 56, flush=True)
         return 1
 
@@ -1136,6 +1145,101 @@ def cmd_dashboard(args) -> int:
     return 0
 
 
+def cmd_check(args) -> int:
+    """环境就绪检查：依赖、GPU、项目配置。"""
+    from .project_context import ProjectContext
+
+    print(f"Training Guardian v{__version__}", flush=True)
+    print("=" * 50, flush=True)
+
+    # 1. Python 版本
+    py_ver = sys.version.split()[0]
+    py_ok = sys.version_info >= (3, 9)
+    print(f"  Python      : {py_ver}  {'✓' if py_ok else '✗ 需要 >= 3.9'}", flush=True)
+
+    # 2. 核心依赖
+    core_deps = {
+        "yaml": "pyyaml",
+        "psutil": "psutil",
+        "GPUtil": "GPUtil",
+        "requests": "requests",
+        "numpy": "numpy",
+    }
+    for mod, pkg in core_deps.items():
+        try:
+            __import__(mod)
+            print(f"  {pkg:<12}: ✓", flush=True)
+        except ImportError:
+            print(f"  {pkg:<12}: ✗ 未安装 (pip install {pkg})", flush=True)
+
+    # 3. 可选依赖
+    print("", flush=True)
+    print("  可选依赖:", flush=True)
+    opt_deps = {
+        "anthropic": ("agent", "AI 决策层"),
+        "openai": ("agent-openai", "OpenAI 备选"),
+        "mcp": ("mcp", "MCP 外部接入"),
+        "fastapi": ("dashboard", "Web 面板"),
+        "torch": ("viz", "可视化/推理"),
+    }
+    for mod, (extra, desc) in opt_deps.items():
+        try:
+            __import__(mod)
+            print(f"    {mod:<12}: ✓ ({desc})", flush=True)
+        except ImportError:
+            print(f"    {mod:<12}: — 未安装 (pip install guarftrain[{extra}])", flush=True)
+
+    # 4. GPU 可用性
+    print("", flush=True)
+    try:
+        import GPUtil
+        gpus = GPUtil.getGPUs()
+        if gpus:
+            for g in gpus:
+                print(f"  GPU         : {g.name} ({g.memoryTotal}MB)", flush=True)
+        else:
+            print("  GPU         : 未检测到（CPU 模式运行）", flush=True)
+    except Exception:
+        print("  GPU         : 检测失败（GPUtil 不可用）", flush=True)
+
+    # 5. 项目上下文
+    print("", flush=True)
+    ctx = ProjectContext(getattr(args, "project_dir", None) or ".")
+    print(f"  项目探测    : {ctx.detected_by}", flush=True)
+    if ctx.detected_by != "none":
+        print(f"    name      : {ctx.name}", flush=True)
+        print(f"    ckpt_dir  : {ctx.ckpt_dir}", flush=True)
+        print(f"    log_dir   : {ctx.log_dir}", flush=True)
+        if ctx.model_entry:
+            print(f"    model     : {ctx.model_entry}", flush=True)
+    else:
+        print("    未探测到训练项目结构，执行 `guarftrain init` 初始化", flush=True)
+
+    # 6. 配置文件
+    config_path = getattr(args, "config", "configs/guardian.yaml")
+    print(f"", flush=True)
+    print(f"  配置文件    : {config_path}  {'✓' if Path(config_path).exists() else '（使用默认值）'}", flush=True)
+
+    print("", flush=True)
+    print("=" * 50, flush=True)
+    return 0
+
+
+def cmd_init(args) -> int:
+    """`guarftrain init` — project init 的顶级别名。"""
+    import types
+    # 构造与 project init 相同的 args
+    proj_args = types.SimpleNamespace(
+        action="init",
+        path=args.path,
+        agent=args.agent,
+        config="configs/guardian.yaml",
+        contract=None,
+        project_dir=None,
+    )
+    return cmd_project(proj_args)
+
+
 def cmd_project(args) -> int:
     """项目上下文管理。"""
     from .project_context import ProjectContext
@@ -1185,6 +1289,17 @@ def cmd_project(args) -> int:
 
         path = ctx.save()
         print(f"项目配置已保存: {path}", flush=True)
+
+        # 自动生成 contract.yaml
+        contract_path = ctx.generate_contract()
+        if contract_path:
+            print(f"契约配置已生成: {contract_path}", flush=True)
+            ctx.save()  # 重新保存以包含 contract_path 引用
+        else:
+            existing = ctx.start_dir / "configs" / "contract.yaml"
+            if existing.exists():
+                print(f"契约配置已存在: {existing}（跳过生成）", flush=True)
+
         print(ctx.status(), flush=True)
         return 0
 
@@ -1283,6 +1398,10 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_project(args)
         if args.command == "dashboard":
             return cmd_dashboard(args)
+        if args.command == "init":
+            return cmd_init(args)
+        if args.command == "check":
+            return cmd_check(args)
     except (ConfigError, ContractError) as exc:
         print(f"错误: {exc}", flush=True)
         return 1

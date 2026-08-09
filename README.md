@@ -1,7 +1,7 @@
 # Training Guardian Agent · 训练守护智能体
 
 [![CI](https://github.com/user/guarftrain/actions/workflows/ci.yml/badge.svg)](https://github.com/user/guarftrain/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 
 > **一行命令，训练脚本零行改动，获得完整守护能力。**
@@ -9,7 +9,7 @@
 > *One command. Zero changes to your training script. Full guardian capabilities.*
 
 ```bash
-python run.py watch --agent -- python train.py --epochs 20
+guarftrain init && guarftrain watch -- python train.py --epochs 20
 ```
 
 ---
@@ -18,35 +18,44 @@ python run.py watch --agent -- python train.py --epochs 20
 
 | Phase · 阶段 | Capability · 能力 | How · 方式 |
 |-------------|-------------------|------------|
-| 训练前 Pre-flight | GPU 显存预估 + batch 推荐 | `python run.py preflight` |
-| 训练中 During | GPU+Loss 监控告警 / 崩溃自动恢复 / LLM 决策 | `python run.py watch` |
-| 训练后 Post | 摘要+AI 解读 / Checkpoint 分析 / 模型可视化 / 推理 | `python run.py summarize` |
-| 跨实验 Cross | 自然语言查询 / 实验对比 / 数据导入 | `python run.py query "best lr?"` |
-| 外部接入 External | MCP 28 工具 + Dashboard 面板 | `python run.py start` |
+| 训练前 Pre-flight | GPU 显存预估 + batch 推荐 | `guarftrain preflight` |
+| 训练中 During | GPU+Loss 监控告警 / 崩溃自动恢复 / LLM 决策 | `guarftrain watch` |
+| 训练后 Post | 摘要+AI 解读 / Checkpoint 分析 / 模型可视化 / 推理 | `guarftrain summarize` |
+| 跨实验 Cross | 自然语言查询 / 实验对比 / 数据导入 | `guarftrain query "best lr?"` |
+| 外部接入 External | MCP 28 工具 + Dashboard 面板 | `guarftrain start` |
 
 ## Quick Start · 快速开始
 
 ### Install · 安装
 
 ```bash
+# 方式 1: pip 安装（推荐，轻量核心 ~2MB，torch 已有不重装）
+pip install guarftrain
+
+# 方式 2: 从源码安装
 git clone https://github.com/user/guarftrain.git
 cd guarftrain
-pip install -r requirements-core.txt    # core (required)
-pip install -r requirements-mcp.txt     # MCP access (optional)
-pip install -r requirements-dashboard.txt  # web dashboard (optional)
+pip install .
+
+# 按需安装可选组件
+pip install guarftrain[agent]       # AI 决策层 (anthropic)
+pip install guarftrain[mcp]         # MCP 外部 Agent 接入
+pip install guarftrain[dashboard]   # Web 控制面板
+pip install guarftrain[full]        # 全部安装
 ```
 
-### One-liner · 一行命令
+### Three steps to guard · 三步守护
 
 ```bash
-# Pure rule-based guardian (no LLM, zero external dependencies)
-python run.py watch -- python train.py --epochs 20
+# 1. 初始化项目（自动扫描训练脚本，生成配置）
+cd /path/to/your-project
+guarftrain init
 
-# With LLM agent (intelligent decisions + AI report)
-python run.py watch --agent -- python train.py --epochs 20
+# 2. 守护训练（纯规则，零外部依赖）
+guarftrain watch -- python train.py --epochs 20
 
-# With Dashboard + MCP (web panel + external agent access)
-python run.py watch --agent --with-mcp --with-dashboard -- python train.py --epochs 20
+# 3. 或启用 AI + Dashboard + MCP
+guarftrain watch --agent --with-dashboard --with-mcp -- python train.py --epochs 20
 ```
 
 ### What does the training script need? · 训练脚本要满足什么？
@@ -89,6 +98,8 @@ Missing any one? Only the corresponding capability is disabled — training stil
 
 | Command | Description |
 |---------|-------------|
+| `init` | Auto-detect project + generate contract.yaml |
+| `check` | Environment readiness check (deps, GPU, config) |
 | `watch` | Guard any training command |
 | `start` | Dashboard + MCP one-click launch |
 | `serve` | Standalone MCP server |
@@ -102,7 +113,7 @@ Missing any one? Only the corresponding capability is disabled — training stil
 | `infer` | Run inference with checkpoint |
 | `gallery` | Image filtering + selection |
 | `dashboard` | Web control panel (standalone) |
-| `project init` | Auto-detect project structure |
+| `project` | Project context management (init/show/scan/fill) |
 
 ## MCP Tools · MCP 工具
 
@@ -144,12 +155,12 @@ export GUARDIAN_MCP_TOKEN=your-secret   # write tool auth
 
 | Metric | Value |
 |--------|-------|
-| Version | 0.1.0 |
+| Version | 0.2.0 |
 | Modules | 16 (cp_1 ~ cp_16) |
 | Production code | ~10,500 lines |
 | Tests | 221 (CI on push) |
 | MCP tools | 27 (18 read + 9 write) |
-| CLI commands | 14 |
+| CLI commands | 16 |
 | Test coverage | ~13% (core paths: 100%) |
 | Python | 3.10+ |
 

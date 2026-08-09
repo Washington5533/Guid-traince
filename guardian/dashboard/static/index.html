@@ -229,8 +229,9 @@ a:hover { text-decoration: underline; }
 .charts-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
+  gap: 12px;
   transition: gap .3s ease;
+  padding: 0 0 4px;
 }
 .charts-grid.has-expanded { gap: 4px; }
 .chart-wrapper {
@@ -238,9 +239,11 @@ a:hover { text-decoration: underline; }
   border-radius: var(--radius);
   transition: box-shadow .2s ease;
   position: relative;
-  overflow: visible;
+  overflow: hidden;
+  isolation: isolate;
 }
-.chart-wrapper .chart-container { overflow: hidden; }
+.chart-wrapper .chart-container { overflow: hidden; position: relative; }
+.chart-wrapper .chart-container .uplot { max-width: 100%; max-height: 100%; overflow: hidden; }
 .chart-wrapper:hover { box-shadow: var(--shadow-md); }
 .chart-wrapper.expanded {
   grid-column: 1 / -1;
@@ -248,6 +251,9 @@ a:hover { text-decoration: underline; }
 .chart-wrapper .chart-group-title { padding: 6px 10px 2px; margin: 0; }
 .chart-wrapper .chart-container { height: 240px; }
 .chart-wrapper.expanded .chart-container { height: 400px; }
+.charts-grid .chart-wrapper:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
 @media (max-width: 640px) {
   .charts-grid { grid-template-columns: 1fr; }
   .chart-wrapper .chart-container { height: 220px; }
@@ -418,6 +424,37 @@ a:hover { text-decoration: underline; }
 .panel__titlebar-actions { display: flex; gap: 4px; align-items: center; }
 .panel__body { flex: 1; overflow: auto; padding: 12px; min-height: 0; display: flex; flex-direction: column; }
 .panel__body--nopad { padding: 0; }
+
+/* Cursor Info Panel */
+.cursor-info { padding: 6px 10px; font-size: 11px; }
+.cursor-info__step { font-weight: 600; color: var(--color-accent-fg); margin-bottom: 4px; font-size: 12px; }
+.cursor-info__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; }
+.cursor-info__item { display: flex; justify-content: space-between; align-items: baseline; padding: 1px 0; }
+.cursor-info__key { color: var(--color-text-secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cursor-info__val { font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--color-text-primary); }
+.cursor-info__val--empty { color: var(--color-text-tertiary); font-weight: 400; font-style: italic; }
+.cursor-info__dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; flex-shrink: 0; }
+
+/* Cursor Floating Tooltip */
+.cursor-tooltip {
+  position: fixed;
+  pointer-events: none;
+  z-index: 10000;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 8px 12px;
+  font-size: 11px;
+  display: none;
+  max-width: 280px;
+  backdrop-filter: blur(8px);
+}
+.cursor-tooltip.visible { display: block; }
+.cursor-tooltip__step { font-weight: 600; color: var(--color-accent-fg); margin-bottom: 3px; font-size: 11px; }
+.cursor-tooltip__row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 1px 0; }
+.cursor-tooltip__key { color: var(--color-text-secondary); white-space: nowrap; }
+.cursor-tooltip__val { font-family: var(--font-mono); font-weight: 600; color: var(--color-text-primary); white-space: nowrap; }
 
 /* AI Status Indicator */
 .ai-status {
@@ -590,19 +627,24 @@ a:hover { text-decoration: underline; }
                 <input type="range" id="chart-range-max" min="0" max="100" value="100" oninput="onRangeChange()">
                 <span class="chart-range-label" id="range-end">100</span>
               </div>
-              <div class="event-legend">
-                <span class="event-legend__item"><span class="event-legend__dot" style="background:#f87171"></span>Loss Spike</span>
-                <span class="event-legend__item"><span class="event-legend__dot" style="background:#34d399"></span>Checkpoint</span>
-                <span class="event-legend__item"><span class="event-legend__dot" style="background:#06b6d4"></span>LR Change</span>
-                <span class="event-legend__item"><span class="event-legend__dot" style="background:#fbbf24"></span>Alert</span>
-              </div>
+              <div class="event-legend" id="event-legend"></div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Right Column: Logs + AI -->
+      <!-- Right Column: Cursor Info + Logs + AI -->
       <div class="workstation__right">
+        <!-- Cursor Info Panel -->
+        <div class="panel" style="flex-shrink:0">
+          <div class="panel__titlebar">
+            <span>坐标信息</span>
+            <span style="font-size:11px;color:var(--color-text-tertiary)" id="cursor-hint">悬停图表查看</span>
+          </div>
+          <div class="cursor-info" id="cursor-info">
+            <div class="cursor-info__val cursor-info__val--empty">鼠标悬停图表以查看数据</div>
+          </div>
+        </div>
         <!-- Log Panel -->
         <div class="panel panel--grow">
           <div class="panel__titlebar">
@@ -687,6 +729,9 @@ a:hover { text-decoration: underline; }
     </div>
   </div>
 </main>
+
+<!-- Cursor Floating Tooltip (global, fixed position) -->
+<div class="cursor-tooltip" id="cursor-tooltip"></div>
 
 <script>
 // ===================== State =====================
@@ -928,11 +973,17 @@ async function showHistoryDetail(pid) {
   // Load metrics from history API
   const mData = await api(`/api/history/${pid}/metrics?limit=2000`);
   if (mData && mData.metrics) {
-    window._allMetrics = mData.metrics || [];
+    window._allMetrics = _dedupeMetrics(mData.metrics);
     chartEvents = detectAnomalies(window._allMetrics);
   } else {
     window._allMetrics = [];
     chartEvents = [];
+  }
+
+  // Update records count to reflect deduplicated metrics
+  if (window._allMetrics.length && window._allMetrics.length !== data.metrics_count) {
+    data.metrics_count = window._allMetrics.length;
+    _populateDetail(data);
   }
 
   // Show anomaly/restart summary in header
@@ -1038,10 +1089,113 @@ async function checkAIStatus() {
 async function loadMetricsChart(pid) {
   const data = await api(`/api/process/${pid}/metrics?limit=500`);
   if (!data) return;
-  const metrics = data.metrics || [];
+  const metrics = _dedupeMetrics(data.metrics || []);
   window._allMetrics = metrics;
   chartEvents = detectAnomalies(metrics);
   initCharts();
+}
+
+function updateCursorInfo(u) {
+  const idx = u.cursor.idx;
+  const tooltip = document.getElementById('cursor-tooltip');
+  const el = document.getElementById('cursor-info');
+  const hint = document.getElementById('cursor-hint');
+
+  if (idx == null || idx < 0) {
+    // Mouse left chart area — hide tooltip
+    if (tooltip) tooltip.classList.remove('visible');
+    return;
+  }
+  if (!el) return;
+  if (hint) hint.textContent = '';
+
+  // Collect data from all chart instances at this index
+  let items = [];
+  chartInstances.forEach(c => {
+    if (!c.data || !c.series) return;
+    const xVal = c.data[0]?.[idx];
+    for (let si = 1; si < c.series.length; si++) {
+      const s = c.series[si];
+      const val = c.data[si]?.[idx];
+      items.push({
+        key: s.label || ('series_' + si),
+        val: val,
+        color: s.stroke || '#888',
+      });
+    }
+    if (items.length > 0 && xVal != null) {
+      items[0].xVal = xVal;
+    }
+  });
+
+  if (!items.length) {
+    el.innerHTML = '<div class="cursor-info__val cursor-info__val--empty">无数据</div>';
+    if (tooltip) tooltip.classList.remove('visible');
+    return;
+  }
+
+  const xVal = items.find(i => i.xVal != null)?.xVal ?? idx;
+
+  // Build shared HTML content
+  let html = `<div class="cursor-info__step">Step ${xVal}</div><div class="cursor-info__grid">`;
+  let tooltipHtml = `<div class="cursor-tooltip__step">Step ${xVal}</div>`;
+  items.forEach(item => {
+    const formatted = item.val != null ? formatValue(item.key, item.val) : '-';
+    const cls = item.val != null ? '' : ' cursor-info__val--empty';
+    // Panel (right side)
+    html += `<div class="cursor-info__item">
+      <span class="cursor-info__key"><span class="cursor-info__dot" style="background:${item.color}"></span>${escapeHtml(item.key)}</span>
+      <span class="cursor-info__val${cls}">${formatted}</span>
+    </div>`;
+    // Floating tooltip
+    tooltipHtml += `<div class="cursor-tooltip__row">
+      <span class="cursor-tooltip__key"><span class="cursor-info__dot" style="background:${item.color}"></span>${escapeHtml(item.key)}</span>
+      <span class="cursor-tooltip__val">${formatted}</span>
+    </div>`;
+  });
+  html += '</div>';
+  el.innerHTML = html;
+
+  // Update floating tooltip content and position
+  if (tooltip) {
+    tooltip.innerHTML = tooltipHtml;
+    tooltip.classList.add('visible');
+
+    // Get cursor position in viewport
+    const overEl = u.over;
+    const rect = overEl.getBoundingClientRect();
+    const mouseX = rect.left + (u.cursor.left || 0);
+    const mouseY = rect.top + (u.cursor.top || 0);
+
+    // Position: offset to the right and slightly below cursor
+    let left = mouseX + 16;
+    let top = mouseY - 10;
+
+    // Prevent overflow right
+    const tooltipRect = tooltip.getBoundingClientRect();
+    if (left + tooltipRect.width > window.innerWidth - 8) {
+      left = mouseX - tooltipRect.width - 16;
+    }
+    // Prevent overflow bottom
+    if (top + tooltipRect.height > window.innerHeight - 8) {
+      top = window.innerHeight - tooltipRect.height - 8;
+    }
+    if (top < 8) top = 8;
+
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+  }
+}
+
+function _dedupeMetrics(arr) {
+  // Remove duplicate records with the same step/epoch value
+  if (!arr.length) return arr;
+  const seen = new Map();
+  for (const m of arr) {
+    const key = m.step !== undefined ? m.step : (m.epoch !== undefined ? m.epoch : seen.size);
+    if (!seen.has(key)) seen.set(key, m);
+  }
+  return [...seen.values()];
 }
 
 function _isNumeric(metrics, key) {
@@ -1074,16 +1228,41 @@ function detectAnomalies(metrics) {
   const windowSize = 10;
   for (let i = windowSize; i < metrics.length; i++) {
     const m = metrics[i];
+    // Loss Spike: current loss > 1.5x rolling average
     const lossKeys = Object.keys(m).filter(k => k.toLowerCase().includes('loss'));
     for (const lk of lossKeys) {
       const curr = m[lk];
       if (typeof curr !== 'number') continue;
-      const window = metrics.slice(i - windowSize, i).map(w => w[lk]).filter(v => typeof v === 'number');
-      if (!window.length) continue;
-      const avg = window.reduce((a, b) => a + b, 0) / window.length;
+      const win = metrics.slice(i - windowSize, i).map(w => w[lk]).filter(v => typeof v === 'number');
+      if (!win.length) continue;
+      const avg = win.reduce((a, b) => a + b, 0) / win.length;
       if (curr > avg * 1.5 && avg > 0) {
         events.push({ idx: i, type: 'spike', label: 'Loss Spike', color: '#f87171' });
         break;
+      }
+    }
+    // LR Change: significant step-change (>30%) — avoids noise from cosine/warmup schedules
+    const lrKeys = Object.keys(m).filter(k => k.toLowerCase().includes('lr') || k.toLowerCase().includes('learning_rate'));
+    for (const lk of lrKeys) {
+      const curr = m[lk];
+      const prev = metrics[i - 1]?.[lk];
+      if (typeof curr !== 'number' || typeof prev !== 'number') continue;
+      if (curr !== prev && Math.abs(curr - prev) / Math.max(Math.abs(prev), 1e-10) > 0.30) {
+        events.push({ idx: i, type: 'lr_change', label: 'LR Change', color: '#06b6d4' });
+        break;
+      }
+    }
+    // Checkpoint: epoch crosses an integer multiple of cpEvery (default 5)
+    if (typeof m.epoch === 'number' && i > 0) {
+      const cpEvery = window._cpEvery || 5;
+      const prevEpoch = metrics[i - 1]?.epoch;
+      if (typeof prevEpoch === 'number' && m.epoch > prevEpoch) {
+        const currFloor = Math.floor(m.epoch);
+        const prevFloor = Math.floor(prevEpoch);
+        // Fired when epoch just crossed an integer boundary that is a multiple of cpEvery
+        if (currFloor > prevFloor && currFloor % cpEvery === 0) {
+          events.push({ idx: i, type: 'checkpoint', label: `Checkpoint (epoch ${currFloor})`, color: '#34d399' });
+        }
       }
     }
   }
@@ -1134,13 +1313,20 @@ function computeEMA(data, alpha = 0.1) {
 
 function initCharts() {
   const keys = getCheckedKeys();
-  if (!keys.length) return;
+  const panelsEl = document.getElementById('chart-panels');
+
+  if (!keys.length) {
+    chartInstances.forEach(c => { if (c) c.destroy(); });
+    chartInstances = [];
+    panelsEl.innerHTML = '<div class="empty-state">暂无数值型指标数据<br><span class="empty-state__hint">等待训练推送指标或检查 checkbox 选择</span></div>';
+    updateEventLegend([]);
+    return;
+  }
 
   // Destroy all existing charts
   chartInstances.forEach(c => { if (c) c.destroy(); });
   chartInstances = [];
 
-  const panelsEl = document.getElementById('chart-panels');
   // Preserve expanded state across rebuilds
   const prevExpanded = panelsEl.querySelector('.chart-wrapper.expanded')?.getAttribute('data-group') || null;
   panelsEl.innerHTML = '';
@@ -1221,8 +1407,9 @@ function initCharts() {
         spanGaps: true,
         points: { show: false },
       });
-      // EMA overlay
-      if (smoothingEnabled && data.filter(v => v != null).length > 10) {
+      // EMA overlay (only for loss/accuracy — smoothing lr/gpu/custom is meaningless)
+      const allowEMA = smoothingEnabled && ['loss', 'accuracy'].includes(groupName);
+      if (allowEMA && data.filter(v => v != null).length > 10) {
         const ema = computeEMA(data);
         seriesData.push(ema);
         uSeries.push({
@@ -1311,7 +1498,7 @@ function initCharts() {
         drag: { x: true, y: false, setScale: true },
         sync: { key: 'train-sync' },
       },
-      legend: { show: true, live: true },
+      legend: { show: false },
       scales: {
         x: { time: false },
         y: yScale,
@@ -1322,6 +1509,11 @@ function initCharts() {
       ],
       plugins: plugins,
       series: uSeries,
+      hooks: {
+        setCursor: [function(u) {
+          updateCursorInfo(u);
+        }],
+      },
     };
 
     const chartWidth = chartEl.clientWidth || panelsEl.clientWidth || 800;
@@ -1334,6 +1526,9 @@ function initCharts() {
   // Final resize pass
   requestAnimationFrame(_resizeCharts);
 
+  // Update event legend
+  updateEventLegend(chartEvents);
+
   // Update range slider
   const total = metrics.length;
   const minSlider = document.getElementById('chart-range-min');
@@ -1344,6 +1539,20 @@ function initCharts() {
   maxSlider.value = total - 1;
   document.getElementById('range-start').textContent = '0';
   document.getElementById('range-end').textContent = total - 1;
+}
+
+function updateEventLegend(events) {
+  const el = document.getElementById('event-legend');
+  if (!el) return;
+  const types = new Map();
+  (events || []).forEach(e => { if (!types.has(e.type)) types.set(e.type, e); });
+  if (types.size === 0) {
+    el.innerHTML = '<span class="event-legend__item" style="color:var(--color-text-tertiary)">未检测到异常事件</span>';
+  } else {
+    el.innerHTML = [...types.values()].map(e =>
+      `<span class="event-legend__item"><span class="event-legend__dot" style="background:${e.color}"></span>${e.label}</span>`
+    ).join('');
+  }
 }
 
 function toggleChartExpand(wrapper) {
@@ -1391,11 +1600,13 @@ function onRangeChange() {
 function resetZoom() {
   const metrics = window._allMetrics || [];
   const total = metrics.length;
+  if (!total) return;
+  const maxIdx = total - 1;
   document.getElementById('chart-range-min').value = 0;
-  document.getElementById('chart-range-max').value = total - 1;
+  document.getElementById('chart-range-max').value = maxIdx;
   document.getElementById('range-start').textContent = '0';
-  document.getElementById('range-end').textContent = total - 1;
-  chartInstances.forEach(c => c.setScale('x', { min: 0, max: total - 1 }));
+  document.getElementById('range-end').textContent = maxIdx;
+  chartInstances.forEach(c => c.setScale('x', { min: 0, max: maxIdx }));
 }
 
 function toggleSmoothing() {
@@ -1406,7 +1617,7 @@ function toggleSmoothing() {
 
 function exportCSV() {
   const metrics = window._allMetrics || [];
-  if (!metrics.length) return alert('No data to export');
+  if (!metrics.length) return alert('没有数据可导出');
   const keys = Object.keys(metrics[0]).filter(k => k !== 'timestamp');
   const header = 'step,' + keys.join(',');
   const rows = metrics.map((m, i) => {
@@ -1423,12 +1634,18 @@ function exportCSV() {
 }
 
 function exportPNG() {
-  if (!chartInstances.length) return alert('No chart to export');
-  const canvas = chartInstances[0].over;
+  if (!chartInstances.length) return alert('没有图表可导出');
+  // If a chart is expanded, export only that one; otherwise export the first
+  const expanded = document.querySelector('.chart-wrapper.expanded .chart-container');
+  let chart = chartInstances[0];
+  if (expanded) {
+    chart = chartInstances.find(c => c._groupName === expanded.id.replace('chart-group-', '')) || chart;
+  }
+  const canvas = chart.over;
   const url = canvas.toDataURL('image/png');
   const a = document.createElement('a');
   a.href = url;
-  a.download = `training_chart_${Date.now()}.png`;
+  a.download = `training_chart_${chart._groupName || 'all'}_${Date.now()}.png`;
   a.click();
 }
 
@@ -1444,17 +1661,55 @@ function liveUpdateMetrics(m) {
     for (const lk of lossKeys) {
       const curr = m[lk];
       if (typeof curr !== 'number') continue;
-      const window = metrics.slice(lastIdx - 10, lastIdx).map(w => w[lk]).filter(v => typeof v === 'number');
-      if (!window.length) continue;
-      const avg = window.reduce((a, b) => a + b, 0) / window.length;
+      const win = metrics.slice(lastIdx - 10, lastIdx).map(w => w[lk]).filter(v => typeof v === 'number');
+      if (!win.length) continue;
+      const avg = win.reduce((a, b) => a + b, 0) / win.length;
       if (curr > avg * 1.5 && avg > 0) {
         chartEvents.push({ idx: lastIdx, type: 'spike', label: 'Loss Spike', color: '#f87171' });
         break;
       }
     }
   }
-  if (chartInstances.length) updateChart();
-  else initCharts();
+  // Incremental update: append data to existing charts instead of full rebuild
+  if (chartInstances.length) {
+    _appendLiveData(m);
+  } else {
+    initCharts();
+  }
+}
+
+function _appendLiveData(m) {
+  const metrics = window._allMetrics;
+  const xIdx = metrics.length - 1;
+  const alpha = 0.1;
+  chartInstances.forEach(c => {
+    const oldData = c.data;
+    if (!oldData || !oldData.length) return;
+    const series = c.series;
+    const newData = oldData.map((arr, si) => {
+      if (si === 0) return [...arr, xIdx]; // x-axis
+      const label = series[si]?.label || '';
+      const isEMA = label.endsWith(' (EMA)');
+      const key = isEMA ? label.replace(' (EMA)', '') : label;
+      const val = typeof m[key] === 'number' ? m[key] : null;
+      if (isEMA) {
+        const prevEma = arr[arr.length - 1];
+        const emaVal = val != null
+          ? (prevEma != null ? alpha * val + (1 - alpha) * prevEma : val)
+          : prevEma;
+        return [...arr, emaVal];
+      }
+      return [...arr, val];
+    });
+    c.setData(newData);
+  });
+  // Update range slider max
+  const total = metrics.length;
+  const maxSlider = document.getElementById('chart-range-max');
+  if (maxSlider && total > 1) {
+    maxSlider.max = total - 1;
+    document.getElementById('range-end').textContent = total - 1;
+  }
 }
 
 // ===================== Logs =====================

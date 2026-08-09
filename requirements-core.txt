@@ -1,13 +1,15 @@
-# Training Guardian Agent — 核心依赖（轻量远程部署）
+# Training Guardian Agent — 核心依赖（轻量安装）
 # 安装: pip install -r requirements-core.txt
+#   或:  pip install guarftrain  (通过 pyproject.toml)
 #
-# 这份文件装完，guardian watch 就是全功能的（规则引擎 + agent 决策层），
-# 只是不能被外部 MCP 客户端接入查看/操作。
-# MCP 接入所需的额外依赖见 requirements-mcp.txt。
+# 前提: 训练环境已有 torch（guardian 不主动安装 torch）。
+# 如需可视化/推理: pip install guarftrain[viz]
+# 如需 AI 决策层:  pip install guarftrain[agent]
+# 如需 MCP 接入:   pip install guarftrain[mcp]
+# 如需 Web 面板:   pip install guarftrain[dashboard]
+# 全部安装:        pip install guarftrain[full]
 
 # === 核心依赖（必需） ===
-torch>=2.0
-torchvision>=0.15
 pyyaml>=6.0
 
 # === 硬件监控（可选，无 GPU 时自动降级） ===
@@ -17,10 +19,12 @@ GPUtil>=1.4
 # === 告警推送（可选，仅终端输出无需） ===
 requests>=2.28
 
-# === Agent 决策层（可选，未配置 API key 时自动降级为纯规则）===
-# 二者择一，取决于 configs/guardian.yaml 的 agent.provider
-anthropic>=0.40
-# openai>=1.50
-
-# === 开发/测试 ===
+# === 数据处理 ===
 numpy>=1.24
+
+# === 以下为可选依赖，按需安装 ===
+# AI 决策层:     pip install guarftrain[agent]      (anthropic)
+# MCP 接入:      pip install guarftrain[mcp]        (mcp>=1.0)
+# Web 面板:      pip install guarftrain[dashboard]  (fastapi, uvicorn)
+# 可视化/推理:   pip install guarftrain[viz]        (torch, torchvision)
+# 全部安装:      pip install guarftrain[full]

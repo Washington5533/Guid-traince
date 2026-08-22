@@ -166,7 +166,7 @@ agent 做了哪些决策？有没有被降级的情况？
 
 ## 下一步
 
-- 完整工具列表 → [MCP.md](MCP.md)
-- 详细参数说明 → [MCP_API_REFERENCE.md](MCP_API_REFERENCE.md)
-- 安全配置 → [MCP.md § 10](MCP.md#10-安全说明)
-- 故障排查 → [MCP.md § 13](MCP.md#13-故障排查)
+- 完整工具列表 → [docs/MCP.md](MCP.md)
+- 详细参数说明 → [docs/MCP_API_REFERENCE.md](MCP_API_REFERENCE.md)
+- 安全配置 → [docs/MCP.md § 10](MCP.md#10-安全说明)
+- 故障排查 → [docs/MCP.md § 13](MCP.md#13-故障排查)

@@ -38,7 +38,9 @@ agent:
   enabled: false
 
 mcp:
-  enabled: false
+  enabled: true
+  enable_write_tools: true
+  write_token_env: GUARDIAN_MCP_TOKEN
 
 contract:
   path: configs/contract.yaml

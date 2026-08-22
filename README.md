@@ -142,7 +142,7 @@ Missing any one? Only the corresponding capability is disabled — training stil
 
 `trigger_recovery` · `restart_with_params` · `stop_training` · `approve_contract_proposal` · `reject_contract_proposal` · `run_visualization` · `set_gallery_config` · `run_inference` · `submit_import` · `resolve_decision` · `set_dashboard_config`
 
-→ Full API reference: [MCP_API_REFERENCE.md](MCP_API_REFERENCE.md)
+→ Full API reference: [docs/MCP_API_REFERENCE.md](docs/MCP_API_REFERENCE.md)
 
 ## Configuration · 配置
 
@@ -185,14 +185,12 @@ export GUARDIAN_MCP_TOKEN=your-secret   # write tool auth
 
 | Document | Content |
 |----------|---------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Architecture & workflow (ZH) |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | User manual (ZH) |
-| [MCP.md](MCP.md) | MCP integration guide (ZH) |
-| [MCP_API_REFERENCE.md](MCP_API_REFERENCE.md) | 35-tool API reference (ZH) |
-| [MCP_QUICKSTART.md](MCP_QUICKSTART.md) | 5-minute MCP onboarding (ZH) |
-| [IMPLEMENTATION_REPORT.md](IMPLEMENTATION_REPORT.md) | Per-module completion report (ZH) |
-| [checkpoint/INDEX.md](checkpoint/INDEX.md) | Module index cp_1~cp_16 (ZH) |
-| [checkpoint/cp_10.md](checkpoint/cp_10.md) | MCP layer design doc (ZH) |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture & workflow (ZH) |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | User manual (ZH) |
+| [docs/MCP.md](docs/MCP.md) | MCP integration guide (ZH) |
+| [docs/MCP_API_REFERENCE.md](docs/MCP_API_REFERENCE.md) | 35-tool API reference (ZH) |
+| [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) | 5-minute MCP onboarding (ZH) |
+| [docs/IMPLEMENTATION_REPORT.md](docs/IMPLEMENTATION_REPORT.md) | Per-module completion report (ZH) |
 
 ## License
 

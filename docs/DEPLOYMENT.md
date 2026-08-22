@@ -217,7 +217,7 @@ guarftrain watch --with-mcp -- python train.py
 
 MCP 模式下 guardian agent 进入 provisional 模式，外部 Agent 可接管决策。Claude Code 获得全部 35 个工具的读写权限。
 
-> 完整文档：[MCP.md](MCP.md) · [MCP_API_REFERENCE.md](MCP_API_REFERENCE.md) · [MCP_QUICKSTART.md](MCP_QUICKSTART.md)
+> 完整文档：[docs/MCP.md](MCP.md) · [docs/MCP_API_REFERENCE.md](MCP_API_REFERENCE.md) · [docs/MCP_QUICKSTART.md](MCP_QUICKSTART.md)
 
 ### 6.1 MCP 工具列表
 

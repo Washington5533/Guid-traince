@@ -1,7 +1,7 @@
 """cp_10 · MCP 工具层 (GuardianMCPServer)。
 
 把 guardian 的观测与操作能力暴露为标准 MCP 工具，供 Claude Code / OpenClaw
-等外部 agent 客户端接入。详见 checkpoint/cp_10.md
+等外部 agent 客户端接入。详见 docs/IMPLEMENTATION_REPORT.md。
 
 非阻塞保证（三条硬性约束）：
 1. mcp 包未安装 → 只打印说明，训练不受影响

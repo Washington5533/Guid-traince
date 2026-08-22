@@ -19,20 +19,32 @@ from guardian.logging_config import get_logger
 logger = get_logger(__name__)
 
 RECOVERABLE = "recoverable"
+CONDITIONAL = "conditional"       # 有条件可恢复：首次/少次可重试，超过阈值则停止
 UNRECOVERABLE = "unrecoverable"
 
-# stderr 文本 -> 可恢复类型。顺序有意义：OOM 优先于泛化的 RuntimeError
-RECOVERABLE_PATTERNS: list[tuple[str, str]] = [
-    ("oom", r"CUDA out of memory|torch\.cuda\.OutOfMemoryError|CUBLAS_STATUS_ALLOC_FAILED"),
-    ("oom", r"DefaultCPUAllocator: can't allocate memory|Cannot allocate memory"),
-    ("network", r"ConnectionError|ConnectionResetError|Timeout(Error)?\b|NCCL.*(timeout|unhandled)"),
+# stderr 文本 -> (verdict, kind)。
+# 顺序有意义：OOM 优先于泛化的 RuntimeError。
+RECOVERABLE_PATTERNS: list[tuple[str, str, str]] = [
+    ("oom",       r"CUDA out of memory|torch\.cuda\.OutOfMemoryError|CUBLAS_STATUS_ALLOC_FAILED",
+                 RECOVERABLE),
+    ("oom",       r"DefaultCPUAllocator: can't allocate memory|Cannot allocate memory",
+                 RECOVERABLE),
+    ("network",   r"ConnectionError|ConnectionResetError|Timeout(Error)?\b|NCCL.*(timeout|unhandled)",
+                 CONDITIONAL),       # 网络错误：条件可恢复（连续超过阈值则停）
 ]
 
-# 明确不可恢复的报错（代码错误 / 数据问题），命中即停止重试
+# 条件可恢复：AssertionError / ValueError 可能是数据相关（shuffle 后可能自愈）
+CONDITIONAL_PATTERNS: list[tuple[str, str]] = [
+    ("assertion", r"AssertionError"),
+    ("value",     r"ValueError"),
+]
+_CONDITIONAL_MAX = 3  # 条件可恢复的最大连续次数
+
+# 明确不可恢复的报错（确定性代码错误 / 数据问题），命中即停止重试
 UNRECOVERABLE_PATTERNS: list[tuple[str, str]] = [
     ("data", r"FileNotFoundError|EOFError|UnpicklingError"),
     ("code", r"TypeError|AttributeError|NameError|ImportError|ModuleNotFoundError"
-             r"|SyntaxError|KeyError|IndexError|ValueError|AssertionError"),
+             r"|SyntaxError|KeyError|IndexError"),
 ]
 
 # 被信号杀死：-9/-15 (POSIX subprocess) 与 137/143 (128+N, shell 风格)
@@ -43,35 +55,73 @@ SIGNAL_EXIT_CODES = {-9: "sigkill", 137: "sigkill", -15: "sigterm", 143: "sigter
 class CrashInfo:
     """一次子进程异常退出的分类结果。"""
 
-    verdict: str          # recoverable / unrecoverable
-    kind: str             # oom / sigkill / network / code / data / unknown
+    verdict: str               # recoverable / conditional / unrecoverable
+    kind: str                   # oom / network / assertion / code / data / sigkill / unknown
     exit_code: int | None
     detail: str = ""
+    max_retries: int = 0       # 0 = 无限制
 
     @property
     def recoverable(self) -> bool:
-        return self.verdict == RECOVERABLE
+        return self.verdict in (RECOVERABLE, CONDITIONAL)
+
+    @property
+    def conditional(self) -> bool:
+        return self.verdict == CONDITIONAL
 
 
-def classify_crash(exit_code: int | None, stderr_tail: str = "") -> CrashInfo:
+def classify_crash(
+    exit_code: int | None,
+    stderr_tail: str = "",
+    consecutive: dict[str, int] | None = None,
+) -> CrashInfo:
     """纯规则判定"能不能恢复"——永远不过 LLM。
 
-    sidecar 下只有退出码 + stderr 文本可用。**保守优先**：匹配不到任何
-    已知可恢复模式时判为不可恢复，宁可停下等人看，也不对真 bug 反复重启。
+    新增 CONDITIONAL 级别：AssertionError / ValueError 在连续次数不超过
+    _CONDITIONAL_MAX 时视为可恢复，超过则升级为不可恢复（避免对确定性
+    代码 bug 无限重启）。网络错误同理。
+
+    Args:
+        consecutive: {crash_kind: 已连续次数}，由调用方维护。
     """
     text = stderr_tail or ""
+    cons = consecutive or {}
 
-    # OOM 判定优先于信号：cgroup OOM-killer 会以 137 退出，但 stderr 常有线索
-    for kind, pattern in RECOVERABLE_PATTERNS:
-        if re.search(pattern, text, re.IGNORECASE):
-            return CrashInfo(RECOVERABLE, kind, exit_code, f"stderr 命中 {kind} 模式")
+    # 1. 始终可恢复：OOM
+    for kind, pattern, verdict in RECOVERABLE_PATTERNS:
+        if verdict == RECOVERABLE and re.search(pattern, text, re.IGNORECASE):
+            return CrashInfo(RECOVERABLE, kind, exit_code,
+                             f"stderr 命中 {kind} 模式")
 
-    # 明确的代码/数据错误
+    # 2. 条件可恢复：网络错误（连续超过 _CONDITIONAL_MAX 次则不可恢复）
+    for kind, pattern, verdict in RECOVERABLE_PATTERNS:
+        if verdict == CONDITIONAL and re.search(pattern, text, re.IGNORECASE):
+            n = cons.get(kind, 0) + 1
+            if n >= _CONDITIONAL_MAX:
+                return CrashInfo(UNRECOVERABLE, kind, exit_code,
+                                 f"网络错误连续 {n} 次（阈值 {_CONDITIONAL_MAX}），判定不可恢复")
+            return CrashInfo(CONDITIONAL, kind, exit_code,
+                             f"stderr 命中 {kind} 模式（第 {n}/{_CONDITIONAL_MAX} 次）",
+                             max_retries=_CONDITIONAL_MAX - n)
+
+    # 3. 条件可恢复：AssertionError / ValueError
+    for kind, pattern in CONDITIONAL_PATTERNS:
+        if re.search(pattern, text):
+            n = cons.get(kind, 0) + 1
+            if n >= _CONDITIONAL_MAX:
+                return CrashInfo(UNRECOVERABLE, kind, exit_code,
+                                 f"{kind} 连续 {n} 次（阈值 {_CONDITIONAL_MAX}），判定不可恢复")
+            return CrashInfo(CONDITIONAL, kind, exit_code,
+                             f"stderr 命中 {kind}（第 {n}/{_CONDITIONAL_MAX} 次，数据/参数可能随机相关）",
+                             max_retries=_CONDITIONAL_MAX - n)
+
+    # 4. 明确不可恢复：代码 / 数据错误
     for kind, pattern in UNRECOVERABLE_PATTERNS:
         if re.search(pattern, text):
-            return CrashInfo(UNRECOVERABLE, kind, exit_code, f"stderr 命中 {kind} 模式")
+            return CrashInfo(UNRECOVERABLE, kind, exit_code,
+                             f"stderr 命中 {kind} 模式")
 
-    # 被信号杀死且 stderr 无更多线索：视为外部中断，参数不变续训
+    # 5. 被信号杀死：视为外部中断，参数不变续训
     if exit_code in SIGNAL_EXIT_CODES:
         return CrashInfo(
             RECOVERABLE, "sigkill", exit_code,
@@ -242,6 +292,8 @@ class TrainingWatchdog:
         self._last_progress: Any = None
         self._progress_at: float = 0.0
         self._hang_warned = False
+        # 连续崩溃类型统计（用于条件可恢复错误的阈值判定）
+        self._consecutive_kinds: dict[str, int] = {}
 
     # --- 契约能力 ---------------------------------------------------
 
@@ -607,10 +659,29 @@ class TrainingWatchdog:
             code = self.proc.returncode
 
             if code == 0:
+                self._consecutive_kinds.clear()
                 final.update(status="completed", exit_code=0)
                 return final
 
-            crash = classify_crash(code, stderr_tail)
+            crash = classify_crash(code, stderr_tail,
+                                   consecutive=dict(self._consecutive_kinds))
+
+            # 条件可恢复且已达上限 → 升级为不可恢复
+            if crash.conditional and crash.max_retries <= 0:
+                crash = CrashInfo(
+                    UNRECOVERABLE, crash.kind, crash.exit_code,
+                    f"{crash.detail}（已耗尽重试次数）",
+                )
+
+            # 更新连续崩溃计数
+            if not crash.recoverable:
+                self._consecutive_kinds.clear()
+            elif crash.conditional:
+                self._consecutive_kinds[crash.kind] = \
+                    self._consecutive_kinds.get(crash.kind, 0) + 1
+            else:
+                # 始终可恢复（OOM / 信号）：重置条件计数
+                self._consecutive_kinds.clear()
 
             if not crash.recoverable:
                 self._notify(

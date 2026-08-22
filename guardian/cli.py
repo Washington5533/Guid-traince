@@ -186,6 +186,13 @@ def _load(args) -> tuple[dict, TaskContract]:
     return cfg, contract
 
 
+def _load_contract(args) -> TaskContract:
+    """仅加载 TaskContract（不初始化日志），供 _resolve_model_fn 等辅助函数使用。"""
+    cfg = load_config(args.config)
+    contract_path = args.contract or cfg["contract"].get("path")
+    return TaskContract(cfg["contract"], contract_path)
+
+
 def cmd_contract(args) -> int:
     if args.action == "check":
         cfg, contract = _load(args)
@@ -533,6 +540,9 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
         from .agent_advisor import AgentAdvisor
         # 强制启用配置节，让 AgentAdvisor 的 _has_credentials() 做凭据检测
         cfg["agent"]["enabled"] = True
+        # 持久化决策日志到 logs/ 目录
+        log_dir = cfg.get("project", {}).get("log_dir", "./logs")
+        cfg["agent"]["decision_log_path"] = str(Path(log_dir) / "decisions.jsonl")
         advisor = AgentAdvisor(cfg["agent"])
         if not advisor.is_enabled():
             print("[agent] 决策层未启用：未检测到 API 凭据。"
@@ -858,6 +868,44 @@ def cmd_compare(args) -> int:
     return 0
 
 
+def _resolve_model_fn(contract, project_dir=None):
+    """从 contract.buildable_entry 解析 model_fn。
+
+    优先使用 contract 声明的入口，回退到项目自动扫描。
+    返回 (model_fn, error_msg)，失败时 model_fn 为 None。
+    """
+    import importlib
+    import sys
+
+    # 确保项目根目录在 sys.path 中
+    if project_dir:
+        proj_root = str(Path(project_dir).resolve())
+        if proj_root not in sys.path:
+            sys.path.insert(0, proj_root)
+
+    # 1. contract 声明
+    entry = (contract.script or {}).get("buildable_entry", {})
+    model_ref = entry.get("model_fn", "")
+
+    # 2. 回退：project context 扫描
+    if not model_ref:
+        from .project_context import ProjectContext
+        ctx = ProjectContext(project_dir or ".")
+        ctx.apply_paths()
+        model_ref = ctx.model_entry or ""
+
+    if not model_ref:
+        return None, "未找到模型入口。请在 contract.yaml 中设置 buildable_entry.model_fn，或传 --model 参数。"
+
+    try:
+        mod_path, fn_name = model_ref.split(":", 1) if ":" in model_ref else ("train", model_ref)
+        mod = importlib.import_module(mod_path)
+        model_fn = getattr(mod, fn_name)
+        return model_fn, None
+    except Exception as exc:
+        return None, f"无法 import {model_ref}: {exc}"
+
+
 def cmd_visualize(args) -> int:
     """模型管线可视化。"""
     from .model_viz import ModelVisualizer
@@ -879,12 +927,10 @@ def cmd_visualize(args) -> int:
     if args.model:
         try:
             mod_path, fn_name = args.model.split(":", 1)
-            # 确保 scripts/ 在 sys.path 中
             import sys as _sys
             _scripts_dir = str(Path(mod_path).parent) if "/" in mod_path or "\\" in mod_path else None
             if _scripts_dir and _scripts_dir not in _sys.path:
                 _sys.path.insert(0, _scripts_dir)
-            # 将路径转为模块名（如 scripts/clip_adapter → clip_adapter）
             if "/" in mod_path or "\\" in mod_path:
                 mod_path = mod_path.replace("\\", "/").replace("/", ".").removesuffix(".py")
             import importlib
@@ -894,12 +940,13 @@ def cmd_visualize(args) -> int:
             print(f"错误: 无法 import {args.model}: {exc}", flush=True)
             return 1
     else:
-        # 尝试从 train.py 加载
-        try:
-            from train import build_model
-            model_fn = build_model
-        except Exception:
-            print("错误: 需要 --model 参数指定模型入口，如 --model train:build_model", flush=True)
+        # 从 contract / project context 解析（不再硬编码 from train import build_model）
+        model_fn, err = _resolve_model_fn(
+            _load_contract(args),
+            project_dir=getattr(args, "project_dir", None),
+        )
+        if model_fn is None:
+            print(f"错误: {err}", flush=True)
             return 1
 
     # 解析 + 统计
@@ -1113,11 +1160,17 @@ def cmd_infer(args) -> int:
     # 确定任务类型
     task_type = args.task
     if task_type is None:
-        # 尝试自动检测
-        try:
-            from train import build_model
-            task_type = ir.detect_task_type(build_model)
-        except Exception:
+        # 从 contract / project context 解析 model_fn 后自动检测
+        model_fn, err = _resolve_model_fn(
+            _load_contract(args),
+            project_dir=getattr(args, "project_dir", None),
+        )
+        if model_fn is not None:
+            try:
+                task_type = ir.detect_task_type(model_fn)
+            except Exception:
+                task_type = "classification"
+        else:
             task_type = "classification"
         print(f"推断任务类型: {task_type}", flush=True)
 
@@ -1405,6 +1458,8 @@ def _make_advisor(args):
     from .agent_advisor import AgentAdvisor
     cfg = load_config(args.config)
     cfg["agent"]["enabled"] = True
+    log_dir = cfg.get("project", {}).get("log_dir", "./logs")
+    cfg["agent"]["decision_log_path"] = str(Path(log_dir) / "decisions.jsonl")
     advisor = AgentAdvisor(cfg["agent"])
     if not advisor.is_enabled():
         print("[agent] 未检测到 API 凭据，AI 不可用。", flush=True)

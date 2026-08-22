@@ -79,8 +79,12 @@ class ModelVisualizer:
             import torch
         except ImportError:
             return {"error": "PyTorch 未安装"}
-
-        model = model_fn()
+        try:
+            model = model_fn()
+        except TypeError as exc:
+            return {"error": f"model_fn 需要构造参数: {exc}。"
+                    "可视化要求模型可无参实例化，请在 contract.yaml 的 buildable_entry 中"
+                    "声明一个无参工厂函数，或改用 guarftrain visualize --model <entry>"}
         if not isinstance(model, torch.nn.Module):
             return {"error": f"model_fn 必须返回 nn.Module，实际为 {type(model).__name__}"}
 
@@ -121,7 +125,7 @@ class ModelVisualizer:
             handles.append(mod.register_forward_pre_hook(_make_pre_hook(name)))
             handles.append(mod.register_forward_hook(_make_post_hook(name)))
 
-        # 3. 用 dummy input 跑一次
+        # 3. 用 dummy input 跑一次 + 保证 hooks 清理
         total_flops = 0
         try:
             model.eval()
@@ -131,22 +135,26 @@ class ModelVisualizer:
         except Exception:
             logger.warning("用 dummy input 前向失败，FLOPs 将按缺失 shape 估算", exc_info=True)
 
-        # 4. 计算 FLOPs（基于 recorded shapes）
-        for name, data in hook_data.items():
-            if name not in module_info:
-                continue
-            inp_s = data.get("input_shape")
-            out_s = data.get("output_shape")
-            if inp_s and out_s:
-                module_info[name]["input_shape"] = inp_s
-                module_info[name]["output_shape"] = out_s
-                flops_est = _compute_flops(module_info[name]["type"], inp_s, out_s)
-                module_info[name]["flops"] = flops_est
-                total_flops += flops_est
-
-        # 清理 hooks
-        for h in handles:
-            h.remove()
+        try:
+            # 4. 计算 FLOPs（基于 recorded shapes）
+            for name, data in hook_data.items():
+                if name not in module_info:
+                    continue
+                inp_s = data.get("input_shape")
+                out_s = data.get("output_shape")
+                if inp_s and out_s:
+                    module_info[name]["input_shape"] = inp_s
+                    module_info[name]["output_shape"] = out_s
+                    flops_est = _compute_flops(module_info[name]["type"], inp_s, out_s)
+                    module_info[name]["flops"] = flops_est
+                    total_flops += flops_est
+        finally:
+            # 清理 hooks（无论前向是否成功）
+            for h in handles:
+                try:
+                    h.remove()
+                except Exception:
+                    pass
 
         # 5. 按深度折叠 Transformer 同构块
         nodes = _fold_identical_blocks(module_info)

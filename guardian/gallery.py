@@ -438,8 +438,15 @@ def _load_predictions(infer_result: dict) -> list[dict]:
 def _try_build_model():
     """尝试构建模型（用于任务类型推断）。"""
     try:
-        from train import build_model
-        return build_model()
+        # 优先从项目上下文中解析模型入口
+        from .project_context import ProjectContext
+        ctx = ProjectContext()
+        ctx.apply_paths()
+        entry = ctx.model_entry or "train:build_model"
+        mod_path, fn_name = entry.split(":", 1) if ":" in entry else ("train", entry)
+        import importlib
+        mod = importlib.import_module(mod_path)
+        return getattr(mod, fn_name)()
     except Exception:
         logger.warning("尝试构建模型失败（任务类型推断将回退）", exc_info=True)
         raise

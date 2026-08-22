@@ -997,9 +997,30 @@ class GuardianMCPServer:
         return json.dumps(data, ensure_ascii=False, indent=2)
 
     def _handle_agent_decision_log(self, **kwargs) -> str:
+        # 优先内存（共享模式），回退到持久化 JSONL（standalone / 跨进程）
         if self.advisor is not None:
-            return json.dumps(list(self.advisor.decision_log), ensure_ascii=False, indent=2)
-        return json.dumps([], ensure_ascii=False)  # standalone 无法回放决策日志
+            mem = list(self.advisor.decision_log)
+            if mem:
+                return json.dumps(mem, ensure_ascii=False, indent=2)
+            # 内存为空但可能有持久化文件
+            log_path = getattr(self.advisor, "_log_path", None)
+            if log_path:
+                from guardian.agent_advisor import AgentAdvisor
+                disk = AgentAdvisor.load_log(log_path)
+                if disk:
+                    return json.dumps(disk, ensure_ascii=False, indent=2)
+        # standalone 模式：从 summary JSON 中读取 agent_decisions
+        try:
+            state_dir = Path(self._state_dir or ".")
+            summaries = sorted(state_dir.glob("summary_*.json"), reverse=True)
+            if summaries:
+                data = json.loads(summaries[0].read_text(encoding="utf-8"))
+                decisions = data.get("agent_decisions", [])
+                if decisions:
+                    return json.dumps(decisions, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        return json.dumps([], ensure_ascii=False)
 
     def _handle_contract_status(self, **kwargs) -> str:
         if self.task_contract is None:

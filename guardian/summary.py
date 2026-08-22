@@ -54,6 +54,7 @@ class SummaryGenerator:
         summary["checkpoints"] = self._collect_checkpoints()
         summary["resources"] = self._collect_resource_usage()
         summary["lr_schedule"] = self._collect_lr_schedule()
+        summary["agent_decisions"] = self._collect_agent_decisions()
 
         narrative = self._generate_ai_narrative(summary)
         if narrative:
@@ -163,6 +164,20 @@ class SummaryGenerator:
                 })
                 last_lr = lr
         return schedule
+
+    def _collect_agent_decisions(self) -> list[dict[str, Any]]:
+        """收集 agent 决策日志（内存 + 持久化文件）。"""
+        if self.advisor is None:
+            return []
+        # 优先内存
+        mem = self.advisor.decision_log
+        if mem:
+            return mem
+        # 回退：从持久化文件读取
+        log_path = getattr(self.advisor, "_log_path", None)
+        if log_path:
+            return self.advisor.load_log(log_path)
+        return []
 
     def _generate_ai_narrative(self, summary: dict) -> str | None:
         """v1：advisor 基于结构化摘要生成自然语言解读。失败/未配置则省略。"""

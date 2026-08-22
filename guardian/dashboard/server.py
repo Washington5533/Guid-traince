@@ -733,6 +733,7 @@ class DashboardServer:
             meta = info.get("meta", {})
             hist = self._read_history_metrics(process_id)
             summary = _summarize_metrics(hist)
+            advisor = None
             try:
                 from ..credentials import load_credentials, apply_credentials
                 apply_credentials(load_credentials())
@@ -758,7 +759,8 @@ class DashboardServer:
                         return JSONResponse({"analysis": text, "source": "agent"})
             except Exception:
                 logger.warning("历史进程 AI 分析失败: %s", process_id, exc_info=True)
-            advisor.close()
+            if advisor is not None:
+                advisor.close()
             return JSONResponse({
                 "analysis": f"历史实验 {meta.get('name', process_id)}: 共 {len(hist)} 条指标, 最终 loss: {summary.get('loss_last', '?')}",
                 "source": "summary", "context": {"metrics_summary": summary}
@@ -774,6 +776,7 @@ class DashboardServer:
                 return JSONResponse({"error": "not found"}, 404)
             meta = info.get("meta", {})
             hist = self._read_history_metrics(process_id)
+            advisor = None
             try:
                 from ..credentials import load_credentials, apply_credentials
                 apply_credentials(load_credentials())
@@ -800,7 +803,8 @@ class DashboardServer:
                         return JSONResponse({"answer": ans})
             except Exception:
                 logger.warning("History AI chat failed: %s", process_id, exc_info=True)
-            advisor.close()
+            if advisor is not None:
+                advisor.close()
             return JSONResponse({"answer": "AI 调用失败，请检查凭据配置"})
 
         # ---- API: 历史进程模型结构 ----
@@ -935,6 +939,13 @@ class DashboardServer:
             s = _get_state(process_id)
             if not s:
                 return JSONResponse({"error": "not found"}, 404)
+            # 白名单校验：只接受顶层 template/charts/panels，防止注入
+            allowed_keys = {"template", "charts", "panels", "_source"}
+            rejected = [k for k in payload if k not in allowed_keys]
+            if rejected:
+                return JSONResponse({
+                    "error": f"非法配置键: {rejected}。允许的键: {sorted(allowed_keys - {'_source'})}",
+                }, status_code=400)
             with self._lock:
                 current = s.setdefault("_dash_config", dict(DASH_DEFAULTS))
                 # 深度合并（仅顶层 key，charts/panels 整体替换）
@@ -963,7 +974,7 @@ class DashboardServer:
             if not s: return JSONResponse({"error": "not found"}, 404)
             hist = s.get("_metrics_history", [])
             summary = _summarize_metrics(hist)
-            # 尝试自建 advisor
+            advisor = None
             try:
                 from ..credentials import load_credentials, apply_credentials
                 apply_credentials(load_credentials())
@@ -988,7 +999,8 @@ class DashboardServer:
                         return JSONResponse({"analysis": text, "source": "agent"})
             except Exception:
                 logger.warning("AI 分析调用失败", exc_info=True)
-            advisor.close()
+            if advisor is not None:
+                advisor.close()
             return JSONResponse({
                 "analysis": f"训练状态: {s.get('status')}, 最新 loss: {summary.get('loss_last', '?')}, 异常数: {s.get('anomaly_count', 0)}",
                 "source": "summary", "context": {"status": s.get("status"), "metrics_summary": summary}

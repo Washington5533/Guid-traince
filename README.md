@@ -76,16 +76,16 @@ guarftrain watch --agent --with-dashboard --with-mcp -- python train.py --epochs
 
 ### What does the training script need? · 训练脚本要满足什么？
 
-Four contracts (just good training hygiene):
+Four contracts (script interface agreements). Each one gates a capability — missing one disables only that feature, training still runs normally.
 
-1. `--resume` / `--ckpt` flags for checkpoint resumption
-2. `cp_{epoch}/model.pth` with `epoch/model_state_dict/optimizer_state_dict`
-3. Structured logging: `epoch {n} loss {v} val_acc {v} lr {v}`
-4. Importable: `train:build_model` / `train:get_dataloaders`
+1. `--resume` / `--ckpt` flags for checkpoint resumption → enables crash recovery + restart-based interventions
+2. `cp_{epoch}/model.pth` with `epoch/model_state_dict/optimizer_state_dict` → enables checkpoint analysis + post-training tools
+3. Structured logging: `epoch {n} loss {v} val_acc {v} lr {v}` → enables loss anomaly detection + progress monitoring
+4. Importable entry: `train:build_model` / `train:get_dataloaders` → enables preflight resource estimation + model visualization + inference
 
 Missing any one? Only the corresponding capability is disabled — training still runs.
 
-四项契约（写好训练脚本的基本功），缺任一项只关对应能力，不阻断训练。
+四项契约（训练脚本的接口约定），每一项控制一个能力——缺任一项只关闭对应能力，不阻断训练。`guarftrain init` 会自动扫描你的脚本，逐项报告开启/降级状态。
 
 ## Architecture · 架构
 

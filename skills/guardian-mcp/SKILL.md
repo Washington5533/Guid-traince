@@ -131,6 +131,9 @@ Returns: current mode, write tool status, training phase, recommended workflow. 
 | **Dashboard** | `get_dashboard_config`, `recommend_charts`, `list_dashboard_templates` | "What charts should I show? What's the layout?" |
 | **Data Import** | `get_import_format`, `inspect_source` | "Help me import WandB/TensorBoard data" |
 | **System** | `get_guardian_mode` | First call — orientation |
+| **Data Import** | `get_import_format`, `inspect_source`, `submit_import` | Import external experiment data |
+| **Logs** | `get_training_log` | Raw training log tail |
+| **Post-training** | `get_post_training_checklist` | What to do after training ends |
 
 ### Write (11 tools, require write_token + phase gating)
 

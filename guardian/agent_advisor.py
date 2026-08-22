@@ -58,6 +58,9 @@ class AgentAdvisor:
         self.pending_decisions: list[dict[str, Any]] = []
         self._max_pending = int(self.cfg.get("max_pending_decisions", 200))
 
+        # 持久化：decision_log 同时写入 JSONL 文件（跨进程可读）
+        self._log_path: str | None = self.cfg.get("decision_log_path")
+
     # --- 开关状态 -----------------------------------------------------
 
     def is_enabled(self, decision_point: str | None = None) -> bool:
@@ -643,6 +646,7 @@ class AgentAdvisor:
             "context_summary": _summarize_context(context),
         }
         self.decision_log.append(entry)
+        self._persist_decision(entry)
 
         # provisional 模式的决策推入待处理队列，供外部 agent 查阅/覆盖
         if source == "agent_provisional":
@@ -666,6 +670,37 @@ class AgentAdvisor:
             self._expire_pending()
 
         return entry
+
+    def _persist_decision(self, entry: dict[str, Any]) -> None:
+        """将单条决策追加到 JSONL 文件（非阻塞，失败不影响训练流程）。"""
+        if not self._log_path:
+            return
+        try:
+            from pathlib import Path
+            line = json.dumps(entry, ensure_ascii=False, default=str)
+            with open(self._log_path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except Exception:
+            logger.warning("决策日志写入失败: %s", self._log_path, exc_info=True)
+
+    @staticmethod
+    def load_log(log_path: str) -> list[dict[str, Any]]:
+        """从 JSONL 文件加载历史决策日志（供 MCP 跨进程读取）。"""
+        entries: list[dict[str, Any]] = []
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            entries.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            continue
+        except FileNotFoundError:
+            pass
+        except Exception:
+            logger.warning("读取决策日志失败: %s", log_path, exc_info=True)
+        return entries
 
     def _expire_pending(self) -> None:
         """清理已过期的待处理决策：超时自动转为 approved。"""
@@ -797,6 +832,9 @@ class AgentAdvisor:
             if d["status"] == "pending":
                 d["status"] = "approved"
                 d["resolved_at"] = time.time()
+        # 确保内存中剩余决策也持久化
+        for entry in self.decision_log:
+            self._persist_decision(entry)
         self._executor.shutdown(wait=False, cancel_futures=True)
 
 

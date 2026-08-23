@@ -124,6 +124,7 @@ guarftrain <command> [options]
   contract      契约校验 (check / review)
   preflight     训练前资源预检
   analyze       独立扫描已有 checkpoint
+  analyze_architecture 架构图分析 (D3 treemap + backbone)
 
 查询与分析：
   experiments   列出所有历史实验
@@ -137,9 +138,16 @@ guarftrain <command> [options]
 展示：
   gallery       图片筛选与展示（agent 提议策略 → 确认 → 执行）
 
+远程通信：
+  remote        启动 FastAPI 远程通信服务（算力服务器端）
+
 工具：
   project       项目上下文管理（init/show/scan/fill）
   serve         独立启动 MCP server
+  start         一键启动 Dashboard + MCP + DSH
+  dashboard     Web 控制面板（独立）
+  check         环境就绪检查
+  init          初始化项目
 ```
 
 ## 5. 训练后功能详解
@@ -205,6 +213,75 @@ agent 提议多套筛选策略（汇报精选 / 难样本 / 边界案例）
   → 执行推理 + 筛选 → 保存结果 JSON + 可选 Streamlit 展示
 ```
 
+
+### 5.5 架构图分析（v0.3 新增）
+
+```bash
+# 独立分析（CLI）
+guarftrain analyze_architecture --model train_clip:build_model
+
+# 或在 Dashboard 中点击「架构分析」标签页
+# 或在 DSH 侧栏点击「Architecture」标签
+```
+
+三种视图入口：
+
+| 入口 | 位置 | 说明 |
+|------|------|------|
+| Dashboard | 架构分析标签页 | 点击「分析」按钮 → treemap/backbone 双视图 |
+| DSH Plugin | 侧栏面板 | DeepSeek Harness 内嵌 ArchTab |
+| MCP 工具 | analyze_architecture | 外部 Agent 获取架构树数据 |
+
+输出包含：模块树（FLOPs/参数量）、瓶颈检测（>25% 占比）、分析耗时。
+identical block folding：≥4 个相同模块自动折叠为 ×N。
+
+### 5.6 远程通信（v0.3 新增）
+
+算力服务器端远程通信，PC Dashboard 远程连接：
+
+```bash
+# 算力服务器端
+guarftrain remote --token your-secret
+
+# PC 端（Dashboard 自动连接）
+guarftrain watch --with-dashboard --agent -- python train.py
+```
+
+**配置：**
+- `GUARDIAN_REMOTE_TOKEN`：鉴权 token
+- `GUARDIAN_REMOTE_HOST`：服务器地址（默认 localhost）
+- `GUARDIAN_REMOTE_PORT`：端口（默认 8765）
+
+### 5.7 Sub-agent 自主决策（v0.3 新增）
+
+```bash
+# supervised（默认）：所有决策需用户确认
+guarftrain watch --autonomy supervised -- python train.py
+
+# auto：自动调整参数，重大干预需确认
+guarftrain watch --autonomy auto -- python train.py
+
+# full：完全自主，无需确认
+guarftrain watch --autonomy full -- python train.py
+```
+
+三种模式的决策权限对照：
+
+| 模式 | 自动调整参数 | 自动干预训练 | 需用户确认 |
+|------|-------------|-------------|-----------|
+| supervised | ❌ | ❌ | 全部 |
+| auto | ✅ | ⚠️ 重大干预 | 重大干预 |
+| full | ✅ | ✅ | 无需 |
+
+### 5.8 CPU 模式兼容（v0.3 新增）
+
+无 GPU 时自动降级：
+
+- CLI 启动时弹出 CPU 警告（未检测到 NVIDIA GPU）
+- 训练曲线（loss/accuracy/lr）正常显示，与设备无关
+- GPU 监控面板提示不可用（需 nvidia-smi + CUDA）
+- `resource_estimator` 回退兼容 PyTorch >= 1.13
+
 ## 6. 接入外部 Agent（MCP）
 
 ```bash
@@ -215,13 +292,13 @@ guarftrain serve --transport stdio
 guarftrain watch --with-mcp -- python train.py
 ```
 
-MCP 模式下 guardian agent 进入 provisional 模式，外部 Agent 可接管决策。Claude Code 获得全部 35 个工具的读写权限。
+MCP 模式下 guardian agent 进入 provisional 模式，外部 Agent 可接管决策。Claude Code 获得全部 36 个工具的读写权限。
 
 > 完整文档：[docs/MCP.md](MCP.md) · [docs/MCP_API_REFERENCE.md](MCP_API_REFERENCE.md) · [docs/MCP_QUICKSTART.md](MCP_QUICKSTART.md)
 
 ### 6.1 MCP 工具列表
 
-**只读工具（18 个）：**
+**只读工具（25 个）：**
 
 | 工具 | 功能 |
 |------|------|
@@ -239,12 +316,19 @@ MCP 模式下 guardian agent 进入 provisional 模式，外部 Agent 可接管�
 | `query_experiment` | NL 查询实验 |
 | `compare_experiments` | 对比两个实验 |
 | `get_model_structure` | 模型结构 JSON（节点+边+FLOPs） |
+| `analyze_architecture` | 架构图分析（D3 treemap + backbone + 瓶颈检测） |
 | `get_guardian_mode` | 当前模式（standalone/mcp_delegated） |
 | `get_gallery_config` | 图片筛选策略配置 |
 | `get_import_format` | 导入格式规范（JSON Schema） |
 | `inspect_source` | 采样外部数据文件 |
+| `get_training_log` | 训练日志尾部（支持 grep 过滤） |
+| `get_post_training_checklist` | 训练结束后可执行的操作清单 |
+| `get_pending_decisions` | MCP 模式下待处理的 provisional 决策 |
+| `get_dashboard_config` | Dashboard 当前配置 |
+| `recommend_charts` | AI Agent 推荐应关注的图表组 |
+| `list_dashboard_templates` | 可用 Dashboard 布局模板 |
 
-**受限写工具（10 个，需 write_token + 阶段保护）：**
+**受限写工具（11 个，需 write_token + 阶段保护）：**
 
 | 工具 | 功能 | 训练中 |
 |------|------|--------|
@@ -258,6 +342,8 @@ MCP 模式下 guardian agent 进入 provisional 模式，外部 Agent 可接管�
 | `set_gallery_config` | 更新筛选策略 | ❌ 仅训练后 |
 | `run_inference` | 触发推理 | ❌ 仅训练后 |
 | `submit_import` | 导入外部训练数据 | ✅ |
+| `resolve_decision` | 批准或覆盖待处理决策 | ✅ |
+| `set_dashboard_config` | 设置 Dashboard 配置 | ✅ |
 
 训练中写工具保护：`set_gallery_config` / `run_visualization` / `run_inference` 仅在训练结束后可用。
 
@@ -274,6 +360,38 @@ MCP 模式下 guardian agent 进入 provisional 模式，外部 Agent 可接管�
 │ Claude Code 断开 → 自动恢复 standalone            │
 └──────────────────────────────────────────────────┘
 ```
+
+### 6.3 DSH Web GUI 插件（v0.3）
+
+在 DeepSeek Harness (DSH) Web UI 中显示训练 Guardian 面板：
+
+- slots.inject('sidebar.training-guardian') → TrainingPanel (React)
+- slots.inject('web-ui.plugin.item') → SettingsCard
+
+**功能：**
+- 实时 metrics / GPU / anomalies / decisions / architecture SSE 推送
+- 5 标签页：概览 / GPU / 异常 / 决策 / 架构分析
+- 架构图（ArchTab）：D3 treemap/backbone + 瓶颈检测
+- 设置卡片：serverUrl / authToken / sessionId / autoConnect
+- zh/en 双语支持
+
+### 6.4 远程通信（v0.3）
+
+算力服务器端 FastAPI 服务，PC Dashboard 远程连接：
+
+```bash
+# 算力服务器端
+guarftrain remote --token your-secret --host 0.0.0.0 --port 8765
+
+# PC 端（Dashboard 自动连接）
+guarftrain watch --with-dashboard --agent -- python train.py
+```
+
+**特性：**
+- SSE/WebSocket 实时推送
+- Token 鉴权（GUARDIAN_REMOTE_TOKEN）
+- SQLite session 持久化
+- 用户操作受 dirty flag 保护
 
 ## 7. 配置参考
 

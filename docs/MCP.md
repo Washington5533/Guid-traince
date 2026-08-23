@@ -2,11 +2,11 @@
 
 ## 1. 概述
 
-Guardian 通过 MCP (Model Context Protocol) 把全部观测与操作能力暴露为标准工具，供 Claude Code、OpenClaw 等外部 agent 客户端接入。35 个工具覆盖 Guardian 全部 19 个功能模块（cp_1 ~ cp_19）。
+Guardian 通过 MCP (Model Context Protocol) 把全部观测与操作能力暴露为标准工具，供 Claude Code、OpenClaw 等外部 agent 客户端接入。36 个工具覆盖 Guardian 全部 21 个功能模块（cp_1 ~ cp_21）。
 
 **关键设计原则：**
 
-- **读操作不受限**：任何连接的客户端都可以查看训练状态（24 个只读工具）
+- **读操作不受限**：任何连接的客户端都可以查看训练状态（25 个只读工具）
 - **写操作默认关闭**：需要显式配置开启 + 口令鉴权（11 个受限写工具）
 - **MCP 故障不影响训练**：MCP 崩溃/断连只影响外部接入，训练和守护照常运行
 - **可事后补挂**：训练已经在跑的情况下，随时可以启动 MCP 接入，不需要重启训练进程
@@ -160,11 +160,12 @@ ssh -L 8766:127.0.0.1:8766 user@your-training-server
 | `list_checkpoints` | 列出所有 checkpoint + best/top_k 标记 | `metric`(默认val/accuracy) |
 | `compare_checkpoints` | 对比两个 checkpoint 的指标差异 | `epoch_a`, `epoch_b`(必填) |
 
-### 5.4 只读工具 — 模型与配置（5 个）
+### 5.4 只读工具 — 模型与配置（6 个）🆕
 
 | 工具名 | 功能 | 关键参数 |
 |--------|------|----------|
 | `get_model_structure` | 模型结构 JSON（节点/边/FLOPs/参数量） | `model_entry`(如 train:build_model) |
+| `analyze_architecture` | 架构图分析（D3 treemap + backbone + 瓶颈检测） | `model_entry`(必填), `project_dir`(可选) |
 | `get_guardian_mode` | 当前模式：standalone / mcp_delegated | 无 |
 | `get_gallery_config` | 图片筛选策略配置 | 无 |
 | `get_import_format` | Guardian 导入格式规范（JSON Schema） | 无 |

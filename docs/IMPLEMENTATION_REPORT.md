@@ -1,7 +1,7 @@
 # Training Guardian Agent — 实现对照报告
 
 > 对照 `checkpoint/` 设计文档，逐模块评估实现完成度。
-> 生成时间：2026-08-09 · 提交范围：`c5e5763` → `dcfb42d`（27 次提交）· 版本 v0.2.0
+> 生成时间：2026-08-23 · 提交范围：`b5c5e42` → `a576926` · 版本 v0.3.0
 
 ---
 
@@ -10,11 +10,12 @@
 | 指标 | 值 |
 |------|-----|
 | 代码行数 | ~12500 行（含测试 ~3800 行 + 前端 SPA ~2100 行） |
-| 源文件 | 19 个 cp 模块（cp_1~cp_19）+ run.py + train.py + Dashboard SPA |
+| 源文件 | 21 个 cp 模块（cp_1~cp_21）+ run.py + train.py + Dashboard SPA + DSH Plugin |
 | 测试 | 223 个，全通过 |
-| 版本 | v0.2.0 |
-| MCP 工具 | 35 个（24 只读 + 11 受限写） |
-| v0.2 完成度 | **92%** |
+| 版本 | v0.3.0 |
+| MCP 工具 | 36 个（25 只读 + 11 受限写） |
+| v0.3 新增 | 架构图分析 + 远程通信 + Sub-agent + GPU Monitor + DSH Plugin + CPU 兼容 |
+| v0.3 完成度 | **95%** |
 
 ---
 
@@ -363,3 +364,139 @@ AI 解读（DeepSeek, ~250字）:
 | 🟢 | cp_4 best.pth 软链接 | 不影响 best 判定逻辑 |
 | 🟢 | cp_12 环境层故障 | 核心验收标准已覆盖，SSE/HTTP 全工具 E2E 脚本已补真实客户端路径 |
 | 🟢 | Dashboard 图表推荐仅 MCP 侧触发 | recommend_charts 无前端按钮入口；用户手动改动受 dirty flag 保护 |
+
+---
+
+### cp_20 · 架构图分析（arch_analyzer.py, ~350 行，v0.3 新增）
+
+**设计来源**: archify GitHub 设计逻辑（parse_model → compute_stats → build_tree → render）  
+**关键方法**: `parse_model()`, `compute_stats()`, `build_tree()`, `analyze()`
+
+| 设计项 | 状态 | 说明 |
+|--------|------|------|
+| parse_model | ✅ | named_modules + forward hooks + dummy input forward pass |
+| FLOPs 计算 | ✅ | 通过 thop 或自定义计数器 |
+| 参数统计 | ✅ | 逐模块参数量统计 |
+| identical block folding | ✅ | ≥4 连续相同模块 → ×N |
+| 瓶颈检测 | ✅ | 单模块参数量占比 >25% 标记为瓶颈 |
+| build_tree | ✅ | D3 可渲染的树结构（name/children/path/value/flops/params） |
+| 三种视图入口 | ✅ | Dashboard / MCP / DSH Plugin |
+| Dashboard 端点 | ✅ | POST /api/arch/analyze + WebSocket 广播 arch_update |
+| MCP 工具 | ✅ | `analyze_architecture`（36 个工具之一） |
+| DSH Plugin | ✅ | ArchTab.tsx + D3 CDN（npm install d3 失败时 workaround） |
+
+**完成度: 90%**（缺少本地文件渲染模式，Dashboard 端点已具备）
+
+---
+
+### cp_21 · DeepSeek Harness 插件（dsh-plugin/, ~800 行 TSX，v0.3 新增）
+
+**设计来源**: DSH Web GUI plugin system (cordis bundle + slot injection)  
+**关键文件**: `src/client/index.ts`, `src/client/panel/TrainingPanel.tsx`, `src/client/panel/ArchTab.tsx`
+
+| 设计项 | 状态 | 说明 |
+|--------|------|------|
+| slot 注入 | ✅ | `sidebar.training-guardian` + `web-ui.plugin.item` |
+| TrainingPanel | ✅ | 5 标签页：overview / gpu / anomalies / decisions / arch |
+| SSE 实时推送 | ✅ | 连接 guardian SSE → 接收 metrics/GPU/anomalies/decisions/architecture |
+| ArchTab | ✅ | D3 treemap/backbone 双视图 + params/flops 颜色映射 + 瓶颈侧栏 |
+| SettingsCard | ✅ | serverUrl/authToken/sessionId/autoConnect 配置 |
+| i18n | ✅ | zh/en 双语，~22 个 arch 相关 key |
+| deep dark theme | ✅ | `var(--panel-bg, #1a1a2e)` CSS 自定义属性适配 DSH |
+| TypeScript 0 errors | ✅ | 18 errors → 0（declare const d3 + explicit types + this: any） |
+
+**完成度: 85%**（缺少本地开发热重载，DSH 集成测试需 DSH runtime）
+
+---
+
+### cp_22 · 远程通信服务（remote/, ~400 行，v0.3 新增）
+
+**设计来源**: FastAPI + SSE/WebSocket 远程通信模式  
+**关键文件**: `remote/server.py`, `remote/client.py`, `remote/persistence.py`
+
+| 设计项 | 状态 | 说明 |
+|--------|------|------|
+| FastAPI server | ✅ | POST /api/decisions/approve + /reject + GET /api/status |
+| SSE 连接 | ✅ | Server-Sent Events 实时推送 |
+| Token 鉴权 | ✅ | GUARDIAN_REMOTE_TOKEN 环境变量 |
+| Session persistence | ✅ | SQLite 持久化 |
+| dirty flag 保护 | ✅ | 用户操作受 dirty flag 保护 |
+| PC Dashboard 远程连接 | ✅ | WebSocket client 自动重连 |
+
+**完成度: 85%**（缺少 TLS 支持，本地 HTTP 已完成）
+
+---
+
+### cp_23 · GPU 监控（gpu_monitor.py, ~100 行，v0.3 新增）
+
+| 设计项 | 状态 | 说明 |
+|--------|------|------|
+| nvidia-smi 读取 | ✅ | 不依赖 torch.cuda |
+| 实时轮询 | ✅ | get_gpu_stats() 返回利用率/温度/显存 |
+| CPU 模式检测 | ✅ | torch.cuda.is_available() 检测，不可用时降级 |
+| 错误处理 | ✅ | nvidia-smi 不可用时返回空列表 |
+
+**完成度: 90%**（缺少 AMD GPU 支持，仅 NVIDIA）
+
+---
+
+### cp_24 · Sub-agent 自主决策（sub_agent/, ~400 行，v0.3 新增）
+
+| 设计项 | 状态 | 说明 |
+|--------|------|------|
+| supervised 模式 | ✅ | 所有决策需用户确认 |
+| auto 模式 | ✅ | 自动调整参数，重大干预需确认 |
+| full 模式 | ✅ | 完全自主，无需确认 |
+| 决策 prompt 模板 | ✅ | prompts.py 内置模板 |
+| 会话内存 | ✅ | memory.py SessionMemory |
+| 工具注册表 | ✅ | tool_registry.py |
+| 动作验证 | ✅ | 校验 contract 允许的动作空间 |
+
+**完成度: 80%**（缺少持久化会话恢复，当前仅内存态）
+
+---
+
+## v0.3 新增功能验证
+
+### CPU 模式兼容
+
+```
+torch.cuda.is_available() = False 时:
+  ✓ CLI 启动时弹出 CPU 警告
+  ✓ 训练曲线正常显示（loss/accuracy/lr 设备无关）
+  ✓ GPU 面板提示不可用
+  ✓ resource_estimator 回退兼容 PyTorch >= 1.13
+```
+
+### DSH Plugin TypeScript 编译
+
+```
+npx tsc --noEmit:
+  18 errors → 0 errors
+  修复: declare const d3 + explicit types + this: any + setDetailEl callback
+```
+
+### MCP 工具统计
+
+| 类别 | v0.2 | v0.3 | 新增 |
+|------|------|------|------|
+| 只读 | 24 | 25 | +1 analyze_architecture |
+| 受限写 | 11 | 11 | 0 |
+| 总计 | 35 | 36 | +1 |
+
+---
+
+## 已知差距排序（v0.3 更新）
+
+| 优先级 | 差距 | 影响 |
+|--------|------|------|
+| 🔴 | cp_4 quick/full validate | checkpoint 不做独立评估（v1 最大功能缺口） |
+| 🟡 | cp_2 tensorboard 通道 | 只支持 log_file / metrics_json / wandb |
+| 🟡 | cp_17/18/19/20/21/22 设计文档待补写 | v0.2/v0.3 新模块仅 INDEX 登记 |
+| 🟡 | DSH Plugin 缺少 DSH runtime 集成测试 | 仅 TypeScript 编译验证 |
+| 🟢 | cp_6 email | terminal + webhook 已覆盖主要场景 |
+| 🟢 | cp_4 best.pth 软链接 | 不影响 best 判定逻辑 |
+| 🟢 | cp_12 AMD GPU 支持 | 仅 NVIDIA nvidia-smi |
+| 🟢 | Sub-agent 会话持久化 | 当前仅内存态 |
+| 🟢 | Remote 缺少 TLS | 本地 HTTP 已完成 |
+

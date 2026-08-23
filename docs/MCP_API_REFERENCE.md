@@ -1,10 +1,10 @@
 # Guardian MCP — API 参考
 
-> 完整工具参数说明 · 35 个工具（24 只读 + 11 写）· 版本 0.2.0
+> 完整工具参数说明 · 36 个工具（25 只读 + 11 写）· 版本 0.3.0
 
 ---
 
-## 只读工具（24 个）
+## 只读工具（25 个）
 
 ### get_training_status
 
@@ -301,6 +301,69 @@ agent 的契约扩展提议记录。
   ]
 }
 ```
+
+---
+
+### analyze_architecture
+
+分析模型架构：解析模块结构、计算 FLOPs/参数量、检测瓶颈层、生成 D3 可渲染的架构树数据。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `model_entry` | string | **是** | 如 `train:build_model` |
+| `project_dir` | string | 否 | 项目目录，用于相对路径解析 |
+
+**返回：**
+
+```json
+{
+  "ok": true,
+  "model_name": "MyModel",
+  "tree": {
+    "name": "root",
+    "children": [
+      {"name": "layer1.conv", "path": "root.layer1.conv", "value": 1234, "params": 1234, "flops": 567890}
+    ],
+    "params": 12345678,
+    "flops": 9876543210
+  },
+  "bottlenecks": [
+    {"name": "layer4", "params": 5000000, "flops": 2000000000, "pct_params": 40.5}
+  ],
+  "module_count": 42,
+  "elapsed_ms": 1234
+}
+```
+
+**输出字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `ok` | boolean | 是否成功 |
+| `model_name` | string | 模型名称 |
+| `tree` | object | D3 treemap/backbone 可渲染的树结构 |
+| `tree.params` | number | 总参数量 |
+| `tree.flops` | number | 总 FLOPs |
+| `bottlenecks` | array | 瓶颈层列表（参数量占比 >25%） |
+| `module_count` | number | 模块总数（折叠后） |
+| `elapsed_ms` | number | 分析耗时（毫秒） |
+
+**使用示例：**
+
+```python
+# 外部 agent 调用
+result = await session.call_tool("analyze_architecture", {
+  "model_entry": "train_clip:build_model",
+  "project_dir": "/path/to/project"
+})
+tree = result.content[0]["tree"]
+# tree 可直接用于 D3 treemap / backbone flow 渲染
+```
+
+**三种视图入口：**
+1. Dashboard `架构分析` 标签页 → POST /api/arch/analyze
+2. DSH Plugin `ArchTab` → 侧栏面板实时渲染
+3. 独立 CLI → `guarftrain analyze_architecture --model entry:fn`
 
 ---
 

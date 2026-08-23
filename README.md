@@ -15,6 +15,21 @@ guarftrain init && guarftrain watch -- python train.py --epochs 20
 
 ---
 
+## What's New in v0.3.0
+
+| Feature | Description |
+|---------|-------------|
+| 架构分析 (Arch Analysis) | D3 treemap + backbone 可视化，FLOPs/参数量/瓶颈层检测，参考 archify 设计 |
+| 远程通信 (Remote Server) | 算力服务器端 FastAPI 服务，PC Dashboard 远程连接，鉴权 token |
+| Sub-agent 自主决策 | `--autonomy supervised/auto/full`，自主调整参数/干预训练 |
+| DSH Web GUI Plugin | DeepSeek Harness 侧栏面板，实时 metrics/GPU/anomalies/decisions/architecture |
+| CPU 模式兼容 | 无 GPU 时自动降级，训练曲线正常显示，GPU 面板提示不可用 |
+| PyTorch >= 1.13 支持 | resource_estimator 回退兼容 PyTorch 1.x |
+| MCP 工具扩展 | +1 `analyze_architecture` 工具（共 36 个） |
+| Dashboard 架构分析标签 | 独立「架构分析」标签页，treemap/backbone 双视图 |
+
+---
+
 ## What's New in v0.2.0
 
 | Feature | Description |
@@ -35,10 +50,10 @@ guarftrain init && guarftrain watch -- python train.py --epochs 20
 | Phase · 阶段 | Capability · 能力 | How · 方式 |
 |-------------|-------------------|------------|
 | 训练前 Pre-flight | GPU 显存预估 + batch 推荐 | `guarftrain preflight` |
-| 训练中 During | GPU+Loss 监控告警 / 崩溃自动恢复 / LLM 决策 | `guarftrain watch` |
-| 训练后 Post | 摘要+AI 解读 / Checkpoint 分析 / 模型可视化 / 推理 | `guarftrain summarize` |
+| 训练中 During | GPU+Loss 监控告警 / 崩溃自动恢复 / LLM 决策 / Sub-agent 自主干预 | `guardian watch` |
+| 训练后 Post | 摘要+AI 解读 / Checkpoint 分析 / 模型可视化 / 架构分析 | `guarftrain summarize` |
 | 跨实验 Cross | 自然语言查询 / 实验对比 / 数据导入 | `guarftrain query "best lr?"` |
-| 外部接入 External | MCP 35 工具 + Dashboard 远程配置 + Agent 图表推荐 | `guarftrain start` |
+| 外部接入 External | MCP 36 工具 + Dashboard 远程配置 + Agent 图表推荐 + 远程通信 | `guarftrain start` |
 
 ## Quick Start · 快速开始
 
@@ -92,20 +107,26 @@ Missing any one? Only the corresponding capability is disabled — training stil
 ```
 ┌─ Guardian Process (sidecar) ────────────────────────────────────┐
 │                                                                  │
-│  CLI (guarftrain) ──→ 16 subcommands                              │
+│  CLI (guarftrain) ──→ 18 subcommands                              │
 │  ├─ watch ──→ Watchdog: Popen + crash recovery + CLI rewrite    │
 │  │             └─ Monitor: log tail + GPU poll + anomaly detect  │
 │  │                  └─ AgentAdvisor: LLM decide → intervene       │
-│  ├─ serve ──→ MCP Server: 35 tools (24 read + 11 write)          │
+│  │                  └─ Sub-agent: --autonomy (supervised/auto/full) │
+│  ├─ remote ──→ FastAPI 远程通信服务（算力服务器端）                │
+│  ├─ serve ──→ MCP Server: 36 tools (25 read + 11 write)          │
 │  ├─ start ──→ Dashboard + MCP one-click                        │
 │  └─ experiments / query / compare ──→ Cross-experiment analysis  │
 │                                                                  │
 │  Decision Layers · 决策分层:                                      │
 │  ┌─ Contract (hard boundary, human-defined)                     │
 │  ├─ Agent (LLM, optional, within action space)                  │
+│  ├─ Sub-agent (autonomous, --autonomy supervised/auto/full)     │
 │  ├─ Rules (deterministic, always-on fallback)                   │
 │  ├─ MCP (external agent access, dual-mode delegation)           │
 │  └─ Dashboard (remote config, dirty-flag user protection)       │
+│                                                                  │
+│  Architecture Analysis · 架构分析:                                │
+│  └─ ArchAnalyzer: forward hooks → FLOPs → tree → D3 render     │
 │                                                                  │
 │  Training Process: python train.py (0 changes required)          │
 └──────────────────────────────────────────────────────────────────┘
@@ -120,9 +141,11 @@ Missing any one? Only the corresponding capability is disabled — training stil
 | `watch` | Guard any training command |
 | `start` | Dashboard + MCP one-click launch |
 | `serve` | Standalone MCP server |
+| `remote` | Start remote communication server (compute server side) |
 | `contract check` | Validate training script contract |
 | `preflight` | GPU memory estimate + batch recommendation |
 | `analyze` | Scan existing checkpoints |
+| `analyze_architecture` | Analyze model architecture (D3 treemap/backbone) |
 | `experiments` | List all historical experiments |
 | `query` | Natural language query ("best lr?") |
 | `compare` | Compare two experiments |
@@ -134,9 +157,9 @@ Missing any one? Only the corresponding capability is disabled — training stil
 
 ## MCP Tools · MCP 工具
 
-**24 read-only** (always available, no auth):
+**25 read-only** (always available, no auth):
 
-`get_training_status` · `get_metrics_history` · `list_checkpoints` · `compare_checkpoints` · `get_anomaly_history` · `get_recovery_history` · `get_summary` · `get_agent_decision_log` · `get_contract_status` · `list_contract_proposals` · `list_experiments` · `query_experiment` · `compare_experiments` · `get_model_structure` · `get_guardian_mode` · `get_gallery_config` · `get_import_format` · `inspect_source` · `get_training_log` · `get_post_training_checklist` · `get_pending_decisions` · `get_dashboard_config` · `recommend_charts` · `list_dashboard_templates`
+`get_training_status` · `get_metrics_history` · `list_checkpoints` · `compare_checkpoints` · `get_anomaly_history` · `get_recovery_history` · `get_summary` · `get_agent_decision_log` · `get_contract_status` · `list_contract_proposals` · `list_experiments` · `query_experiment` · `compare_experiments` · `get_model_structure` · `analyze_architecture` · `get_guardian_mode` · `get_gallery_config` · `get_import_format` · `inspect_source` · `get_training_log` · `get_post_training_checklist` · `get_pending_decisions` · `get_dashboard_config` · `recommend_charts` · `list_dashboard_templates`
 
 **11 write** (token auth + training-phase gating):
 
@@ -172,12 +195,12 @@ export GUARDIAN_MCP_TOKEN=your-secret   # write tool auth
 
 | Metric | Value |
 |--------|-------|
-| Version | 0.2.0 |
-| Modules | 19 (cp_1 ~ cp_19) |
-| Production code | ~10,500 lines |
+| Version | 0.3.0 |
+| Modules | 21 (cp_1 ~ cp_21) |
+| Production code | ~12,500 lines |
 | Tests | 221 (CI on push) |
-| MCP tools | 35 (24 read + 11 write) |
-| CLI commands | 16 |
+| MCP tools | 36 (25 read + 11 write) |
+| CLI commands | 18 |
 | Test coverage | ~13% (core paths: 100%) |
 | Python | 3.10+ |
 
@@ -188,7 +211,7 @@ export GUARDIAN_MCP_TOKEN=your-secret   # write tool auth
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture & workflow (ZH) |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | User manual (ZH) |
 | [docs/MCP.md](docs/MCP.md) | MCP integration guide (ZH) |
-| [docs/MCP_API_REFERENCE.md](docs/MCP_API_REFERENCE.md) | 35-tool API reference (ZH) |
+| [docs/MCP_API_REFERENCE.md](docs/MCP_API_REFERENCE.md) | 36-tool API reference (ZH) |
 | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) | 5-minute MCP onboarding (ZH) |
 | [docs/IMPLEMENTATION_REPORT.md](docs/IMPLEMENTATION_REPORT.md) | Per-module completion report (ZH) |
 

@@ -8,10 +8,12 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "build": "tsc -b && tsdown",
-    "typecheck": "tsc -b --pretty false",
+    "build": "tsc --noEmit && node build.mjs",
+    "build:host": "tsc --noEmit && node build.mjs --config tsdown.config.ts",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepare": "pnpm build"
   },
   "main": "dist/index.mjs",
   "types": "dist/index.d.mts",
@@ -21,8 +23,8 @@
       "default": "./dist/index.mjs"
     },
     "./client": {
-      "types": "./dist/client/index.d.mts",
-      "default": "./dist/client/index.mjs"
+      "types": "./dist-client/client/index.d.mts",
+      "default": "./dist-client/client/index.js"
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
@@ -32,6 +34,12 @@
     "dist/**/*.js.map",
     "dist/**/*.d.ts",
     "dist/**/*.d.ts.map",
+    "dist/**/*.d.mts",
+    "dist/**/*.d.mts.map",
+    "dist-client/**/*.js",
+    "dist-client/**/*.js.map",
+    "dist-client/**/*.d.ts",
+    "dist-client/**/*.d.ts.map",
     "src",
     "cordis.patch.yml"
   ],
@@ -52,10 +60,6 @@
       ],
       "platform": "web"
     }
-  },
-  "dependencies": {
-    "clsx": "^2.1.1",
-    "d3": "^7.9.0"
   },
   "peerDependencies": {
     "react": "^18.2.0",

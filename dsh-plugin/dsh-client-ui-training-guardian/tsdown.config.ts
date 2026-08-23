@@ -31,6 +31,10 @@ export default defineConfig([
     sourcemap: true,
     external: ['react', 'react/jsx-runtime', 'react-dom'],
     outputOptions: {
+      // Force `.js` (not `.cjs`): package.json `type: module` would otherwise
+      // make tsdown emit `index.cjs`, but DSH's loader resolves the bundle via
+      // the `./client` export which points at `dist-client/client/index.js`.
+      entryFileNames: '[name].js',
       banner: [
         `window.__ModuleLoader__.load({`,
         `  id: ${JSON.stringify(CLIENT_ID)},`,

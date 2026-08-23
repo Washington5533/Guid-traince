@@ -3,13 +3,13 @@
   "description": "Training Guardian panel for DSH Web GUI: real-time metrics, GPU status, anomaly feed, and sub-agent decision approvals",
   "version": "0.1.0",
   "type": "module",
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "pnpm@11.22.0",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "build": "tsc --noEmit && node build.mjs",
-    "build:host": "tsc --noEmit && node build.mjs --config tsdown.config.ts",
+    "build": "tsc --noEmit && tsdown",
+    "build:host": "tsc --noEmit && tsdown",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -23,7 +23,7 @@
       "default": "./dist/index.mjs"
     },
     "./client": {
-      "types": "./dist-client/client/index.d.mts",
+      "types": "./dist-client/client/index.d.ts",
       "default": "./dist-client/client/index.js"
     },
     "./src/*": "./src/*",

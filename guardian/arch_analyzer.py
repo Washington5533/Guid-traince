@@ -32,7 +32,21 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 def _build_dummy_input(model) -> Any:
-    """根据模型结构推断 dummy input shape。"""
+    """根据模型结构推断 dummy input shape，并匹配模型设备。"""
+    try:
+        import torch
+        # 检测模型所在设备（CPU / CUDA / MPS）
+        _device = next(model.parameters()).device
+    except Exception:
+        _device = None
+
+    def _zeros(*shape):
+        import torch
+        t = torch.zeros(*shape)
+        if _device is not None and _device.type != "cpu":
+            t = t.to(_device)
+        return t
+
     try:
         for m in model.modules():
             if hasattr(m, "in_channels") and hasattr(m, "weight"):

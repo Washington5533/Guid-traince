@@ -6,29 +6,40 @@
  * and injects the sidebar panel + settings card into DSH slots.
  */
 
+import { createElement } from 'react'
 import type { Context } from '@deepseek-ai/dsh-client-runtime'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
-import { TrainingPanel } from './panel/TrainingPanel'
+import { TrainingGuardianAction } from './panel/TrainingGuardianAction'
 import { SettingsCard, DEFAULT_SETTINGS, TgSettingsCardController } from './settings/SettingsCard'
 import { SseClient } from './sse/client'
 import { zh, en } from './locales'
 
-export interface TgClientOptions {
-  ctx: Context
-  localeNs?: string
-}
+/**
+ * Services this bundle needs on the fiber `ctx` before apply() runs,
+ * provided by the DSH client bundles listed in package.json
+ * `dsh.client.inject`: `slots` (sidebar/panel injection), `locale`
+ * (i18n registration) and `settingsScope` (settings binding).
+ */
+export const inject = ['slots', 'locale', 'settingsScope']
 
-export function apply({ ctx, localeNs = 'training-guardian' }: TgClientOptions): void {
+/**
+ * DSH client plugin entry: the cordis loader invokes this with the fiber
+ * `ctx` proxy directly (no options object), and every service it touches
+ * must be declared in {@link inject}.
+ */
+export function apply(ctx: Context): void {
+  const localeNs = 'training-guardian'
+
   // ---------- i18n ----------
   ctx.locale.register(localeNs, { zh, en })
 
   const t = (key: string): string => ctx.locale.t(`${localeNs}:${key}`)
 
   // ---------- settings ----------
-  // dsh-web-ui rc.6 exposes bind() on ctx.webUiSettings when the runtime
-  // provides a settings scope. We also fall back to the runtime-level bind
-  // if available.
-  const settingsBinder = (ctx.webUiSettings ?? ctx) as {
+  // The DSH client runtime exposes bind() on ctx.settingsScope when the
+  // ui-settings bundle provides a settings scope; fall back to a
+  // runtime-level bind if it is unavailable in this runtime version.
+  const settingsBinder = (ctx.settingsScope ?? ctx) as {
     bind<S>(spec: { default: S; namespace: string }): SettingsScope<S>
   }
 
@@ -90,41 +101,40 @@ export function apply({ ctx, localeNs = 'training-guardian' }: TgClientOptions):
   const onReject = (actionId: string, reason: string) => post('/api/decisions/reject', { action_id: actionId, reason })
 
   // ---------- inject slots ----------
+  // Session-header action: opens the monitoring panel popover. The seats are
+  // declared by the dsh client runtime bundles (ui-conversation for
+  // `conversation.session.header.actions`, ui-settings-plugins for the keyed
+  // `settings.plugin.item` card), not invented by the plugin.
   const sseUrl = controller.getSnapshot().serverUrl
-  const makePanel = () => import('react').then(React => ({
-    default: (props: Record<string, unknown>) =>
-      React.createElement(TrainingPanel, {
-        ...props,
+
+  try {
+    ctx.slots.inject('conversation.session.header.actions', () =>
+      ctx.slots.register({
+        name: 'conversation.session.header.actions',
+        id: 'training-guardian',
+        order: 10,
+      }, () => createElement(TrainingGuardianAction, {
         sse,
         sessionId: controller.getSnapshot().sessionId || null,
         serverUrl: sseUrl,
-        modelEntry: (props as any)?.modelEntry as string | undefined,
-        projectDir: (props as any)?.projectDir as string | undefined,
+        modelEntry: undefined,
+        projectDir: undefined,
         t,
         onApprove,
         onReject,
-      } as never),
-  }))
-
-  try {
-    ctx.slots.inject('sidebar.training-guardian', {
-      kind: 'single',
-      inject: makePanel,
-    })
+      })))
   } catch {
     // Slot not declared in this runtime; ignore gracefully.
   }
 
-  // Settings card in Web UI plugin group.
+  // Settings card in the plugin configuration tab, keyed by the settings
+  // namespace this plugin edits.
   try {
-    ctx.slots.inject('web-ui.plugin.item', {
-      kind: 'list',
-      inject: () =>
-        import('react').then(React => ({
-          default: (props: Record<string, unknown>) =>
-            React.createElement(SettingsCard, { ...props, controller, t } as never),
-        })),
-    })
+    ctx.slots.inject('settings.plugin.item', () =>
+      ctx.slots.register({
+        name: 'settings.plugin.item',
+        key: 'training-guardian',
+      }, () => createElement(SettingsCard, { controller, t })))
   } catch {
     // Optional slot — ignore when unavailable.
   }

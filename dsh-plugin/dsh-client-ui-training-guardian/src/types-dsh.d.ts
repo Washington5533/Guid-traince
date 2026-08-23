@@ -23,10 +23,28 @@ declare module '@deepseek-ai/dsh-client-runtime' {
       t(key: string): string
     }
     slots: {
-      inject<K extends string>(seat: K, spec: SlotSpec): void
-      register<K extends string>(seat: K, spec: SlotSpec): void
+      /**
+       * Contribute into an existing slot seat. The thunk runs when the seat
+       * resolves and returns the value of {@link register}.
+       */
+      inject<K extends string>(seat: K, thunk: () => unknown): void
+      /**
+       * Register a component under a seat: `id` for list seats, `key` for
+       * keyed seats (e.g. `settings.plugin.item` is keyed by the settings
+       * namespace the card edits).
+       */
+      register<K extends string>(
+        options: {
+          name: K
+          id?: string
+          key?: string
+          order?: number
+          locale?: string
+        },
+        component: (props: Record<string, unknown>) => unknown,
+      ): unknown
     }
-    webUiSettings?: {
+    settingsScope?: {
       bind<S>(spec: SettingsScopeSpec<S>): SettingsScope<S>
     }
   }
@@ -48,11 +66,4 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 declare module '@deepseek-ai/dsh-client-ui-settings' {
   export type { SettingsScope } from '@deepseek-ai/dsh-client-runtime'
-}
-
-type SlotSpec = {
-  kind: 'single' | 'list'
-  inject: () => Promise<{
-    default: (props: Record<string, unknown>) => unknown
-  }>
 }

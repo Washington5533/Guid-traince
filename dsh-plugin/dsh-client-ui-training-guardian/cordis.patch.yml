@@ -1,0 +1,6 @@
+# Training Guardian plugin for DSH Web GUI
+# Mounts the browser-side panel into the sidebar and settings UI.
+
+- insert:
+    - id: training-guardian
+      name: '@linxin666/dsh-client-ui-training-guardian'

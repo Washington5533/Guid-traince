@@ -6,6 +6,7 @@
 <title>Guardian Dashboard</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css">
 <script src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <style>
 /* ===== GitHub-Inspired Theme ===== */
 :root {
@@ -682,11 +683,12 @@ a:hover { text-decoration: underline; }
         </div>
       </div>
 
-      <!-- Extra Tabs: Model / Gallery -->
+      <!-- Extra Tabs: Model / Gallery / Architecture -->
       <div class="extra-tabs">
         <div class="extra-tabs__bar">
           <div class="extra-tab" data-extra-tab="model" onclick="switchExtraTab('model')">模型结构</div>
           <div class="extra-tab" data-extra-tab="gallery" onclick="switchExtraTab('gallery')">图库</div>
+          <div class="extra-tab" data-extra-tab="arch" onclick="switchExtraTab('arch')">架构分析</div>
         </div>
         <div id="extra-panel-model" class="extra-panel">
           <div class="card" style="margin-top:12px">
@@ -714,6 +716,46 @@ a:hover { text-decoration: underline; }
             </div>
             <div id="gallery-gen-status" style="font-size:12px;color:var(--color-text-secondary);margin-bottom:8px;display:none"></div>
             <div id="gallery-grid" class="gallery-grid"></div>
+          </div>
+        </div>
+        <div id="extra-panel-arch" class="extra-panel">
+          <div class="card" style="margin-top:12px">
+            <div class="card__header">
+              <div class="card__title">架构分析</div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+                <button class="btn btn--primary btn--sm" onclick="runArchAnalysis()" id="btn-arch-analyze">分析架构</button>
+                <div id="arch-view-toggles" style="display:flex;gap:3px">
+                  <button class="btn btn--sm" onclick="setArchView('treemap')" id="btn-arch-treemap" style="display:none">占比图</button>
+                  <button class="btn btn--sm" onclick="setArchView('backbone')" id="btn-arch-backbone" style="display:none">流水线</button>
+                </div>
+                <div id="arch-color-toggles" style="display:flex;gap:3px">
+                  <button class="btn btn--sm btn--active" onclick="setArchColor('params')" id="btn-arch-params" style="display:none">按参数</button>
+                  <button class="btn btn--sm" onclick="setArchColor('flops')" id="btn-arch-flops" style="display:none">按 FLOPs</button>
+                </div>
+              </div>
+            </div>
+            <div id="arch-loading" style="display:none;padding:20px;text-align:center;color:var(--color-text-secondary);font-size:12px">
+              <div class="skeleton-line skeleton-line--long" style="margin:4px auto;width:60%"></div>
+              <div class="skeleton-line skeleton-line--medium" style="margin:4px auto;width:40%"></div>
+              <div style="margin-top:8px">分析中...</div>
+            </div>
+            <div id="arch-error" style="display:none;padding:16px;text-align:center;color:var(--color-danger-fg);font-size:12px"></div>
+            <div id="arch-empty" style="padding:24px;text-align:center;color:var(--color-text-tertiary);font-size:12px">
+              点击「分析架构」查看模型结构可视化
+            </div>
+            <div id="arch-result" style="display:none">
+              <div style="display:flex;gap:8px;align-items:stretch;min-height:420px">
+                <div id="arch-viz" style="flex:1;min-width:0;border:1px solid var(--color-border-muted);border-radius:var(--radius);overflow:hidden;background:var(--color-bg-canvas)"></div>
+                <div style="width:220px;min-width:220px;border-left:1px solid var(--color-border-muted);padding:12px;overflow-y:auto;background:var(--color-bg-secondary)">
+                  <div style="font-size:10px;font-weight:600;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">
+                    瓶颈层 <span id="arch-bn-count"></span>
+                  </div>
+                  <div id="arch-bottlenecks"></div>
+                </div>
+              </div>
+              <div id="arch-detail" style="display:none;margin-top:12px;padding:12px;border:1px solid var(--color-border-muted);border-radius:var(--radius);background:var(--color-bg-secondary)"></div>
+              <div style="display:flex;gap:16px;margin-top:10px;font-size:11px;color:var(--color-text-secondary);flex-wrap:wrap" id="arch-stats"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -1067,6 +1109,9 @@ function switchExtraTab(name) {
   document.getElementById(`extra-panel-${name}`)?.classList.add('active');
   if (name === 'model') loadModelTree(currentProcessId);
   if (name === 'gallery') loadGallery(currentProcessId);
+  if (name === 'arch') {
+    document.getElementById('btn-arch-analyze').disabled = !currentProcessId;
+  }
 }
 
 // ===================== AI Status Check =====================
@@ -2107,6 +2152,291 @@ function copyGuardianCmd() {
     () => showToast('命令已复制到剪贴板'),
     () => showToast('复制失败，请手动复制: ' + fullCmd, 4000)
   );
+}
+
+// ===================== Architecture Analysis =====================
+let _archResult = null;
+let _archView = 'treemap';
+let _archColor = 'params';
+
+function switchExtraTab(name) {
+  document.querySelectorAll('.extra-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.extra-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`[data-extra-tab="${name}"]`)?.classList.add('active');
+  document.getElementById(`extra-panel-${name}`)?.classList.add('active');
+  if (name === 'model') loadModelTree(currentProcessId);
+  if (name === 'gallery') loadGallery(currentProcessId);
+  if (name === 'arch') {
+    document.getElementById('btn-arch-analyze').disabled = !currentProcessId;
+  }
+}
+
+async function runArchAnalysis() {
+  if (!currentProcessId || !currentDetail) return;
+  const btn = document.getElementById('btn-arch-analyze');
+  const loadingEl = document.getElementById('arch-loading');
+  const errorEl = document.getElementById('arch-error');
+  const emptyEl = document.getElementById('arch-empty');
+  const resultEl = document.getElementById('arch-result');
+  const vizEl = document.getElementById('arch-viz');
+
+  btn.disabled = true;
+  loadingEl.style.display = 'block';
+  errorEl.style.display = 'none';
+  emptyEl.style.display = 'none';
+  resultEl.style.display = 'none';
+  vizEl.innerHTML = '';
+
+  try {
+    const r = await fetch('/api/arch/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        process_id: currentProcessId,
+        model_entry: currentDetail.model_entry || '',
+        project_dir: currentDetail.project_dir || '',
+      }),
+    });
+    const d = await r.json();
+    if (d.error) {
+      errorEl.textContent = '分析失败: ' + d.error;
+      errorEl.style.display = 'block';
+      loadingEl.style.display = 'none';
+      emptyEl.style.display = 'block';
+      return;
+    }
+    _archResult = d;
+    _archView = 'treemap';
+    _archColor = 'params';
+    document.getElementById('btn-arch-treemap').style.display = '';
+    document.getElementById('btn-arch-backbone').style.display = '';
+    document.getElementById('btn-arch-params').style.display = '';
+    document.getElementById('btn-arch-flops').style.display = '';
+    document.getElementById('btn-arch-treemap').classList.add('btn--active');
+    document.getElementById('btn-arch-backbone').classList.remove('btn--active');
+    document.getElementById('btn-arch-params').classList.add('btn--active');
+    document.getElementById('btn-arch-flops').classList.remove('btn--active');
+
+    // Stats
+    document.getElementById('arch-stats').innerHTML =
+      `${d.elapsed_ms || 0}ms | ${d.module_count || 0} 模块 | ${d.layer_count || 0} 层 | ${fmtParams(d.total_params)} 参数 | ${(d.total_flops_m || 0).toFixed(1)}M FLOPs`;
+
+    // Bottlenecks
+    const bnEl = document.getElementById('arch-bottlenecks');
+    const bnCountEl = document.getElementById('arch-bn-count');
+    bnCountEl.textContent = d.bottleneck_count > 0 ? `(${d.bottleneck_count})` : '';
+    if (!d.bottlenecks || !d.bottlenecks.length) {
+      bnEl.innerHTML = '<div style="font-size:11px;color:var(--color-text-tertiary);padding:8px 0">未检测到瓶颈层</div>';
+    } else {
+      bnEl.innerHTML = d.bottlenecks.map(bn => {
+        const sevColor = bn.severity === 'critical' ? 'var(--color-danger-fg)' : bn.severity === 'warning' ? 'var(--color-warning-fg)' : 'var(--color-accent-fg)';
+        return `<div onclick="showArchDetail('${escapeHtml(bn.layer)}')" style="padding:6px 8px;margin-bottom:4px;border-radius:4px;cursor:pointer;border-left:3px solid ${sevColor};border:1px solid var(--color-border-muted);border-left-width:3px;background:var(--color-bg-elevated)">
+          <div style="font-size:11px;font-weight:600;word-break:break-all">${escapeHtml(bn.layer)}</div>
+          <div style="font-size:10px;color:var(--color-text-secondary);margin-top:2px">P: ${(bn.params_pct || 0).toFixed(1)}% | F: ${(bn.flops_pct || 0).toFixed(1)}%</div>
+        </div>`;
+      }).join('');
+    }
+
+    loadingEl.style.display = 'none';
+    resultEl.style.display = 'block';
+    renderArchViz();
+  } catch (e) {
+    errorEl.textContent = '请求失败: ' + e.message;
+    errorEl.style.display = 'block';
+    loadingEl.style.display = 'none';
+    emptyEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function setArchView(view) {
+  _archView = view;
+  document.getElementById('btn-arch-treemap').classList.toggle('btn--active', view === 'treemap');
+  document.getElementById('btn-arch-backbone').classList.toggle('btn--active', view === 'backbone');
+  if (_archResult) renderArchViz();
+}
+
+function setArchColor(by) {
+  _archColor = by;
+  document.getElementById('btn-arch-params').classList.toggle('btn--active', by === 'params');
+  document.getElementById('btn-arch-flops').classList.toggle('btn--active', by === 'flops');
+  if (_archResult) renderArchViz();
+}
+
+function showArchDetail(name) {
+  if (!_archResult) return;
+  const nd = _archResult.tree.children.find(n => n.name === name);
+  if (!nd) return;
+  const el = document.getElementById('arch-detail');
+  const mp = Math.max(1, ..._archResult.tree.children.map(n => n.params || 0));
+  const mf = Math.max(1, ..._archResult.tree.children.map(n => n.flops || 0));
+  const pp = (nd.params / mp) * 100;
+  const fpp = (nd.flops / mf) * 100;
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:700">${escapeHtml(nd.name.split('.').pop())}</div>
+      <button onclick="document.getElementById('arch-detail').style.display='none'" style="width:24px;height:24px;border:1px solid var(--color-border-muted);background:none;color:var(--color-text-secondary);cursor:pointer;border-radius:4px;font-size:12px">x</button>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--color-border-muted);font-size:11px">
+      <span style="color:var(--color-text-secondary)">Type</span>
+      <span style="color:var(--color-text-primary);font-weight:600">${escapeHtml(nd.type || '?')}</span>
+    </div>
+    ${nd.repeat > 1 ? `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--color-border-muted);font-size:11px">
+      <span style="color:var(--color-text-secondary)">Repeat</span>
+      <span style="color:var(--color-text-primary);font-weight:600">x${nd.repeat}</span>
+    </div>` : ''}
+    <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--color-border-muted);font-size:11px">
+      <span style="color:var(--color-text-secondary)">Params</span>
+      <span style="color:var(--color-text-primary);font-weight:600">${fmtParams(nd.params)} (${pp.toFixed(1)}%)</span>
+    </div>
+    <div style="height:3px;border-radius:2px;background:var(--color-bg-tertiary);margin:3px 0 6px;overflow:hidden">
+      <div style="height:100%;width:${pp}%;background:var(--color-success-fg);border-radius:2px;transition:width .3s"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--color-border-muted);font-size:11px">
+      <span style="color:var(--color-text-secondary)">FLOPs</span>
+      <span style="color:var(--color-text-primary);font-weight:600">${fmtParams(nd.flops)}</span>
+    </div>
+    <div style="height:3px;border-radius:2px;background:var(--color-bg-tertiary);margin:3px 0 6px;overflow:hidden">
+      <div style="height:100%;width:${Math.min(fpp, 100).toFixed(1)}%;background:var(--color-accent-fg);border-radius:2px;transition:width .3s"></div>
+    </div>
+  `;
+}
+
+function renderArchViz() {
+  if (!_archResult || !_archResult.tree || !_archResult.tree.children) return;
+  const vizEl = document.getElementById('arch-viz');
+  vizEl.innerHTML = '';
+  const nodes = _archResult.tree.children;
+  const w = vizEl.clientWidth || 600;
+  const h = vizEl.clientHeight || 400;
+  const svg = d3.select(vizEl).append('svg').attr('viewBox', [0, 0, w, h]);
+  const colorBy = _archColor;
+
+  if (_archView === 'treemap') {
+    _renderArchTreemap(svg, nodes, w, h, colorBy);
+  } else {
+    _renderArchBackbone(svg, nodes, w, h, colorBy);
+  }
+}
+
+function _archGetColor(v, maxVal, colorBy) {
+  const r = v / Math.max(1, maxVal);
+  if (colorBy === 'params') return r < 0.25 ? 'var(--color-success-fg)' : r < 0.5 ? 'var(--color-purple)' : 'var(--color-danger-fg)';
+  return r < 0.25 ? 'var(--color-accent-fg)' : r < 0.5 ? 'var(--color-purple)' : '#bf8700';
+}
+
+function _renderArchTreemap(container, nodes, w, h, colorBy) {
+  const ch = nodes.map((c, i) => ({
+    id: i, name: c.name,
+    value: colorBy === 'params' ? (c.params || 1) : (c.flops || 1),
+    raw: c,
+  }));
+  const root = d3.hierarchy({ children: ch }).sum(d => d.value);
+  d3.treemap().size([w, h]).padding(3)(root);
+  const mp = Math.max(1, ...nodes.map(n => colorBy === 'params' ? (n.params || 0) : (n.flops || 0)));
+
+  const g = container.selectAll('g').data(root.leaves()).join('g')
+    .attr('transform', d => `translate(${d.x0},${d.y0})`);
+
+  g.append('rect')
+    .attr('width', d => d.x1 - d.x0)
+    .attr('height', d => d.y1 - d.y0)
+    .attr('fill', d => _archGetColor((d.data.raw[colorBy === 'params' ? 'params' : 'flops'] || 1), mp, colorBy))
+    .attr('rx', 3).attr('opacity', 0.85)
+    .attr('stroke', '#fff').attr('stroke-width', 1)
+    .style('cursor', 'pointer')
+    .on('click', (_ev, d) => showArchDetail(d.data.raw.name))
+    .on('mouseenter', function (_ev, d) {
+      const nd = d.data.raw;
+      d3.select(this).attr('stroke', '#4fc3f7').attr('stroke-width', 2);
+      const el = d3.select('body').append('div').attr('class', 'arch-tooltip');
+      el.style('position', 'fixed').style('padding', '8px 12px').style('background', '#1a1a2e')
+        .style('border', '1px solid #333').style('border-radius', 6).style('font-size', 11)
+        .style('color', '#e0e0e0').style('pointer-events', 'none').style('z-index', 9999)
+        .style('box-shadow', '0 3px 12px rgba(0,0,0,.4)').style('line-height', 1.5)
+        .html(`<b>${nd.name}</b><br>${nd.type || ''} ${nd.repeat > 1 ? 'x' + nd.repeat : ''}<br>Params: ${fmtParams(nd.params)}<br>FLOPs: ${fmtParams(nd.flops)}`);
+    })
+    .on('mouseleave', function () {
+      d3.select(this).attr('stroke', '#fff').attr('stroke-width', 1);
+      d3.selectAll('.arch-tooltip').remove();
+    });
+
+  g.filter(d => (d.x1 - d.x0) > 40 && (d.y1 - d.y0) > 20)
+    .append('text')
+    .attr('x', 4).attr('y', 14)
+    .attr('fill', '#fff').attr('font-size', 9).attr('font-weight', 600)
+    .text(d => {
+      const n = d.data.raw.name.split('.').pop();
+      return n && n.length > 12 ? n.slice(0, 10) + '..' : n;
+    });
+}
+
+function _renderArchBackbone(container, nodes, w, h, colorBy) {
+  const nw = 140, nh = 72, gap = 60, mx = 60, my = 50;
+  const tw = nodes.length * (nw + gap) - gap + mx * 2;
+  const th = nh + my * 2 + 30;
+  container.attr('viewBox', [0, 0, Math.max(tw, w), Math.max(th, h)]);
+  const gg = container.append('g');
+  const mp = Math.max(1, ...nodes.map(n => colorBy === 'params' ? (n.params || 0) : (n.flops || 0)));
+
+  for (let i = 0; i < nodes.length - 1; i++) {
+    const x1 = mx + i * (nw + gap) + nw, y = my + nh / 2, x2 = mx + (i + 1) * (nw + gap);
+    const tk = Math.max(1, Math.min(5, (nodes[i].params || 0) / mp * 5));
+    gg.append('line').attr('x1', x1).attr('y1', y).attr('x2', x2).attr('y2', y)
+      .attr('stroke', '#d0d7de').attr('stroke-width', tk).attr('stroke-linecap', 'round');
+    gg.append('polygon')
+      .attr('points', `${x2},${y} ${x2 - 5},${y - 3} ${x2 - 5},${y + 3}`)
+      .attr('fill', '#d0d7de');
+  }
+
+  nodes.forEach((nd, i) => {
+    const x = mx + i * (nw + gap), y = my;
+    const pctP = (nd.params || 0) / mp, pctF = (nd.flops || 0) / mp;
+    const g = gg.append('g').attr('transform', `translate(${x},${y})`).style('cursor', 'pointer');
+    g.on('click', () => showArchDetail(nd.name));
+    g.on('mouseenter', function (_ev) {
+      d3.select(this).select('rect:first-child').attr('stroke', '#4fc3f7').attr('stroke-width', 2);
+      const el = d3.select('body').append('div').attr('class', 'arch-tooltip');
+      el.style('position', 'fixed').style('padding', '8px 12px').style('background', '#1a1a2e')
+        .style('border', '1px solid #333').style('border-radius', 6).style('font-size', 11)
+        .style('color', '#e0e0e0').style('pointer-events', 'none').style('z-index', 9999)
+        .style('box-shadow', '0 3px 12px rgba(0,0,0,.4)').style('line-height', 1.5)
+        .html(`<b>${nd.name}</b><br>${nd.type || ''} ${nd.repeat > 1 ? 'x' + nd.repeat : ''}<br>Params: ${fmtParams(nd.params)}<br>FLOPs: ${fmtParams(nd.flops)}`);
+    });
+    g.on('mouseleave', function () {
+      d3.select(this).select('rect:first-child').attr('stroke', '#d0d7de').attr('stroke-width', 1);
+      d3.selectAll('.arch-tooltip').remove();
+    });
+
+    g.append('rect').attr('width', nw).attr('height', nh).attr('rx', 8)
+      .attr('fill', '#fff').attr('stroke', '#d0d7de');
+    g.append('rect').attr('width', nw).attr('height', 2).attr('rx', 1)
+      .attr('fill', _archGetColor(colorBy === 'params' ? nd.params : nd.flops || 0, mp, colorBy));
+    const lbl = nd.name.split('.').pop();
+    g.append('text').attr('x', nw / 2).attr('y', 20).attr('text-anchor', 'middle')
+      .attr('fill', '#1f2328').attr('font-size', 10).attr('font-weight', 600)
+      .text(lbl && lbl.length > 16 ? lbl.slice(0, 14) + '..' : lbl);
+    g.append('text').attr('x', nw / 2).attr('y', 32).attr('text-anchor', 'middle')
+      .attr('fill', '#656d76').attr('font-size', 8)
+      .text((nd.type || '') + (nd.repeat > 1 ? ' x' + nd.repeat : ''));
+    g.append('rect').attr('x', 8).attr('y', 38).attr('width', nw - 16).attr('height', 3).attr('rx', 1.5).attr('fill', '#f3f4f6');
+    g.append('rect').attr('x', 8).attr('y', 38).attr('width', Math.max(2, (nw - 16) * pctP)).attr('height', 3).attr('rx', 1.5).attr('fill', '#1a7f37');
+    g.append('rect').attr('x', 8).attr('y', 44).attr('width', nw - 16).attr('height', 3).attr('rx', 1.5).attr('fill', '#f3f4f6');
+    g.append('rect').attr('x', 8).attr('y', 44).attr('width', Math.max(2, (nw - 16) * pctF)).attr('height', 3).attr('rx', 1.5).attr('fill', '#0969da');
+    g.append('text').attr('x', 6).attr('y', 58).attr('fill', '#656d76').attr('font-size', 8).text(fmtParams(nd.params) + ' p');
+    g.append('text').attr('x', nw - 6).attr('y', 58).attr('text-anchor', 'end').attr('fill', '#bf8700').attr('font-size', 7).text(fmtParams(nd.flops));
+  });
+
+  container.call(d3.zoom().scaleExtent([0.3, 3]).on('zoom', (e) => gg.attr('transform', e.transform)));
+}
+
+function fmtParams(p) {
+  if (!p && p !== 0) return '0';
+  if (p >= 1e6) return (p / 1e6).toFixed(1) + 'M';
+  if (p >= 1e3) return Math.round(p / 1e3) + 'K';
+  return p.toString();
 }
 </script>
 </body>

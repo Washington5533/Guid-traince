@@ -57,7 +57,7 @@ dashboard = [
 
 # Model visualization & inference (install only if not already present)
 viz = [
-    "torch>=2.0",
+    "torch>=1.13",
     "torchvision>=0.15",
 ]
 

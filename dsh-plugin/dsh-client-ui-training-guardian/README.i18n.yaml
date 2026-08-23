@@ -1,0 +1,16 @@
+{
+  "name": "@linxin666/dsh-client-ui-training-guardian",
+  "description": {
+    "zh": "DSH Web GUI 插件，在侧边栏增加 Training Guardian 面板，实时展示训练指标、GPU 设备状态、异常事件流，以及子 Agent 决策审批工作流。",
+    "en": "DSH Web GUI plugin that adds a Training Guardian sidebar panel with real-time training metrics, GPU device status, anomaly feed, and sub-agent decision approval workflow."
+  },
+  "keywords": [
+    "dsh",
+    "deepseek",
+    "training",
+    "guardian",
+    "gpu",
+    "monitoring",
+    "plugin"
+  ]
+}

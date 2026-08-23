@@ -226,6 +226,27 @@ READONLY_TOOLS: list[dict[str, Any]] = [
         "annotations": {"readOnlyHint": True, "destructiveHint": False,
                         "idempotentHint": True},
     },
+    {
+        "name": "analyze_architecture",
+        "description": (
+            "分析模型架构：解析模块结构、计算 FLOPs/参数量、检测瓶颈层、"
+            "生成 D3 可渲染的架构树数据。"
+            "返回包含 tree/bottlenecks/stats 的 JSON，"
+            "可直接用于 D3 treemap 或 backbone flow 可视化。只读。"
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "model_entry": {"type": "string",
+                                "description": "模型入口（module:function），如 train:build_model"},
+                "project_dir": {"type": "string",
+                                "description": "项目目录（Python 路径），用于导入模型模块"},
+            },
+            "required": ["model_entry"],
+        },
+        "annotations": {"readOnlyHint": True, "destructiveHint": False,
+                        "idempotentHint": True},
+    },
 ]
 
 
@@ -1184,6 +1205,37 @@ class GuardianMCPServer:
         return json.dumps({**graph, "layer_stats": stats.get("layer_stats", [])},
                          ensure_ascii=False, indent=2)
 
+    def _handle_analyze_architecture(
+        self, model_entry: str | None = None, project_dir: str = "", **kwargs
+    ) -> str:
+        """分析模型架构：FLOPs / 参数 / 瓶颈 / D3 tree data。"""
+        from .arch_analyzer import ArchAnalyzer
+
+        analyzer = ArchAnalyzer()
+
+        # 从合约获取 model_entry
+        if not model_entry and self.task_contract:
+            model_entry = self.task_contract.script.get("buildable_entry", {}).get(
+                "model_fn", ""
+            )
+        if not model_entry:
+            return json.dumps(
+                {"error": "需要 model_entry 参数，或在 contract 中声明 buildable_entry.model_fn"},
+                ensure_ascii=False,
+            )
+
+        try:
+            proj_dir = project_dir or str(self.state_dir)
+            if proj_dir.endswith(("logs", "log")):
+                proj_dir = str(Path(proj_dir).parent)
+            if proj_dir not in sys.path:
+                sys.path.insert(0, proj_dir)
+            result = _mcp_run_arch_analyzer(analyzer, model_entry, proj_dir)
+        except Exception as exc:
+            return json.dumps({"error": f"架构分析失败: {exc}"}, ensure_ascii=False)
+
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
     def _handle_get_guardian_mode(self, **kwargs) -> str:
         mode_info = self.get_mode()
 
@@ -1198,7 +1250,7 @@ class GuardianMCPServer:
             "get_model_structure", "get_guardian_mode",
             "get_gallery_config", "get_import_format", "inspect_source",
             "get_training_log", "get_post_training_checklist",
-            "get_pending_decisions",
+            "get_pending_decisions", "analyze_architecture",
         ]
         write_tools_during = [
             "trigger_recovery", "restart_with_params", "stop_training",
@@ -1211,7 +1263,7 @@ class GuardianMCPServer:
 
         mode_info["usage_guide"] = {
             "overview": (
-                "Guardian MCP 提供 21 个只读工具 + 10 个写工具，"
+                "Guardian MCP 提供 22 个只读工具 + 10 个写工具，"
                 "覆盖训练全生命周期（监控、恢复、分析、可视化、推理）。"
             ),
             "tools": {
@@ -1970,6 +2022,8 @@ class GuardianMCPServer:
             "get_dashboard_config": self._handle_get_dashboard_config,
             "recommend_charts": self._handle_recommend_charts,
             "list_dashboard_templates": self._handle_list_dashboard_templates,
+            # 架构分析
+            "analyze_architecture": self._handle_analyze_architecture,
         }
         self._WRITE_HANDLERS = {
             "trigger_recovery": self._handle_trigger_recovery,
@@ -2169,3 +2223,17 @@ def _safe_serialize(obj: Any) -> Any:
         return obj
     except (TypeError, ValueError):
         return str(obj)
+
+
+def _mcp_run_arch_analyzer(analyzer, model_entry: str, project_dir: str) -> dict:
+    """MCP handler 用：动态导入模型并执行架构分析。"""
+    import importlib
+
+    if project_dir not in sys.path:
+        sys.path.insert(0, project_dir)
+    mod_parts = model_entry.split(":", 1)
+    if len(mod_parts) != 2:
+        return {"error": f"invalid model_entry: {model_entry}"}
+    mod = importlib.import_module(mod_parts[0])
+    model_fn = getattr(mod, mod_parts[1])
+    return analyzer.analyze(model_fn)

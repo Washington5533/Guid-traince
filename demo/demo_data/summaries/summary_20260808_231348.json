@@ -1,0 +1,109 @@
+{
+  "experiment_id": "mnist-guardian",
+  "status": "failed",
+  "duration_seconds": 5.0,
+  "duration": "4s",
+  "exit_code": 2,
+  "failure": {
+    "kind": "unknown",
+    "detail": "无法识别的失败原因，保守判定为不可恢复（不反复重启）"
+  },
+  "training": {
+    "records": 0,
+    "note": "无指标记录（指标通道未配置或训练未产出）"
+  },
+  "anomaly_events": [],
+  "restarts": [],
+  "checkpoints": {
+    "total": 6,
+    "latest": "cp_5",
+    "best": null,
+    "metric": "accuracy",
+    "metric_source": {
+      "name": "accuracy",
+      "direction": "max",
+      "source": "agent_inferred",
+      "task_type": "classification"
+    },
+    "checkpoints": [
+      {
+        "epoch": 0,
+        "path": "checkpoints\\cp_0",
+        "metrics": {
+          "epoch": 0,
+          "train/loss": 1.0,
+          "val/accuracy": 0.5,
+          "lr": 0.001,
+          "batch_size": 64
+        }
+      },
+      {
+        "epoch": 1,
+        "path": "checkpoints\\cp_1",
+        "metrics": {
+          "epoch": 1,
+          "train/loss": 0.5,
+          "val/accuracy": 0.55,
+          "lr": 0.001,
+          "batch_size": 64
+        }
+      },
+      {
+        "epoch": 2,
+        "path": "checkpoints\\cp_2",
+        "metrics": {
+          "epoch": 2,
+          "train/loss": 0.3333333333333333,
+          "val/accuracy": 0.6,
+          "lr": 0.001,
+          "batch_size": 16
+        }
+      },
+      {
+        "epoch": 3,
+        "path": "checkpoints\\cp_3",
+        "metrics": {
+          "epoch": 3,
+          "train/loss": 0.25,
+          "val/accuracy": 0.65,
+          "lr": 0.001,
+          "batch_size": 16
+        }
+      },
+      {
+        "epoch": 4,
+        "path": "checkpoints\\cp_4",
+        "metrics": {
+          "epoch": 4,
+          "train/loss": 0.2,
+          "val/accuracy": 0.7,
+          "lr": 0.001,
+          "batch_size": 16
+        }
+      },
+      {
+        "epoch": 5,
+        "path": "checkpoints\\cp_5",
+        "metrics": {
+          "epoch": 5,
+          "train/loss": 0.16666666666666666,
+          "val/accuracy": 0.75,
+          "lr": 0.001,
+          "batch_size": 16
+        }
+      }
+    ]
+  },
+  "resources": {
+    "gpu_util_avg": 0.0,
+    "gpu_hours": 0.0,
+    "gpu_mem_peak_mb": 24.0,
+    "gpu_mem_peak_gb": 0.02,
+    "gpu_temp_avg": 44.0,
+    "gpu_temp_max": 44.0,
+    "gpu_count": 1,
+    "gpu_name": "GPU"
+  },
+  "lr_schedule": [],
+  "ai_narrative": "本次训练以失败告终，进程在启动约 5 秒后异常退出（退出码 2），失败原因无法识别，被保守判定为不可恢复。训练期间并未产出指标记录，但检查点信息显示，在失败前模型已顺利训练至第 5 个 epoch，共保存 6 个检查点。从这些预留的指标快照看，训练损失持续下降（从 1.0 降至 0.167），验证准确率稳步提升至 0.75，表明训练过程本身是正常的。训练过程中未出现异常事件，也未触发自动重启。GPU 资源使用极低。整体上，模型训练本身在数据侧表现良好，但实验因外部或环境故障突然终止，未能完成预期流程。"
+}

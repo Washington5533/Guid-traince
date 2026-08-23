@@ -1,0 +1,12 @@
+{
+  "process_id": "mnist-guardian",
+  "name": "mnist-guardian",
+  "command": "python C:/Users/wst/Desktop/anytries/deepfucking/train_clip.py --epochs 50 --batch-size 32 --log-file C:/Users/wst/Desktop/anytries/deepfucking/logs/train.log --ckpt-dir C:/Users/wst/Desktop/anytries/deepfucking/checkpoints",
+  "project_dir": "C:\\Users\\wst\\Desktop\\anytries\\deepfucking",
+  "status": "running",
+  "registered_at": 1786204459.9202812,
+  "finished_at": null,
+  "config": {},
+  "model_entry": "train_clip:build_model",
+  "log_file": "C:\\Users\\wst\\Desktop\\anytries\\deepfucking\\logs\\train.log"
+}

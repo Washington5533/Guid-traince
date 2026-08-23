@@ -1,0 +1,1 @@
+{"version":3,"file":"MetricsTab.d.ts","sourceRoot":"","sources":["../../../src/client/panel/MetricsTab.tsx"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,KAAK,EAAE,MAAM,YAAY,CAAA;AAEvC,UAAU,eAAe;IACvB,OAAO,EAAE,MAAM,CAAC,MAAM,EAAE,OAAO,CAAC,CAAA;IAChC,CAAC,EAAE,CAAC,GAAG,EAAE,KAAK,KAAK,MAAM,CAAA;CAC1B;AASD,wBAAgB,UAAU,CAAC,EAAE,OAAO,EAAE,CAAC,EAAE,EAAE,eAAe,OA4BzD"}

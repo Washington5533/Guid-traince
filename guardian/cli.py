@@ -64,6 +64,12 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--agent", action="store_true", help="启用 agent 决策层（需配置 API key）")
     w.add_argument("--with-mcp", action="store_true", help="watch 的同时后台启动 MCP server")
     w.add_argument("--with-dashboard", action="store_true", help="watch 的同时后台启动 Web 控制面板")
+    w.add_argument("--autonomy", choices=["supervised", "auto", "full"], default="supervised",
+                    help="Sub-agent 自主权限：supervised=高风险需审批 | auto=自动调整参数 | full=全自动")
+    w.add_argument("--remote", action="store_true", help="启动远程通信服务（算力服务器端，供 PC 端连接）")
+    w.add_argument("--remote-port", type=int, default=8765, help="远程通信端口，默认 8765")
+    w.add_argument("--remote-host", default="0.0.0.0", help="远程监听地址，默认 0.0.0.0")
+    w.add_argument("--remote-auth", default=None, help="远程通信鉴权 token")
 
     c = sub.add_parser("contract", help="契约校验与审核")
     c.add_argument("action", choices=["check", "review"])
@@ -156,6 +162,12 @@ def build_parser() -> argparse.ArgumentParser:
     dash = sub.add_parser("dashboard", help="启动 Web 控制面板（独立进程）")
     dash.add_argument("--port", type=int, default=8765, help="HTTP 端口，默认 8765")
     dash.add_argument("--host", default="127.0.0.1")
+
+    rem = sub.add_parser("remote", help="启动远程通信服务（算力服务器端，供 PC 端 Dashboard 连接）")
+    rem.add_argument("--port", type=int, default=8765, help="HTTP 端口，默认 8765")
+    rem.add_argument("--host", default="0.0.0.0", help="监听地址，默认 0.0.0.0（局域网可访问）")
+    rem.add_argument("--auth", default=None, help="鉴权 token（可选）")
+    rem.add_argument("--config", default="configs/guardian.yaml")
 
     proj = sub.add_parser("project", help="项目上下文管理（自动探测路径）")
     proj.add_argument("action", choices=["init", "show", "scan", "fill"],
@@ -342,6 +354,14 @@ def _print_start_banner(host: str, dash_port: int, mcp_port: int,
                         mcp_started: bool, dash_status: str,
                         train_cmd: list[str] | None) -> None:
     """dash_status: "started" | "reused" | "failed" """
+    # CPU 模式检测
+    _cpu_mode = False
+    try:
+        import torch
+        _cpu_mode = not torch.cuda.is_available()
+    except ImportError:
+        _cpu_mode = True  # torch 未安装 → 必然是 CPU
+
     print("=" * 60, flush=True)
     print("  Training Guardian", flush=True)
     print("=" * 60, flush=True)
@@ -357,6 +377,11 @@ def _print_start_banner(host: str, dash_port: int, mcp_port: int,
         print(f"  MCP        : 未启动（端口被占或依赖缺失）", flush=True)
     if train_cmd:
         print(f"  训练命令    : {' '.join(train_cmd)}", flush=True)
+    if _cpu_mode:
+        print("", flush=True)
+        print("  ⚠ CPU 模式：未检测到 NVIDIA GPU，训练将在 CPU 上运行。", flush=True)
+        print("    训练曲线（loss / accuracy / lr）仍可正常显示。", flush=True)
+        print("    GPU 监控面板将不可用（需要 nvidia-smi + CUDA）。", flush=True)
     print("", flush=True)
     print("  本地接入（在新终端执行）：", flush=True)
     print(f"    ssh -L {dash_port}:127.0.0.1:{dash_port} -L {mcp_port}:127.0.0.1:{mcp_port} user@这台机器", flush=True)
@@ -1206,6 +1231,135 @@ def cmd_dashboard(args) -> int:
     return 0
 
 
+def cmd_remote(args) -> int:
+    """启动远程通信服务（算力服务器端）。"""
+    from guardian.remote.server import RemoteServer
+    from guardian.remote.persistence import PersistenceManager
+    from guardian.gpu_monitor import GpuMonitor
+    from guardian.sub_agent import default_registry
+
+    cfg = load_config(args.config)
+
+    # 持久化目录
+    persist_root = cfg.get("project", {}).get("log_dir", "./logs")
+    persist = PersistenceManager(persist_root)
+
+    # GPU 监控
+    gpu_monitor = GpuMonitor(poll_interval=5.0, persist_dir=Path(persist_root) / "gpu")
+    gpu_monitor.load_from_disk()
+    gpu_monitor.start()
+
+    # 工具注册表（无实际 handler，仅做状态查询）
+    tools = default_registry()
+
+    # RemoteHandler 实现
+    class _Handler:
+        def get_training_status(self, session_id: str) -> dict:
+            meta = persist.read_meta(session_id)
+            return meta or {"error": "not_found"}
+
+        def get_metrics_history(self, session_id: str, limit: int = 200, offset: int = 0) -> dict:
+            metrics = persist.read_metrics(session_id)
+            total = len(metrics)
+            page = metrics[offset:offset + limit]
+            return {"total": total, "returned": len(page), "metrics": page}
+
+        def get_gpu_status(self) -> dict:
+            summaries = gpu_monitor.get_all_summaries(window_minutes=60)
+            return {
+                "gpu_count": len(summaries),
+                "gpus": [s.to_dict() for s in summaries],
+                "timestamp": time.time(),
+            }
+
+        def approve_action(self, session_id: str, action_id: str) -> dict:
+            return {"error": "standalone remote mode does not support approve"}
+
+        def reject_action(self, session_id: str, action_id: str, reason: str = "") -> dict:
+            return {"error": "standalone remote mode does not support reject"}
+
+        def get_decision_log(self, session_id: str, limit: int = 50) -> list[dict]:
+            return persist.read_decisions(session_id)[-limit:]
+
+        def get_anomaly_history(self, session_id: str, limit: int = 50) -> list[dict]:
+            events = persist.read_events(session_id)
+            anomalies = [e for e in events if e.get("type") == "anomaly"]
+            return anomalies[-limit:]
+
+        def get_training_log(self, session_id: str, lines: int = 100, grep: str = "") -> list[str]:
+            import os
+            meta = persist.read_meta(session_id)
+            if not meta:
+                return []
+            log_file = meta.get("log_file", "")
+            if not log_file or not os.path.exists(log_file):
+                return []
+            try:
+                with open(log_file, "r", encoding="utf-8", errors="replace") as f:
+                    all_lines = f.readlines()
+                result = all_lines[-lines:] if not grep else [l for l in all_lines if grep in l][-lines:]
+                return result
+            except Exception:
+                return []
+
+        def get_device_info(self) -> dict:
+            try:
+                import platform, psutil
+                return {
+                    "hostname": platform.node(),
+                    "os": platform.system(),
+                    "cpu_count": psutil.cpu_count(),
+                    "memory_total_gb": round(psutil.virtual_memory().total / 1024**3, 1),
+                    "memory_used_pct": psutil.virtual_memory().percent,
+                }
+            except Exception:
+                return {"hostname": "unknown"}
+
+        def get_pending_actions(self, session_id: str) -> list[dict]:
+            return []
+
+        def trigger_recovery(self, session_id: str, action: str, params: dict) -> dict:
+            return {"error": "standalone remote mode does not support recovery"}
+
+    handler = _Handler()
+    server = RemoteServer(handler, port=args.port, host=args.host, auth_token=args.auth,
+                          persist_dir=Path(persist_root) / "remote")
+
+    # 注册已有会话
+    for session in persist.list_sessions():
+        server.register_session(session.get("session_id", session.get("experiment_id", "")), session)
+
+    print("=" * 56, flush=True)
+    print("  Guardian Remote Server", flush=True)
+    print("=" * 56, flush=True)
+    print(f"  HTTP/SSE : http://{args.host}:{args.port}", flush=True)
+    print(f"  SSE 端点 : http://{args.host}:{args.port}/sse", flush=True)
+    print(f"  持久化   : {persist_root}", flush=True)
+    gpu_count = gpu_monitor.gpu_count
+    print(f"  GPU 设备 : {gpu_count} 个（监控已启动）", flush=True)
+    if gpu_count == 0:
+        print("", flush=True)
+        print("  ⚠ CPU 模式：未检测到 NVIDIA GPU。", flush=True)
+        print("    训练曲线仍可正常显示；GPU 监控面板不可用。", flush=True)
+    print("", flush=True)
+    print("  PC 端连接:", flush=True)
+    print(f"    url = \"http://<server-ip>:{args.port}\"", flush=True)
+    print("", flush=True)
+    print("  Ctrl+C 停止", flush=True)
+    print("=" * 56, flush=True)
+
+    server.start()
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n[Remote] 收到中断信号", flush=True)
+    finally:
+        gpu_monitor.stop()
+        server.stop()
+    return 0
+
+
 def cmd_check(args) -> int:
     """环境就绪检查：依赖、GPU、项目配置。有严重问题时返回非零退出码。"""
     from .project_context import ProjectContext
@@ -1511,6 +1665,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_project(args)
         if args.command == "dashboard":
             return cmd_dashboard(args)
+        if args.command == "remote":
+            return cmd_remote(args)
         if args.command == "init":
             return cmd_init(args)
         if args.command == "check":

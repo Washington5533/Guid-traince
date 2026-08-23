@@ -1,0 +1,12 @@
+{
+  "process_id": "deepfucking",
+  "name": "deepfucking",
+  "command": "train_clip.py --epochs 101 --resume",
+  "project_dir": "C:/Users/wst/Desktop/anytries/deepfucking",
+  "status": "completed",
+  "registered_at": 1786098126.6729267,
+  "finished_at": null,
+  "config": {},
+  "model_entry": "train_clip:build_model",
+  "log_file": "C:/Users/wst/Desktop/anytries/deepfucking/logs/train.log"
+}

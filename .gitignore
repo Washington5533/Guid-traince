@@ -8,6 +8,7 @@ logs/
 checkpoints/
 checkpoints_test/
 checkpoints_mcp_test/
+data/
 
 # Local / one-off files
 requirements-spaces.txt
@@ -30,6 +31,7 @@ Thumbs.db
 .env
 .venv/
 venv/
+node_modules/
 
 # Claude Code (installed rules/skills are deployment artifacts)
 .claude/

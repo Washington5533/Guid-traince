@@ -584,6 +584,66 @@ class DashboardServer:
             except Exception as e:
                 return JSONResponse({"error": str(e)}, 500)
 
+        # ---- API: 架构图分析（ArchAnalyzer）----
+        @app.post("/api/arch/analyze")
+        async def arch_analyze(payload: dict):
+            """分析模型架构，返回 D3 可渲染的 JSON 数据。
+
+            Request body:
+                { "process_id": "...", "model_entry": "module:fn", "project_dir": "..." }
+
+            优先使用已缓存的 _model_graph；否则动态导入 model_entry。
+            """
+            process_id = payload.get("process_id", "")
+            model_entry = payload.get("model_entry", "")
+            project_dir = payload.get("project_dir", "")
+
+            # 从已注册进程取 model_entry
+            s = _get_state(process_id) if process_id else {}
+            if not model_entry and s:
+                model_entry = s.get("model_entry", "")
+            if not project_dir and s:
+                project_dir = s.get("project_dir", "")
+
+            if not model_entry:
+                return JSONResponse(
+                    {"error": "缺少 model_entry（格式: module:function）"}, 400
+                )
+
+            try:
+                from ..arch_analyzer import ArchAnalyzer
+                analyzer = ArchAnalyzer()
+
+                # 若已有缓存的模型图，直接用
+                cached = s.get("_model_graph") if s else None
+                if cached and "nodes" in cached:
+                    result = analyzer.analyze(
+                        lambda: _graph_from_cache(cached)
+                    )
+                else:
+                    result = _run_analyzer(analyzer, model_entry, project_dir)
+
+                if "error" in result:
+                    return JSONResponse(result, 400)
+
+                # 缓存结果
+                if s is not None:
+                    with self._lock:
+                        if process_id in self._processes:
+                            self._processes[process_id]["_arch_result"] = result
+
+                # WebSocket 广播 arch_update 事件
+                if process_id:
+                    await self._broadcast_process(process_id, {
+                        "type": "arch_update",
+                        "data": result,
+                    })
+
+                return JSONResponse(result)
+            except Exception as e:
+                logger.warning("架构分析失败: %s", e, exc_info=True)
+                return JSONResponse({"error": str(e)}, 500)
+
         # ---- API: 历史进程列表 ----
         @app.get("/api/history")
         async def list_history():
@@ -1225,6 +1285,47 @@ class DashboardServer:
         t = threading.Thread(target=_run, daemon=True, name="dashboard")
         t.start()
         return t
+
+
+# ---------------------------------------------------------------------------
+# 架构分析辅助函数
+# ---------------------------------------------------------------------------
+
+def _run_analyzer(analyzer, model_entry: str, project_dir: str) -> dict:
+    """动态导入模型函数并执行架构分析。"""
+    if project_dir and project_dir not in sys.path:
+        sys.path.insert(0, project_dir)
+    for extra_path in []:
+        if extra_path not in sys.path:
+            sys.path.insert(0, extra_path)
+    mod_parts = model_entry.split(":", 1)
+    if len(mod_parts) != 2:
+        return {"error": f"invalid model_entry: {model_entry}（需要 module:function 格式）"}
+    import importlib
+    mod = importlib.import_module(mod_parts[0])
+    model_fn = getattr(mod, mod_parts[1])
+    return analyzer.analyze(model_fn)
+
+
+def _graph_from_cache(cached: dict) -> callable:
+    """从缓存的 _model_graph 构建一个可被 ArchAnalyzer.analyze() 调用的模型函数。"""
+    import torch
+    import torch.nn as nn
+
+    # 从缓存的 nodes 重建一个简化的 nn.Module
+    class CachedModel(nn.Module):
+        def __init__(self, nodes: list[dict]):
+            super().__init__()
+            self._nodes = nodes
+            total_p = sum(n.get("params", 0) for n in nodes)
+            # 注册一个虚拟参数，使 model_fn 返回合法的 nn.Module
+            self._dummy = nn.Parameter(torch.zeros(1))
+            self._total_params = total_p
+
+        def forward(self, x):
+            return x
+
+    return lambda: CachedModel(cached.get("nodes", []))
 
 
 # ---------------------------------------------------------------------------

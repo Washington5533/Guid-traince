@@ -129,7 +129,12 @@ class ResourceEstimator:
                 torch.cuda.current_device()
             )
         except Exception:
-            logger.warning("torch.cuda.mem_get_info() 失败，回退 nvidia-smi / GPUtil 读取", exc_info=True)
+            # torch.cuda.mem_get_info 需要 PyTorch >= 2.0；1.x 版本回退到 nvidia-smi / GPUtil
+            logger.warning(
+                "torch.cuda.mem_get_info() 不可用（需要 PyTorch >= 2.0，"
+                "检测到较低版本时自动回退），改用 nvidia-smi / GPUtil 读取显存",
+                exc_info=True,
+            )
             # 回退：用 nvidia-smi 或 GPUtil
             try:
                 import GPUtil

@@ -97,8 +97,20 @@ export function apply(ctx: Context): void {
     }
   }
 
-  const onApprove = (actionId: string) => post('/api/decisions/approve', { action_id: actionId })
-  const onReject = (actionId: string, reason: string) => post('/api/decisions/reject', { action_id: actionId, reason })
+  // Approve/reject are session-scoped on the guardian remote server:
+  // POST /api/sessions/{session_id}/approve|reject with { action_id, reason? }.
+  const requireSessionId = (): string => {
+    const sessionId = controller.getSnapshot().sessionId.trim()
+    if (sessionId === '') {
+      throw new Error('决策审批需要先设置训练会话 ID（Training Guardian 设置 → sessionId）')
+    }
+    return sessionId
+  }
+
+  const onApprove = (actionId: string) =>
+    post(`/api/sessions/${encodeURIComponent(requireSessionId())}/approve`, { action_id: actionId })
+  const onReject = (actionId: string, reason: string) =>
+    post(`/api/sessions/${encodeURIComponent(requireSessionId())}/reject`, { action_id: actionId, reason })
 
   // ---------- inject slots ----------
   // Session-header action: opens the monitoring panel popover. The seats are

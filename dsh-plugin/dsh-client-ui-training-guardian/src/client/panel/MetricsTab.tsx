@@ -5,11 +5,19 @@ interface MetricsTabProps {
   t: (key: TgKey) => string
 }
 
-function getValue(metrics: Record<string, unknown>, key: string): string {
-  const v = metrics[key]
-  if (v === null || v === undefined) return '—'
-  if (typeof v === 'number') return v.toFixed(v < 10 ? 4 : 2)
-  return String(v)
+/**
+ * Read a metric value trying multiple backend field names.
+ * Backend may emit step/loss/val_acc/lr while the UI uses epoch/loss/accuracy/lr.
+ */
+function getValue(metrics: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const v = metrics[key]
+    if (v !== null && v !== undefined) {
+      if (typeof v === 'number') return v.toFixed(v < 10 ? 4 : 2)
+      return String(v)
+    }
+  }
+  return '—'
 }
 
 export function MetricsTab({ metrics, t }: MetricsTabProps) {
@@ -30,11 +38,11 @@ export function MetricsTab({ metrics, t }: MetricsTabProps) {
           display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
           gap: 10,
         }}>
-          <MetricCard label={t('overview.epoch')} value={getValue(metrics, 'epoch')} />
-          <MetricCard label={t('overview.step')} value={getValue(metrics, 'step')} />
+          <MetricCard label={t('overview.epoch')} value={getValue(metrics, 'epoch', 'step')} />
+          <MetricCard label={t('overview.step')} value={getValue(metrics, 'step', 'global_step')} />
           <MetricCard label={t('overview.loss')} value={getValue(metrics, 'loss')} />
-          <MetricCard label={t('overview.accuracy')} value={getValue(metrics, 'accuracy')} />
-          <MetricCard label={t('overview.lr')} value={getValue(metrics, 'learning_rate')} />
+          <MetricCard label={t('overview.accuracy')} value={getValue(metrics, 'accuracy', 'val_acc', 'acc')} />
+          <MetricCard label={t('overview.lr')} value={getValue(metrics, 'lr', 'learning_rate')} />
           <MetricCard label={t('overview.status')} value={getValue(metrics, 'status')} />
         </div>
       )}

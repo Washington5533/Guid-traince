@@ -34,4 +34,7 @@ venv/
 node_modules/
 
 # Claude Code (installed rules/skills are deployment artifacts)
-.claude/
+.claude/*
+# ...except the dsh-plugin skill package, which is part of this repo's
+# tooling and is referenced by docs/PLUGIN_STANDARDS.md
+!.claude/skills/

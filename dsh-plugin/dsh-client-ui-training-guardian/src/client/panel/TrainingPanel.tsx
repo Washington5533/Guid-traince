@@ -1,19 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { SseClient } from '../sse/client'
+import type { SseClient, SseError } from '../sse/client'
 import type { TgKey } from '../locales'
 import { MetricsTab } from './MetricsTab'
 import { GpuTab } from './GpuTab'
 import { AnomaliesTab } from './AnomaliesTab'
 import { DecisionsTab } from './DecisionsTab'
-import { ArchTab } from './ArchTab'
+import { ArchTab, type ArchNarration } from './ArchTab'
 
 export interface TrainingPanelProps {
   sse: SseClient
   sessionId: string | null
   t: (key: TgKey) => string
-  onApprove: (actionId: string) => void
-  onReject: (actionId: string, reason: string) => void
+  onApprove: (actionId: string) => void | Promise<void>
+  onReject: (actionId: string, reason: string) => void | Promise<void>
   serverUrl?: string
+  authToken?: string
   modelEntry?: string
   projectDir?: string
 }
@@ -28,44 +29,74 @@ const TABS: { key: Tab; labelKey: TgKey }[] = [
   { key: 'arch', labelKey: 'tab.arch' },
 ]
 
-export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUrl = '', modelEntry, projectDir }: TrainingPanelProps) {
+/** Map SseError.kind to a locale key for the diagnosis headline. */
+const ERROR_KIND_KEY: Record<string, TgKey> = {
+  unauthorized: 'conn.unauthorized',
+  not_found: 'conn.notFound',
+  server_error: 'conn.serverError',
+  unreachable: 'conn.unreachable',
+  exhausted: 'conn.exhausted',
+  unknown: 'conn.unknown',
+}
+
+const ERROR_HINT_KEY: Record<string, TgKey> = {
+  unauthorized: 'conn.hintUnauthorized',
+  not_found: 'conn.hintNotFound',
+  server_error: 'conn.hintServerError',
+  unreachable: 'conn.hintUnreachable',
+}
+
+export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUrl = '', authToken, modelEntry, projectDir }: TrainingPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [metrics, setMetrics] = useState<Record<string, unknown>>({})
   const [gpuStatus, setGpuStatus] = useState<Record<string, unknown> | null>(null)
   const [anomalies, setAnomalies] = useState<Array<Record<string, unknown>>>([])
   const [pendingActions, setPendingActions] = useState<Array<Record<string, unknown>>>([])
   const [connectionStatus, setConnectionStatus] = useState<string>('disconnected')
-  const unsubscribers = useRef<Array<() => void>>([])
+  const [connError, setConnError] = useState<SseError | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [archNarration, setArchNarration] = useState<ArchNarration | null>(null)
 
   useEffect(() => {
     const unsubs: Array<() => void> = []
 
-    const unsubStatus = sse.onStatusChange((status) => {
+    unsubs.push(sse.onStatusChange((status) => {
       setConnectionStatus(status)
-    })
-    unsubs.push(unsubStatus)
+    }))
 
-    const unsubMetrics = sse.on('metrics', (data) => {
-      setMetrics(data as Record<string, unknown>)
-    })
-    unsubs.push(unsubMetrics)
+    // Subscribe to diagnosed connection errors from the SSE client.
+    unsubs.push(sse.onError((err) => {
+      setConnError(err)
+    }))
 
-    const unsubGpu = sse.on('gpu_status', (data) => {
+    // Merge incoming metrics fields rather than overwriting the whole object.
+    unsubs.push(sse.on('metrics', (data) => {
+      setMetrics(prev => ({ ...prev, ...(data as Record<string, unknown>) }))
+    }))
+
+    unsubs.push(sse.on('gpu_status', (data) => {
       setGpuStatus(data as Record<string, unknown>)
-    })
-    unsubs.push(unsubGpu)
+    }))
 
-    const unsubAnomaly = sse.on('anomaly', (data) => {
+    unsubs.push(sse.on('anomaly', (data) => {
       setAnomalies(prev => [data as Record<string, unknown>, ...prev].slice(0, 50))
-    })
-    unsubs.push(unsubAnomaly)
+    }))
 
-    const unsubDecision = sse.on('decision', (data) => {
+    unsubs.push(sse.on('decision', (data) => {
       setPendingActions(prev => [data as Record<string, unknown>, ...prev].slice(0, 20))
-    })
-    unsubs.push(unsubDecision)
+    }))
 
-    unsubscribers.current = unsubs
+    // Agent-driven arch analysis: narration arrives via SSE after REST returns.
+    unsubs.push(sse.on('arch_analysis', (data) => {
+      const d = data as Record<string, unknown>
+      setArchNarration({
+        narration: (d.narration as string) ?? null,
+        error: (d.error as string) ?? null,
+        model_name: (d.model_name as string) ?? '',
+        total_params: (d.total_params as number) ?? 0,
+        bottleneck_count: (d.bottleneck_count as number) ?? 0,
+      })
+    }))
 
     sse.connect()
     return () => {
@@ -73,18 +104,76 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
     }
   }, [sse])
 
-  // Refresh pending actions periodically
-  useEffect(() => {
-    if (!sessionId || activeTab !== 'decisions') return
-    const timer = window.setInterval(() => {
-      // The SSE 'decision' event handles real-time updates.
-      // This timer exists as a fallback for decisions that arrive before the tab opens.
-    }, 5000)
-    return () => window.clearInterval(timer)
-  }, [sessionId, activeTab])
+  // Wrap approve/reject with error feedback so failures don't become
+  // unhandled promise rejections.
+  const safeApprove = useCallback((actionId: string) => {
+    setActionError(null)
+    try {
+      const result = onApprove(actionId)
+      if (result && typeof result.catch === 'function') {
+        result.catch(e => setActionError(String(e)))
+      }
+    } catch (e) {
+      setActionError(String(e))
+    }
+  }, [onApprove])
+
+  const safeReject = useCallback((actionId: string, reason: string) => {
+    setActionError(null)
+    try {
+      const result = onReject(actionId, reason)
+      if (result && typeof result.catch === 'function') {
+        result.catch(e => setActionError(String(e)))
+      }
+    } catch (e) {
+      setActionError(String(e))
+    }
+  }, [onReject])
 
   const connected = connectionStatus === 'connected'
-  const statusText = connected ? '' : connectionStatus === 'connecting' ? t('panel.connecting') : t('panel.disconnected')
+
+  // Build the connection status bar content.
+  const statusContent = (() => {
+    if (connected) return null
+    if (connectionStatus === 'connecting') return t('panel.connecting')
+    // Disconnected or error — show diagnosis if available.
+    if (connError) {
+      const kindKey = ERROR_KIND_KEY[connError.kind] || 'conn.unknown'
+      const hintKey = ERROR_HINT_KEY[connError.kind]
+      const attemptInfo = connError.kind !== 'exhausted'
+        ? ` (${connError.attempt}/${connError.maxAttempts})`
+        : ''
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>{t(kindKey)}{attemptInfo}</span>
+            {connError.status !== null && (
+              <span style={{ opacity: 0.7 }}>HTTP {connError.status}</span>
+            )}
+            {connError.kind === 'exhausted' && (
+              <button
+                onClick={() => sse.reconnectNow()}
+                style={{
+                  padding: '1px 8px', fontSize: 10, cursor: 'pointer',
+                  background: 'var(--accent, #007acc)', color: '#fff',
+                  border: 'none', borderRadius: 3,
+                }}
+              >
+                {t('conn.retry')}
+              </button>
+            )}
+          </div>
+          {hintKey && (
+            <div style={{ fontSize: 10, opacity: 0.7 }}>{t(hintKey)}</div>
+          )}
+          {connError.detail && (
+            <div style={{ fontSize: 10, opacity: 0.6 }}>{connError.detail}</div>
+          )}
+        </div>
+      )
+    }
+    return t('panel.disconnected')
+  })()
 
   return (
     <div style={{
@@ -115,14 +204,28 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
       </div>
 
       {/* Connection status bar */}
-      {statusText && (
+      {statusContent && (
         <div style={{
           padding: '4px 12px', fontSize: 11,
           background: connected ? 'transparent' : 'var(--warning-bg, #332200)',
           color: connected ? 'var(--text)' : 'var(--warning-text, #ffa726)',
           textAlign: 'center',
         }}>
-          {statusText}
+          {typeof statusContent === 'string' ? statusContent : statusContent}
+        </div>
+      )}
+
+      {/* Action error feedback */}
+      {actionError && (
+        <div style={{
+          padding: '4px 12px', fontSize: 11,
+          background: '#331111', color: '#ff6666', textAlign: 'center',
+        }}>
+          {actionError}
+          <button
+            onClick={() => setActionError(null)}
+            style={{ marginLeft: 8, background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: 10 }}
+          >✕</button>
         </div>
       )}
 
@@ -141,16 +244,19 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
           <DecisionsTab
             pending={pendingActions}
             t={t}
-            onApprove={onApprove}
-            onReject={onReject}
+            onApprove={safeApprove}
+            onReject={safeReject}
           />
         )}
         {activeTab === 'arch' && (
           <ArchTab
             serverUrl={serverUrl}
+            authToken={authToken}
+            sessionId={sessionId}
             modelEntry={modelEntry}
             projectDir={projectDir}
             t={t}
+            archNarration={archNarration}
           />
         )}
       </div>

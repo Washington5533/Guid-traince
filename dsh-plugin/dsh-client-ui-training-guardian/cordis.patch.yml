@@ -4,3 +4,18 @@
 - insert:
     - id: training-guardian
       name: '@linxin666/dsh-client-ui-training-guardian'
+  meta:
+    version: "0.1.0"
+    description: "Training Guardian panel for DSH Web GUI: real-time metrics, GPU status, anomaly feed, and sub-agent decision approval"
+    author: "Washington5533"
+    license: "Apache-2.0"
+    homepage: "https://github.com/Washington5533/guarftrain"
+    keywords: ["training", "monitoring", "gpu", "anomaly-detection", "dsh-plugin"]
+    skills:
+      - id: training-guardian
+        name: "Training Guardian"
+        description: "Real-time training metrics, GPU status, anomaly feed, and decision approval"
+        whenToUse: >
+          Use when the user asks about training status, GPU utilization,
+          loss curves, anomalies, or sub-agent decisions. Opens the
+          Training Guardian panel in the current session.

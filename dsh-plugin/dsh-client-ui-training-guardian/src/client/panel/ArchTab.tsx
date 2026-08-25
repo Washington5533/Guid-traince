@@ -1,13 +1,23 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import * as d3 from 'd3'
 import type { TgKey } from '../locales'
 
-declare const d3: any
+export interface ArchNarration {
+  narration: string | null
+  error: string | null
+  model_name: string
+  total_params: number
+  bottleneck_count: number
+}
 
 interface ArchTabProps {
   serverUrl: string
+  authToken?: string
+  sessionId?: string | null
   modelEntry?: string
   projectDir?: string
   t: (key: TgKey) => string
+  archNarration?: ArchNarration | null
 }
 
 type ViewMode = 'treemap' | 'backbone'
@@ -46,6 +56,7 @@ interface AnalysisResult {
   bottlenecks: Bottleneck[]
   tree: { name: string; children: TreeNode[] }
   elapsed_ms: number
+  agent_pending?: boolean
 }
 
 function fmtNum(n: number): string {
@@ -54,7 +65,7 @@ function fmtNum(n: number): string {
   return String(n)
 }
 
-export function ArchTab({ serverUrl, modelEntry, projectDir, t }: ArchTabProps) {
+export function ArchTab({ serverUrl, authToken, sessionId, modelEntry, projectDir, t, archNarration }: ArchTabProps) {
   const [view, setView] = useState<ViewMode>('treemap')
   const [colorBy, setColorBy] = useState<ColorBy>('params')
   const [loading, setLoading] = useState(false)
@@ -62,12 +73,6 @@ export function ArchTab({ serverUrl, modelEntry, projectDir, t }: ArchTabProps) 
   const [error, setError] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<string | null>(null)
   const vizRef = useRef<HTMLDivElement>(null)
-  // detailRef uses a plain element ref assigned via callback (no read-only mutation)
-  const detailPanelRef = useRef<HTMLDivElement>(null)
-
-  const setDetailEl = useCallback((el: HTMLDivElement | null) => {
-    ;(detailPanelRef as any).current = el
-  }, [])
 
   const runAnalysis = useCallback(async () => {
     if (!modelEntry) return
@@ -75,10 +80,17 @@ export function ArchTab({ serverUrl, modelEntry, projectDir, t }: ArchTabProps) 
     setError(null)
     try {
       const base = serverUrl.replace(/\/$/, '')
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (authToken) headers['X-Auth-Token'] = authToken
       const res = await fetch(`${base}/api/arch/analyze`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model_entry: modelEntry, project_dir: projectDir }),
+        headers,
+        body: JSON.stringify({
+          model_entry: modelEntry,
+          project_dir: projectDir,
+          session_id: sessionId || '',
+          agent: true,
+        }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
@@ -92,9 +104,10 @@ export function ArchTab({ serverUrl, modelEntry, projectDir, t }: ArchTabProps) 
     } finally {
       setLoading(false)
     }
-  }, [serverUrl, modelEntry, projectDir])
+  }, [serverUrl, authToken, sessionId, modelEntry, projectDir])
 
-  // D3 rendering
+  // D3 rendering — re-runs when result, view, or colorBy changes.
+  // The onSelect callback bridges d3 click events back to React state.
   useEffect(() => {
     if (!result?.tree?.children?.length || !vizRef.current) return
     const container = vizRef.current
@@ -106,66 +119,24 @@ export function ArchTab({ serverUrl, modelEntry, projectDir, t }: ArchTabProps) 
     const nodes = result.tree.children
 
     if (view === 'treemap') {
-      renderTreemap(svg, nodes, w, h, colorBy)
+      renderTreemap(svg, nodes, w, h, colorBy, setSelectedNode)
     } else {
-      renderBackbone(svg, nodes, w, h, colorBy)
+      renderBackbone(svg, nodes, w, h, colorBy, setSelectedNode)
     }
   }, [result, view, colorBy])
 
-  // Detail panel
-  useEffect(() => {
-    if (!selectedNode || !result || !detailPanelRef.current) return
-    const nd = result.tree.children.find(n => n.name === selectedNode)
-    if (!nd) return
-    const el = detailPanelRef.current
-    const mp = Math.max(1, ...result.tree.children.map(n => n.params || 0))
-    const mf = Math.max(1, ...result.tree.children.map(n => n.flops || 0))
-    const pp = (nd.params / mp) * 100
-    const fpp = (nd.flops / mf) * 100
-    el.innerHTML = `
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <div style={{ fontSize: 13, fontWeight: 700 }}>${nd.name.split('.').pop()}</div>
-        <button onclick="this.parentElement.parentElement.style.display='none'" style={{
-          width: 24, height: 24, border: '1px solid var(--border, #333)', background: 'none',
-          color: 'var(--text-secondary, #888)', cursor: 'pointer', borderRadius: 4, fontSize: 12,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>x</button>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #333', fontSize: 11 }}>
-        <span style={{ color: 'var(--text-secondary, #888)' }}>Type</span>
-        <span style={{ color: 'var(--text, #e0e0e0)', fontWeight: 600 }}>${nd.type || '?'}</span>
-      </div>
-      ${nd.repeat > 1 ? `<div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #333', fontSize: 11 }}>
-        <span style={{ color: 'var(--text-secondary, #888)' }}>${t('arch.repeat')}</span>
-        <span style={{ color: 'var(--text, #e0e0e0)', fontWeight: 600 }}>x${nd.repeat}</span>
-      </div>` : ''}
-      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #333', fontSize: 11 }}>
-        <span style={{ color: 'var(--text-secondary, #888)' }}>${t('arch.params')}</span>
-        <span style={{ color: 'var(--text, #e0e0e0)', fontWeight: 600 }}>${fmtNum(nd.params)} (${pp.toFixed(1)}%)</span>
-      </div>
-      <div style={{ height: 3, borderRadius: 2, background: '#333', margin: '3px 0 6px', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: ${pp}%, background: '#1a7f37', borderRadius: 2, transition: 'width .3s' }}></div>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #333', fontSize: 11 }}>
-        <span style={{ color: 'var(--text-secondary, #888)' }}>${t('arch.flops')}</span>
-        <span style={{ color: 'var(--text, #e0e0e0)', fontWeight: 600 }}>${fmtNum(nd.flops)}</span>
-      </div>
-      <div style={{ height: 3, borderRadius: 2, background: '#333', margin: '3px 0 6px', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: ${fpp.toFixed(1)}%, background: '#0969da', borderRadius: 2, transition: 'width .3s' }}></div>
-      </div>
-      ${nd.children?.length ? `<div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 11, marginTop: 8 }}>
-        <span style={{ color: 'var(--text-secondary, #888)' }}>${t('arch.subModules')}</span>
-        <span style={{ color: 'var(--text, #e0e0e0)', fontWeight: 600 }}>${nd.children.length}</span>
-      </div>` : ''}
-    `
-  }, [selectedNode, result, t])
+  // Derive the selected node's data for the detail panel.
+  const detailNode = selectedNode && result?.tree?.children
+    ? result.tree.children.find(n => n.name === selectedNode) ?? null
+    : null
 
-  const getColor = useCallback((v: number, metric: ColorBy) => {
-    const mp = result ? Math.max(1, ...result.tree.children.map(n => metric === 'params' ? (n.params || 0) : (n.flops || 0))) : 1
-    const r = v / mp
-    if (metric === 'params') return r < 0.25 ? '#1a7f37' : r < 0.5 ? '#8250df' : '#cf222e'
-    return r < 0.25 ? '#0969da' : r < 0.5 ? '#8250df' : '#bf8700'
-  }, [result, colorBy])
+  const detailMetrics = detailNode && result?.tree?.children
+    ? (() => {
+        const mp = Math.max(1, ...result.tree.children.map(n => n.params || 0))
+        const mf = Math.max(1, ...result.tree.children.map(n => n.flops || 0))
+        return { paramsPct: (detailNode.params / mp) * 100, flopsPct: (detailNode.flops / mf) * 100 }
+      })()
+    : null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--panel-bg, #1a1a2e)', color: 'var(--text, #e0e0e0)' }}>
@@ -178,6 +149,11 @@ export function ArchTab({ serverUrl, modelEntry, projectDir, t }: ArchTabProps) 
         }}>
           {loading ? t('arch.loading') : t('arch.analyzeBtn')}
         </button>
+        {!modelEntry && (
+          <span style={{ fontSize: 11, color: 'var(--text-secondary, #888)', fontStyle: 'italic' }}>
+            {t('arch.modelEntryMissing')}
+          </span>
+        )}
         <div style={{ width: 1, height: 20, background: 'var(--border, #333)', margin: '0 4px' }} />
         <div style={{ display: 'flex', gap: 3 }}>
           <button onClick={() => setView('treemap')} style={{
@@ -206,11 +182,16 @@ export function ArchTab({ serverUrl, modelEntry, projectDir, t }: ArchTabProps) 
         {result && (
           <span style={{ fontSize: 11, color: 'var(--text-secondary, #888)', marginLeft: 'auto' }}>
             {result.elapsed_ms}ms | {result.module_count} {t('arch.moduleCount').toLowerCase()}
+            {result.agent_pending && !archNarration && (
+              <span style={{ marginLeft: 8, color: 'var(--accent, #4fc3f7)', fontStyle: 'italic' }}>
+                {t('arch.agentDispatched')}
+              </span>
+            )}
           </span>
         )}
       </div>
 
-      {/* Body: viz + sidebar */}
+      {/* Body: viz + sidebar + detail panel */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Visualization */}
         <div ref={vizRef} style={{ flex: 1, overflow: 'hidden', position: 'relative', background: 'var(--bg, #1a1a2e)' }} />
@@ -240,9 +221,60 @@ export function ArchTab({ serverUrl, modelEntry, projectDir, t }: ArchTabProps) 
           )}
         </div>
 
-        {/* Detail panel */}
-        <div ref={setDetailEl} style={{ width: 0, overflow: 'hidden', borderLeft: '1px solid var(--border, #333)', transition: 'width .25s' }} />
+        {/* Detail panel — rendered via React, not innerHTML */}
+        {detailNode && detailMetrics && (
+          <div style={{ width: 240, minWidth: 240, borderLeft: '1px solid var(--border, #333)', background: 'var(--tab-bg, #16162a)', padding: 12, overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{detailNode.name.split('.').pop()}</div>
+              <button
+                onClick={() => setSelectedNode(null)}
+                style={{
+                  width: 24, height: 24, border: '1px solid var(--border, #333)', background: 'none',
+                  color: 'var(--text-secondary, #888)', cursor: 'pointer', borderRadius: 4, fontSize: 12,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >✕</button>
+            </div>
+            <DetailRow label="Type" value={detailNode.type || '?'} />
+            {detailNode.repeat > 1 && (
+              <DetailRow label={t('arch.repeat')} value={`x${detailNode.repeat}`} />
+            )}
+            <DetailRow label={t('arch.params')} value={`${fmtNum(detailNode.params)} (${detailMetrics.paramsPct.toFixed(1)}%)`} />
+            <ProgressBar pct={detailMetrics.paramsPct} color="#1a7f37" />
+            <DetailRow label={t('arch.flops')} value={fmtNum(detailNode.flops)} />
+            <ProgressBar pct={detailMetrics.flopsPct} color="#0969da" />
+            {detailNode.children?.length > 0 && (
+              <DetailRow label={t('arch.subModules')} value={String(detailNode.children.length)} />
+            )}
+          </div>
+        )}
       </div>
+
+      {/* AI narration panel */}
+      {archNarration && (
+        <div style={{
+          margin: '0 12px 8px', padding: '10px 14px', borderRadius: 6,
+          background: archNarration.error ? '#331111' : 'var(--tab-bg, #16162a)',
+          border: '1px solid var(--border, #333)',
+          fontSize: 12, lineHeight: 1.6,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, color: archNarration.error ? '#ff6666' : 'var(--accent, #4fc3f7)' }}>
+              {archNarration.error ? t('misc.error') : t('arch.sourceAgent')}
+            </span>
+            {archNarration.model_name && (
+              <span style={{ fontSize: 10, color: 'var(--text-secondary, #888)' }}>{archNarration.model_name}</span>
+            )}
+          </div>
+          {archNarration.narration ? (
+            <div style={{ color: 'var(--text, #e0e0e0)', whiteSpace: 'pre-wrap' }}>{archNarration.narration}</div>
+          ) : archNarration.error ? (
+            <div style={{ color: '#ff6666' }}>{archNarration.error}</div>
+          ) : (
+            <div style={{ color: 'var(--text-secondary, #888)', fontStyle: 'italic' }}>{t('arch.agentRunning')}</div>
+          )}
+        </div>
+      )}
 
       {/* Error / empty state */}
       {error && (
@@ -252,7 +284,7 @@ export function ArchTab({ serverUrl, modelEntry, projectDir, t }: ArchTabProps) 
       )}
       {!result && !error && !loading && (
         <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-secondary, #666)', fontSize: 12 }}>
-          {t('arch.noData')}
+          {modelEntry ? t('arch.noData') : t('arch.modelEntryMissing')}
         </div>
       )}
     </div>
@@ -260,7 +292,28 @@ export function ArchTab({ serverUrl, modelEntry, projectDir, t }: ArchTabProps) 
 }
 
 // ---------------------------------------------------------------------------
-// D3 renderers (using global d3)
+// React detail-panel helpers
+// ---------------------------------------------------------------------------
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #333', fontSize: 11 }}>
+      <span style={{ color: 'var(--text-secondary, #888)' }}>{label}</span>
+      <span style={{ color: 'var(--text, #e0e0e0)', fontWeight: 600 }}>{value}</span>
+    </div>
+  )
+}
+
+function ProgressBar({ pct, color }: { pct: number; color: string }) {
+  return (
+    <div style={{ height: 3, borderRadius: 2, background: '#333', margin: '3px 0 6px', overflow: 'hidden' }}>
+      <div style={{ height: '100%', width: `${pct}%`, background: color, borderRadius: 2, transition: 'width .3s' }} />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// D3 renderers
 // ---------------------------------------------------------------------------
 
 function renderTreemap(
@@ -269,6 +322,7 @@ function renderTreemap(
   w: number,
   h: number,
   colorBy: ColorBy,
+  onSelect: (name: string) => void,
 ) {
   const ch = nodes.map((c, i) => ({
     id: i, name: c.name,
@@ -276,7 +330,7 @@ function renderTreemap(
     raw: c,
   }))
   const root = d3.hierarchy({ children: ch }).sum((d: any) => d.value)
-  d3.treemap().size([w, h]).padding(3)(root)
+  d3.treemap().size([w, h]).padding(3)(root as any)
   const mp = Math.max(1, ...nodes.map(n => colorBy === 'params' ? (n.params || 0) : (n.flops || 0)))
 
   const g = container.selectAll('g').data(root.leaves()).join('g')
@@ -291,16 +345,16 @@ function renderTreemap(
     .style('cursor', 'pointer')
     .on('click', (_ev: any, d: any) => {
       const nd = (d.data as any).raw
-      window.dispatchEvent(new CustomEvent('arch:select', { detail: nd.name }))
+      onSelect(nd.name)
     })
     .on('mouseenter', function (this: any, _ev: any, d: any) {
       const nd = (d.data as any).raw
       d3.select(this).attr('stroke', '#4fc3f7').attr('stroke-width', 2)
       const el = d3.select('body').append('div').attr('class', 'arch-tooltip')
       el.style('position', 'fixed').style('padding', '8px 12px').style('background', '#1a1a2e')
-        .style('border', '1px solid #333').style('border-radius', 6).style('font-size', 11)
-        .style('color', '#e0e0e0').style('pointer-events', 'none').style('z-index', 9999)
-        .style('box-shadow', '0 3px 12px rgba(0,0,0,.4)').style('line-height', 1.5)
+        .style('border', '1px solid #333').style('border-radius', '6px').style('font-size', '11px')
+        .style('color', '#e0e0e0').style('pointer-events', 'none').style('z-index', '9999')
+        .style('box-shadow', '0 3px 12px rgba(0,0,0,.4)').style('line-height', '1.5')
         .html(`<b>${nd.name}</b><br>${nd.type || ''} ${nd.repeat > 1 ? 'x' + nd.repeat : ''}<br>Params: ${fmtNum(nd.params)}<br>FLOPs: ${fmtNum(nd.flops)}`)
     })
     .on('mouseleave', function (this: any) {
@@ -324,6 +378,7 @@ function renderBackbone(
   w: number,
   h: number,
   colorBy: ColorBy,
+  onSelect: (name: string) => void,
 ) {
   const nw = 140, nh = 72, gap = 60, mx = 60, my = 50
   const tw = nodes.length * (nw + gap) - gap + mx * 2
@@ -346,14 +401,14 @@ function renderBackbone(
     const x = mx + i * (nw + gap), y = my
     const pctP = (nd.params || 0) / mp, pctF = (nd.flops || 0) / mp
     const g = gg.append('g').attr('transform', `translate(${x},${y})`).style('cursor', 'pointer')
-    g.on('click', () => window.dispatchEvent(new CustomEvent('arch:select', { detail: nd.name })))
+    g.on('click', () => onSelect(nd.name))
     g.on('mouseenter', function (this: any, _ev: any) {
       d3.select(this).select('rect:first-child').attr('stroke', '#4fc3f7').attr('stroke-width', 2)
       const el = d3.select('body').append('div').attr('class', 'arch-tooltip')
       el.style('position', 'fixed').style('padding', '8px 12px').style('background', '#1a1a2e')
-        .style('border', '1px solid #333').style('border-radius', 6).style('font-size', 11)
-        .style('color', '#e0e0e0').style('pointer-events', 'none').style('z-index', 9999)
-        .style('box-shadow', '0 3px 12px rgba(0,0,0,.4)').style('line-height', 1.5)
+        .style('border', '1px solid #333').style('border-radius', '6px').style('font-size', '11px')
+        .style('color', '#e0e0e0').style('pointer-events', 'none').style('z-index', '9999')
+        .style('box-shadow', '0 3px 12px rgba(0,0,0,.4)').style('line-height', '1.5')
         .html(`<b>${nd.name}</b><br>${nd.type || ''} ${nd.repeat > 1 ? 'x' + nd.repeat : ''}<br>Params: ${fmtNum(nd.params)}<br>FLOPs: ${fmtNum(nd.flops)}`)
     })
     g.on('mouseleave', function (this: any) {
@@ -365,10 +420,10 @@ function renderBackbone(
       .attr('fill', '#fff').attr('stroke', '#d0d7de')
     g.append('rect').attr('width', nw).attr('height', 2).attr('rx', 1)
       .attr('fill', getColorD3(colorBy === 'params' ? nd.params : nd.flops || 0, mp, colorBy))
-    const lbl = nd.name.split('.').pop()
+    const lbl = nd.name.split('.').pop() ?? ''
     g.append('text').attr('x', nw / 2).attr('y', 20).attr('text-anchor', 'middle')
       .attr('fill', '#1f2328').attr('font-size', 10).attr('font-weight', 600)
-      .text(lbl && lbl.length > 16 ? lbl.slice(0, 14) + '..' : lbl)
+      .text(lbl.length > 16 ? lbl.slice(0, 14) + '..' : lbl)
     g.append('text').attr('x', nw / 2).attr('y', 32).attr('text-anchor', 'middle')
       .attr('fill', '#656d76').attr('font-size', 8)
       .text((nd.type || '') + (nd.repeat > 1 ? ' x' + nd.repeat : ''))

@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from pathlib import Path
 from typing import Any
 
 from guardian.logging_config import get_logger
@@ -79,6 +81,15 @@ class SubAgent:
         self._pending_actions: list[dict] = []
         self._max_pending = int(self.cfg.get("max_pending_actions", 50))
 
+        # 已审批延迟执行队列（approve 入队 → on_tick 出队执行）
+        self._approved_queue: queue.Queue = queue.Queue()
+
+        # 持久化
+        self._persist_path: Path | None = None
+        self._last_save_time: float = 0
+        self._save_interval: float = 30.0  # 最多每 30s 写一次磁盘
+        self._spawn_time: float = 0
+
         # 状态
         self._spawned = False
         self._shutdown = False
@@ -98,6 +109,7 @@ class SubAgent:
         """
         self._spawned = True
         self._shutdown = False
+        self._spawn_time = time.time()
         self.memory = RollingMemory(max_size=self.memory_window)
 
         # 注入工具注册表的实际调用函数
@@ -159,14 +171,16 @@ class SubAgent:
             if health and not health.get("healthy", True):
                 logger.info("Sub-agent health check: concerns=%s", health.get("concerns", []))
 
+        # 自动持久化
+        self._auto_save()
+
         return actions
 
     def approve(self, action_id: str) -> ActionResult:
-        """PC 端审批通过后执行动作。"""
+        """PC 端审批通过 — 仅入队，不立即执行（延迟到下一轮 on_tick）。"""
         for pending in self._pending_actions:
             if pending.get("action_id") == action_id:
                 action = pending["action"]
-                result = self.tools.execute(action, self.autonomy)
                 self._pending_actions = [p for p in self._pending_actions if p.get("action_id") != action_id]
                 self.memory.record_decision(
                     event_type="intervention",
@@ -174,18 +188,32 @@ class SubAgent:
                     action_taken=action.tool_name,
                     action_params=action.params,
                     source="pc_approved",
-                    outcome="success" if result.success else "failed",
+                    outcome="queued",
                 )
-                logger.info("Sub-agent action approved & executed: %s → %s", action_id, result.success)
-                return result
+                self._approved_queue.put(action)
+                logger.info("Sub-agent action approved & queued: %s", action_id)
+                self._auto_save()
+                return ActionResult(
+                    action_id=action_id, tool_name=action.tool_name,
+                    success=True, result={"status": "queued_for_execution"},
+                )
 
-        # 尝试从 pending_decisions 中查找（由外部 populate）
         return ActionResult(
             action_id=action_id,
             tool_name="unknown",
             success=False,
             error=f"Action {action_id} not found in pending queue",
         )
+
+    def drain_approved(self) -> list[Action]:
+        """取出所有已审批待执行的动作（由 on_tick 调用）。"""
+        actions: list[Action] = []
+        while not self._approved_queue.empty():
+            try:
+                actions.append(self._approved_queue.get_nowait())
+            except queue.Empty:
+                break
+        return actions
 
     def reject(self, action_id: str, reason: str = "") -> ActionResult:
         """PC 端驳回动作。"""
@@ -201,6 +229,7 @@ class SubAgent:
                     outcome="rejected",
                 )
                 logger.info("Sub-agent action rejected: %s — %s", action_id, reason)
+                self._auto_save()
                 return ActionResult(
                     action_id=action_id,
                     tool_name=action.tool_name,
@@ -421,16 +450,29 @@ class SubAgent:
     # ── 内部：LLM 调用 ────────────────────────────────────────────────
 
     def _call_llm(self, system_prompt: str, user_message: str, timeout: float) -> str:
-        """调用 LLM。默认使用 OpenAI 兼容接口（可通过 config 切换）。"""
+        """调用 LLM。优先用注入回调，回退到 AgentAdvisor，最后尝试 OpenAI SDK。"""
         # 优先使用外部注入的回调
         if self._llm is not None:
             return self._llm(system_prompt, user_message, timeout)
+
+        # 回退：复用 AgentAdvisor（由 CLI 注入）
+        if hasattr(self, '_advisor') and self._advisor:
+            try:
+                if self._advisor.provider == "anthropic":
+                    return self._advisor._call_anthropic(
+                        system_prompt, user_message, timeout, max_tokens=256,
+                    )
+                return self._advisor._call_openai(
+                    system_prompt, user_message, timeout, max_tokens=256,
+                )
+            except Exception as exc:
+                raise RuntimeError(f"Advisor LLM 调用失败: {exc}") from exc
 
         # 内置 fallback：尝试 OpenAI SDK
         try:
             import openai
             client = openai.OpenAI(
-                api_key="not-needed",  # 使用自定义 base_url 时可为空
+                api_key="not-needed",
                 base_url=self.cfg.get("llm_base_url", "http://localhost:8000/v1"),
             )
             resp = client.chat.completions.create(
@@ -444,7 +486,7 @@ class SubAgent:
             )
             return resp.choices[0].message.content or ""
         except ImportError:
-            raise RuntimeError("未配置 LLM 回调，且 openai SDK 未安装")
+            raise RuntimeError("No LLM callback and no advisor available")
 
     @staticmethod
     def _default_llm_call(system_prompt: str, user_message: str, timeout: float) -> str:
@@ -615,3 +657,68 @@ class SubAgent:
         if self._shutdown:
             status = "shutdown"
         return f"SubAgent(status={status}, autonomy={self.autonomy}, memory={len(self.memory)})"
+
+    # ── 持久化（断点续守） ──────────────────────────────────────────
+
+    def save_state(self, path: Path) -> None:
+        """保存 SubAgent 状态到 JSON 文件。"""
+        state = {
+            "memory": self.memory.to_dict(),
+            "pending_actions": [
+                {
+                    "action_id": p["action_id"],
+                    "tool_name": p["action"].tool_name,
+                    "params": p["action"].params,
+                    "reason": p["action"].reason,
+                    "confidence": p["action"].confidence,
+                    "created_at": p.get("created_at"),
+                    "priority": p.get("priority", "normal"),
+                }
+                for p in self._pending_actions
+                if p.get("action_id")
+            ],
+            "autonomy": self.autonomy,
+            "spawned_at": self._spawn_time,
+        }
+        try:
+            path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as exc:
+            logger.warning("SubAgent 状态保存失败: %s", exc)
+
+    @classmethod
+    def restore_from(cls, path: Path, config: dict | None = None,
+                     tool_registry: ToolRegistry | None = None) -> "SubAgent":
+        """从 JSON 文件恢复 SubAgent 状态（断点续守）。"""
+        data = json.loads(path.read_text(encoding="utf-8"))
+        agent = cls(config=config, tool_registry=tool_registry)
+        agent.memory = RollingMemory.from_dict(data.get("memory", {}))
+        agent._spawned = True
+        agent._spawn_time = data.get("spawned_at", time.time())
+        agent.autonomy = data.get("autonomy", agent.autonomy)
+        # 恢复 pending actions
+        for p in data.get("pending_actions", []):
+            agent._pending_actions.append({
+                "action_id": p["action_id"],
+                "action": Action(
+                    tool_name=p["tool_name"],
+                    params=p.get("params", {}),
+                    reason=p.get("reason", ""),
+                    confidence=p.get("confidence", 1.0),
+                ),
+                "status": "pending",
+                "created_at": p.get("created_at"),
+                "priority": p.get("priority", "normal"),
+            })
+        logger.info("SubAgent 从 %s 恢复: %d 条记忆, %d 待审批",
+                    path, len(agent.memory), len(agent._pending_actions))
+        return agent
+
+    def _auto_save(self) -> None:
+        """自动保存（间隔控制，最多每 _save_interval 秒写一次磁盘）。"""
+        if self._persist_path is None:
+            return
+        now = time.time()
+        if now - self._last_save_time < self._save_interval:
+            return
+        self._last_save_time = now
+        self.save_state(self._persist_path)

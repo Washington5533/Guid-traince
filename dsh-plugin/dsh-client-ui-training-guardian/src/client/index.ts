@@ -6,7 +6,6 @@
  * and injects the sidebar panel + settings card into DSH slots.
  */
 
-import { createElement } from 'react'
 import type { Context } from '@deepseek-ai/dsh-client-runtime'
 import type { SettingsScope } from '@deepseek-ai/dsh-client-runtime/client'
 import { TrainingGuardianAction } from './panel/TrainingGuardianAction'
@@ -33,8 +32,6 @@ export function apply(ctx: Context): void {
   // ---------- i18n ----------
   ctx.locale.register(localeNs, { zh, en })
 
-  const t = (key: string): string => ctx.locale.t(`${localeNs}:${key}`)
-
   // ---------- settings ----------
   // The DSH client runtime exposes bind() on ctx.settingsScope when the
   // ui-settings bundle provides a settings scope; fall back to a
@@ -48,6 +45,8 @@ export function apply(ctx: Context): void {
     authToken: string
     sessionId: string
     autoConnect: boolean
+    modelEntry: string
+    projectDir: string
   }> | null = null
 
   try {
@@ -74,7 +73,11 @@ export function apply(ctx: Context): void {
   controller.subscribe(() => {
     const s = controller.getSnapshot()
     sse.setSessionId(s.sessionId || null)
-    if (sse.getStatus() !== 'connected') {
+    // url/token 变更必须重建 EventSource，不能只改 sessionId
+    if (sse.setEndpoint({ url: s.serverUrl, authToken: s.authToken || undefined })) {
+      sse.disconnect()
+      sse.connect()
+    } else if (sse.getStatus() !== 'connected') {
       sse.disconnect()
       sse.connect()
     }
@@ -86,7 +89,7 @@ export function apply(ctx: Context): void {
     const url = `${base}${path}`
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     const token = controller.getSnapshot().authToken
-    if (token) headers['Authorization'] = `Bearer ${token}`
+    if (token) headers['X-Auth-Token'] = token
     const res = await fetch(url, {
       method: 'POST',
       headers,
@@ -113,41 +116,83 @@ export function apply(ctx: Context): void {
     post(`/api/sessions/${encodeURIComponent(requireSessionId())}/reject`, { action_id: actionId, reason })
 
   // ---------- inject slots ----------
-  // Session-header action: opens the monitoring panel popover. The seats are
-  // declared by the dsh client runtime bundles (ui-conversation for
-  // `conversation.session.header.actions`, ui-settings-plugins for the keyed
-  // `settings.plugin.item` card), not invented by the plugin.
-  const sseUrl = controller.getSnapshot().serverUrl
-
+  // Session-header action: opens the monitoring panel popover. Follows the
+  // ui-jobs pattern — the inject factory returns business props, register
+  // takes the React component directly, locale is declared on the options
+  // so the framework wires `t` into the component props automatically.
+  // NB: do NOT inject a custom `t` here — it would shadow the framework's
+  // translator (ctx.locale.t is not part of the fiber surface in older
+  // runtimes and crashes the slot entry).
   try {
     ctx.slots.inject('conversation.session.header.actions', () =>
       ctx.slots.register({
         name: 'conversation.session.header.actions',
         id: 'training-guardian',
         order: 10,
-      }, () => createElement(TrainingGuardianAction, {
-        sse,
-        sessionId: controller.getSnapshot().sessionId || null,
-        serverUrl: sseUrl,
-        modelEntry: undefined,
-        projectDir: undefined,
-        t,
-        onApprove,
-        onReject,
-      })))
-  } catch {
-    // Slot not declared in this runtime; ignore gracefully.
+        locale: 'training-guardian',
+        inject: (): Record<string, unknown> => ({
+          sse,
+          sessionId: controller.getSnapshot().sessionId || null,
+          serverUrl: controller.getSnapshot().serverUrl,
+          authToken: controller.getSnapshot().authToken || undefined,
+          modelEntry: controller.getSnapshot().modelEntry || undefined,
+          projectDir: controller.getSnapshot().projectDir || undefined,
+          onApprove,
+          onReject,
+        }),
+      }, TrainingGuardianAction))
+    console.log('[TG] slot registration succeeded')
+  } catch (e) {
+    console.error('[TG] slot registration failed:', e)
   }
 
   // Settings card in the plugin configuration tab, keyed by the settings
-  // namespace this plugin edits.
+  // namespace this plugin edits. `t` is framework-wired via `locale:` —
+  // see the note on the header slot above.
   try {
     ctx.slots.inject('settings.plugin.item', () =>
       ctx.slots.register({
         name: 'settings.plugin.item',
         key: 'training-guardian',
-      }, () => createElement(SettingsCard, { controller, t })))
-  } catch {
-    // Optional slot — ignore when unavailable.
+        locale: 'training-guardian',
+        inject: (): Record<string, unknown> => ({
+          controller,
+        }),
+      }, SettingsCard))
+    console.log('[TG] settings slot registration succeeded')
+  } catch (e) {
+    console.error('[TG] settings slot registration failed:', e)
+  }
+
+  // ---------- skill registration ----------
+  // Runtime skill registration is best-effort: only newer DSH runtimes
+  // expose a `skills` fiber service. The skill is always declared in
+  // cordis.patch.yml `meta.skills` (the canonical channel); this block adds
+  // the `invoke` behavior when the runtime supports it. Never let it fail
+  // the boot, and stay quiet on runtimes without the service.
+  try {
+    const skills = (ctx as unknown as { skills?: { register(id: string, def: Record<string, unknown>): void } }).skills
+    if (skills) {
+      skills.register('training-guardian', {
+        id: 'training-guardian',
+        name: 'Training Guardian',
+        description: 'Real-time training metrics, GPU status, anomaly feed, and sub-agent decision approval',
+        whenToUse: 'Use when the user asks about training status, GPU utilization, loss curves, anomalies, or sub-agent decisions',
+        modelInvocable: true,
+        userInvocable: true,
+        invoke: () => {
+          // Click the header action button to open the panel popover.
+          const btn = document.querySelector(
+            '[data-slot-id="training-guardian"], [aria-label*="Guardian"], button:has-text("Training Guardian")'
+          )
+          ;(btn as HTMLButtonElement | null)?.click()
+        },
+      })
+      console.log('[TG] skill registration succeeded')
+    }
+  } catch (e) {
+    // e.g. "cannot get property skills without inject" on runtimes where the
+    // skill system is not a fiber service — manifest declaration covers it.
+    console.log('[TG] runtime skill service unavailable; manifest declaration applies')
   }
 }

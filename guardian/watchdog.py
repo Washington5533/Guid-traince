@@ -268,6 +268,7 @@ class TrainingWatchdog:
         self.notifier = notifier
         self.contract = contract
         self.advisor = advisor          # v1；v0 恒为 None，全走规则默认策略
+        self.sub_agent: Any = None      # SubAgent 引用（由 CLI 注入）
         self.ckpt_dir = Path(ckpt_dir)
         self.progress_fn = progress_fn
 
@@ -290,7 +291,9 @@ class TrainingWatchdog:
         self._intervention: dict | None = None
         self._stop = False
         self._last_progress: Any = None
-        self._progress_at: float = 0.0
+        # 基线取构造时刻：否则 check_hang 在首个进度样本到达前会用
+        # time.monotonic()（≈系统开机时长）当作停滞时长，触发误告警。
+        self._progress_at: float = time.monotonic()
         self._hang_warned = False
         # 连续崩溃类型统计（用于条件可恢复错误的阈值判定）
         self._consecutive_kinds: dict[str, int] = {}
@@ -469,16 +472,21 @@ class TrainingWatchdog:
 
     def check_hang(self) -> str | None:
         """判据两条同时成立：指标不再前进 + 进程仍存活。
-
-        默认只告警不动手——"慢"和"挂"从进程外看是一样的，一个 epoch 要 40
+    
+        默认只告警不动手——“慢”和“挂”从进程外看是一样的，一个 epoch 要 40
         分钟的任务配 30 分钟超时会反复误杀正常训练。只有用户显式配置了
         no_progress_kill_after 才会重启。
-
+    
         返回 None / "warn" / "kill"。
         """
         if self.no_progress_timeout is None or self.progress_fn is None:
             return None            # 无指标通道时该能力自动关闭
-        if self.proc is None or self.proc.poll() is not None:
+        proc = self.proc
+        if proc is None:
+            return None
+        # 兼容 Popen 和 ProcessAdapter
+        alive = proc.poll() is None if hasattr(proc, 'poll') else True
+        if not alive:
             return None            # 进程已退出，走正常的崩溃分类路径
 
         try:
@@ -673,6 +681,14 @@ class TrainingWatchdog:
                     f"{crash.detail}（已耗尽重试次数）",
                 )
 
+            # 崩溃记忆同步到 SubAgent
+            if self.sub_agent and self.sub_agent.is_spawned:
+                self.sub_agent.memory.record_decision(
+                    event_type="crash",
+                    description=f"Watchdog: {crash.kind} — {crash.detail}",
+                    source="watchdog",
+                )
+
             # 更新连续崩溃计数
             if not crash.recoverable:
                 self._consecutive_kinds.clear()
@@ -739,6 +755,70 @@ class TrainingWatchdog:
             )
             cmd = new_cmd
             time.sleep(min(self.restart_delay, 2))
+
+    def run_attach(self, adapter, on_tick=None) -> dict:
+        """附加模式：监控已有进程，不主动管理生命周期。
+
+        与 run() 共享 on_tick 机制（monitor + SubAgent），但：
+        - 不启动/重启进程
+        - 崩溃恢复降级为告警（SubAgent 可以决定 stop_training 等）
+        - 进程退出后自动结束
+        """
+        poll_interval = 0.5
+        final = {"status": "unknown", "exit_code": None, "restarts": []}
+        self.proc = adapter  # 兼容 check_hang
+
+        while True:
+            if not adapter.is_alive():
+                break
+            if on_tick is not None:
+                on_tick(self, adapter)
+            hang = self.check_hang()
+            if hang == "kill":
+                adapter.terminate(self.sigterm_grace)
+                break
+            if self._stop:
+                adapter.terminate(self.sigterm_grace)
+                final["status"] = "stopped"
+                final["exit_code"] = adapter.returncode
+                return final
+            if self._intervention is not None:
+                # attach 模式下干预仅通知，不重启进程
+                interv = self._intervention
+                self._intervention = None
+                logger.info("attach 模式干预（仅记录）: %s", interv.get("reason", ""))
+                self._notify(
+                    "干预请求", f"{interv.get('action')}: {interv.get('reason')}",
+                    alert_type="attach_intervention", level="info",
+                )
+            time.sleep(poll_interval)
+
+        # 进程已退出
+        code = adapter.returncode
+        stderr_tail = adapter.get_stderr_tail()
+        if code == 0:
+            final["status"] = "completed"
+        else:
+            crash = classify_crash(code, stderr_tail)
+            final["status"] = "failed"
+            final["crash"] = crash.kind
+            final["detail"] = crash.detail
+            final["stderr_tail"] = stderr_tail[-2000:]
+            # 崩溃记忆同步到 SubAgent
+            if self.sub_agent and self.sub_agent.is_spawned:
+                self.sub_agent.memory.record_decision(
+                    event_type="crash",
+                    description=f"Watchdog(attach): {crash.kind} — {crash.detail}",
+                    source="watchdog",
+                )
+            self._notify(
+                "训练进程退出",
+                f"exit_code={code}, kind={crash.kind}, {crash.detail}",
+                alert_type="attach_exit",
+                level="error" if code != 0 else "info",
+            )
+        final["exit_code"] = code
+        return final
 
     def _try_action(self, cmd: list[str], action: str, param: Any):
         """执行动作，不可落地时回退为原样重启并记录原因。"""

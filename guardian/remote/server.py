@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 # 尝试导入 FastAPI/uvicorn（可选依赖）
 _FASTAPI_OK = False
 try:
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
     from fastapi.responses import JSONResponse, Response
     from fastapi.middleware.cors import CORSMiddleware
     import uvicorn
@@ -49,6 +49,7 @@ EVENT_TYPES = {
     "crash":          "训练崩溃",
     "log_line":       "日志行",
     "heartbeat":      "心跳",
+    "arch_analysis":  "架构图 AI 解读",
 }
 
 
@@ -114,12 +115,14 @@ class RemoteServer:
 
     def __init__(self, handler: RemoteHandler, port: int = 8765,
                  host: str = "0.0.0.0", auth_token: str | None = None,
-                 persist_dir: str | Path | None = None):
+                 persist_dir: str | Path | None = None,
+                 agent_advisor=None):
         self.handler = handler
         self.port = port
         self.host = host
         self.auth_token = auth_token
         self.persist_dir = Path(persist_dir) if persist_dir else None
+        self.agent_advisor = agent_advisor
 
         # SSE 订阅者
         self._subscribers: dict[str, list[asyncio.Queue]] = {}
@@ -267,6 +270,40 @@ class RemoteServer:
         except Exception:
             logger.debug("事件持久化失败", exc_info=True)
 
+    def _replay_recent(self, session_id: str | None = None, limit: int = 50) -> list[str]:
+        """生成 SSE 断线补拉的回放消息（hybrid 模式）。
+
+        session_id 为 None 时回放所有会话的最近事件（全局端点）；
+        否则只回放该会话。返回已序列化的 SSE data 负载（按时间升序）。
+        """
+        if not self.persist_dir:
+            return []
+        entries: list[dict] = []
+        try:
+            if session_id:
+                entries = list(self.load_persisted_events(session_id))
+            else:
+                for sub in self.persist_dir.iterdir():
+                    if not sub.is_dir():
+                        continue
+                    for e in self.load_persisted_events(sub.name):
+                        e["_session_id"] = sub.name
+                        entries.append(e)
+            entries.sort(key=lambda e: float(e.get("timestamp", 0)))
+            entries = entries[-limit:]
+        except OSError:
+            return []
+        out: list[str] = []
+        for e in entries:
+            payload = {
+                "type": e.get("type"),
+                "session_id": e.get("_session_id") or session_id,
+                "timestamp": e.get("timestamp"),
+                "data": e.get("data"),
+            }
+            out.append(json.dumps(payload, ensure_ascii=False, default=str))
+        return out
+
     def load_persisted_events(self, session_id: str, since: float | None = None) -> list[dict]:
         """加载持久化的事件（PC 端断线补传用）。"""
         if not self.persist_dir:
@@ -305,15 +342,36 @@ class RemoteServer:
             allow_headers=["*"],
         )
 
+        # ── Auth helpers ──────────────────────────────────────────────
+
+        def _check_auth_header(request: Request) -> bool:
+            if not self.auth_token:
+                return True
+            token = request.headers.get("X-Auth-Token", "")
+            return token == self.auth_token
+
+        def _check_auth_query(request: Request) -> bool:
+            """Check auth from query param — EventSource cannot set custom headers."""
+            if not self.auth_token:
+                return True
+            token = request.query_params.get("token", "")
+            return token == self.auth_token
+
         # ── SSE 端点 ──────────────────────────────────────────────────
         @app.get("/sse")
-        async def sse_global():
+        async def sse_global(request: Request):
             """全局 SSE 端点（不指定 session）。"""
+            if not _check_auth_query(request):
+                return Response(content="unauthorized", status_code=401,
+                                media_type="text/plain")
             q = self.subscribe()
             async def event_stream():
                 try:
                     # 发送初始心跳
                     yield f"event: heartbeat\ndata: {json.dumps({'ts': time.time()})}\n\n"
+                    # 回放最近持久化事件（断线补拉，hybrid 模式）
+                    for msg in self._replay_recent(session_id=None, limit=50):
+                        yield f"event: message\ndata: {msg}\n\n"
                     while True:
                         msg = await q.get()
                         yield f"event: message\ndata: {msg}\n\n"
@@ -326,12 +384,18 @@ class RemoteServer:
             return StreamingResponse(event_stream(), media_type="text/event-stream")
 
         @app.get("/sse/{session_id}")
-        async def sse_session(session_id: str):
+        async def sse_session(session_id: str, request: Request):
             """会话级 SSE 端点。"""
+            if not _check_auth_query(request):
+                return Response(content="unauthorized", status_code=401,
+                                media_type="text/plain")
             q = self.subscribe(session_id)
             async def event_stream():
                 try:
                     yield f"event: heartbeat\ndata: {json.dumps({'session_id': session_id, 'ts': time.time()})}\n\n"
+                    # 回放本会话最近持久化事件（断线补拉，hybrid 模式）
+                    for msg in self._replay_recent(session_id=session_id, limit=50):
+                        yield f"event: message\ndata: {msg}\n\n"
                     while True:
                         msg = await q.get()
                         yield f"event: message\ndata: {msg}\n\n"
@@ -345,7 +409,7 @@ class RemoteServer:
 
         # ── REST API ─────────────────────────────────────────────────
 
-        def _check_auth(request: Any) -> bool:
+        def _check_auth_header(request: Any) -> bool:
             if not self.auth_token:
                 return True
             token = request.headers.get("X-Auth-Token", "")
@@ -393,8 +457,8 @@ class RemoteServer:
             return JSONResponse({"pending": pending})
 
         @app.post("/api/sessions/{session_id}/approve")
-        async def approve_action(session_id: str, request: Any):
-            if not _check_auth(request):
+        async def approve_action(session_id: str, request: Request):
+            if not _check_auth_header(request):
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
             body = await request.json()
             action_id = body.get("action_id", "")
@@ -404,8 +468,8 @@ class RemoteServer:
             return JSONResponse(result)
 
         @app.post("/api/sessions/{session_id}/reject")
-        async def reject_action(session_id: str, request: Any):
-            if not _check_auth(request):
+        async def reject_action(session_id: str, request: Request):
+            if not _check_auth_header(request):
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
             body = await request.json()
             action_id = body.get("action_id", "")
@@ -428,9 +492,9 @@ class RemoteServer:
             return JSONResponse({"events": events})
 
         @app.post("/api/sessions/{session_id}/restart")
-        async def restart_training(session_id: str, request: Any):
+        async def restart_training(session_id: str, request: Request):
             """手动触发重启。"""
-            if not _check_auth(request):
+            if not _check_auth_header(request):
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
             body = await request.json()
             action = body.get("action", "resume_unchanged")
@@ -439,7 +503,116 @@ class RemoteServer:
             result = self.handler.trigger_recovery(session_id, action, params)
             return JSONResponse(result)
 
+        # ── Architecture analysis ─────────────────────────────────────
+
+        @app.post("/api/arch/analyze")
+        async def arch_analyze(request: Request):
+            """分析模型架构，返回 D3 可渲染的 JSON 数据。
+
+            Request body:
+                { "model_entry": "module:function", "project_dir": "/path",
+                  "session_id": "...", "agent": true }
+
+            也可以从已注册会话取 model_entry（通过 session_id 参数）。
+            若 agent=true 且 agent_advisor 可用，会在后台线程调用 LLM 生成解读，
+            然后通过 SSE arch_analysis 事件推送。
+            """
+            if not _check_auth_header(request):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+            try:
+                body = await request.json()
+            except Exception:
+                return JSONResponse({"error": "invalid JSON body"}, 400)
+
+            model_entry = body.get("model_entry", "")
+            project_dir = body.get("project_dir", "")
+            session_id = body.get("session_id", "")
+            want_agent = body.get("agent", False)
+
+            # Fall back to registered session meta if model_entry not provided.
+            if not model_entry and session_id:
+                with self._session_lock:
+                    sess = self._sessions.get(session_id, {})
+                    meta = sess.get("meta", {})
+                    model_entry = model_entry or meta.get("model_entry", "")
+                    project_dir = project_dir or meta.get("project_dir", "")
+
+            if not model_entry:
+                return JSONResponse(
+                    {"error": "缺少 model_entry（格式: module:function）"}, 400
+                )
+
+            try:
+                from ..arch_analyzer import ArchAnalyzer
+                import sys
+                import importlib
+
+                analyzer = ArchAnalyzer()
+
+                if project_dir and project_dir not in sys.path:
+                    sys.path.insert(0, project_dir)
+
+                mod_parts = model_entry.split(":", 1)
+                if len(mod_parts) != 2:
+                    return JSONResponse(
+                        {"error": f"invalid model_entry: {model_entry}（需要 module:function 格式）"},
+                        400,
+                    )
+                mod = importlib.import_module(mod_parts[0])
+                model_fn = getattr(mod, mod_parts[1])
+                result = analyzer.analyze(model_fn)
+
+                if "error" in result:
+                    return JSONResponse(result, 400)
+
+                # Agent narration: 后台线程调用 LLM 解读，通过 SSE 推送
+                if want_agent and self.agent_advisor and self.agent_advisor.is_enabled("summary_narrative"):
+                    _sid = session_id or "default"
+                    threading.Thread(
+                        target=self._narrate_arch_result,
+                        args=(result, _sid),
+                        daemon=True,
+                        name="arch-narrate",
+                    ).start()
+                    result["agent_pending"] = True
+
+                return JSONResponse(result)
+            except Exception as e:
+                logger.warning("架构分析失败: %s", e, exc_info=True)
+                return JSONResponse({"error": str(e)}, 500)
+
         return app
+
+    def _narrate_arch_result(self, arch_data: dict, session_id: str) -> None:
+        """后台线程：调用 AgentAdvisor.narrate() 生成解读，通过 SSE 推送。"""
+        try:
+            advisor = self.agent_advisor
+            if not advisor:
+                return
+            prompt_template = (
+                "以下是一个深度学习模型的架构分析结果。请用中文生成一段 200-400 字的解读，"
+                "包含：模型规模概述、参数分布特点、计算瓶颈、优化建议。\n\n"
+                "{summary}"
+            )
+            narration = advisor.narrate(arch_data, prompt_template)
+            if narration:
+                self.push_event(session_id, "arch_analysis", {
+                    "narration": narration,
+                    "model_name": arch_data.get("model_name", "Model"),
+                    "total_params": arch_data.get("total_params", 0),
+                    "bottleneck_count": arch_data.get("bottleneck_count", 0),
+                })
+            else:
+                self.push_event(session_id, "arch_analysis", {
+                    "narration": None,
+                    "error": "AI 解读生成失败，请检查 API Key 配置",
+                })
+        except Exception as e:
+            logger.warning("架构 AI 解读失败: %s", e, exc_info=True)
+            self.push_event(session_id, "arch_analysis", {
+                "narration": None,
+                "error": str(e),
+            })
 
     def __repr__(self) -> str:
         return f"RemoteServer(host={self.host}:{self.port}, running={self._running})"

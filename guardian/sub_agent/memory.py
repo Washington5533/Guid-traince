@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 __all__ = ["RollingMemory", "DecisionRecord", "TrainingPhase"]
@@ -186,6 +186,46 @@ class RollingMemory:
             for d in summary["recent_decisions"][-5:]:
                 lines.append(f"  [{d['type']}] {d['desc']} → {d['action']} ({d['source']}, {d['outcome']})")
         return "\n".join(lines)
+
+    # ── 序列化（持久化 / 断点续守） ──────────────────────────────────
+
+    def to_dict(self) -> dict:
+        """导出为可 JSON 序列化的字典。"""
+        return {
+            "max_size": self.max_size,
+            "phase": self._phase,
+            "records": [asdict(r) for r in self._records],
+            "anomaly_count": self._anomaly_count,
+            "intervention_count": self._intervention_count,
+            "crash_count": self._crash_count,
+            "consecutive_failures": self._consecutive_failures,
+            "best_metric_value": self._best_metric_value,
+            "best_metric_name": self._best_metric_name,
+            "current_epoch": self._current_epoch,
+            "total_epochs": self._total_epochs,
+            "start_time": self._start_time,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RollingMemory":
+        """从字典恢复（断点续守）。"""
+        mem = cls(max_size=data.get("max_size", 100))
+        mem._phase = data.get("phase", TrainingPhase.INIT)
+        mem._anomaly_count = data.get("anomaly_count", 0)
+        mem._intervention_count = data.get("intervention_count", 0)
+        mem._crash_count = data.get("crash_count", 0)
+        mem._consecutive_failures = data.get("consecutive_failures", 0)
+        mem._best_metric_value = data.get("best_metric_value")
+        mem._best_metric_name = data.get("best_metric_name", "")
+        mem._current_epoch = data.get("current_epoch", 0)
+        mem._total_epochs = data.get("total_epochs", 0)
+        mem._start_time = data.get("start_time", time.time())
+        for r in data.get("records", []):
+            try:
+                mem._records.append(DecisionRecord(**r))
+            except Exception:
+                pass  # 跳过损坏的记录
+        return mem
 
     def __len__(self) -> int:
         return len(self._records)

@@ -1,21 +1,27 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { TgKey } from '../locales'
 
 interface DecisionsTabProps {
   pending: Array<Record<string, unknown>>
   t: (key: TgKey) => string
-  onApprove: (actionId: string) => void
-  onReject: (actionId: string, reason: string) => void
+  onApprove: (actionId: string) => void | Promise<void>
+  onReject: (actionId: string, reason: string) => void | Promise<void>
 }
 
 export function DecisionsTab({ pending, t, onApprove, onReject }: DecisionsTabProps) {
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
 
+  // Only reset the reject input when a *new* decision arrives (list grows),
+  // not on every reference change from SSE re-delivery.
+  const prevLenRef = useRef(pending.length)
   useEffect(() => {
-    setRejectingId(null)
-    setRejectReason('')
-  }, [pending])
+    if (pending.length > prevLenRef.current) {
+      setRejectingId(null)
+      setRejectReason('')
+    }
+    prevLenRef.current = pending.length
+  }, [pending.length])
 
   const handleReject = useCallback((actionId: string) => {
     if (!rejectReason.trim()) return

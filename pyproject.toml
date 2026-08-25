@@ -81,9 +81,10 @@ Issues = "https://github.com/Washington5533/guarftrain/issues"
 
 [project.scripts]
 guarftrain = "guardian.cli:main"
+dsh-plugin = "scripts.dsh_plugin_cli:main"
 
 [tool.setuptools]
-packages = ["guardian", "guardian.dashboard", "guardian.dashboard.static"]
+packages = ["guardian", "guardian.dashboard", "guardian.dashboard.static", "scripts"]
 
 [tool.setuptools.package-data]
 guardian = ["dashboard/static/*"]

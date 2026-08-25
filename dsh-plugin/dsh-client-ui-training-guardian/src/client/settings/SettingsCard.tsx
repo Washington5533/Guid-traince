@@ -7,6 +7,8 @@ export interface TrainingGuardianSettings {
   authToken: string
   sessionId: string
   autoConnect: boolean
+  modelEntry: string
+  projectDir: string
 }
 
 export const DEFAULT_SETTINGS: TrainingGuardianSettings = {
@@ -14,6 +16,8 @@ export const DEFAULT_SETTINGS: TrainingGuardianSettings = {
   authToken: '',
   sessionId: '',
   autoConnect: true,
+  modelEntry: '',
+  projectDir: '',
 }
 
 export type TgSettingsCardFace = {
@@ -149,6 +153,40 @@ export function SettingsCard({ controller, t }: SettingsCardProps) {
         <label htmlFor="tg-auto-connect" style={{ fontSize: 13 }}>
           {t('settings.autoConnect')}
         </label>
+      </div>
+
+      <div>
+        <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+          {t('settings.modelEntry')}
+        </label>
+        <input
+          type="text"
+          value={settings.modelEntry}
+          onChange={e => handleChange('modelEntry', e.target.value)}
+          placeholder={t('settings.modelEntryHint')}
+          style={{
+            width: '100%', padding: '6px 8px', fontSize: 13,
+            border: '1px solid var(--border, #ddd)', borderRadius: 4,
+            background: 'var(--bg, #fff)', color: 'var(--text, #333)',
+          }}
+        />
+      </div>
+
+      <div>
+        <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+          {t('settings.projectDir')}
+        </label>
+        <input
+          type="text"
+          value={settings.projectDir}
+          onChange={e => handleChange('projectDir', e.target.value)}
+          placeholder={t('settings.projectDirHint')}
+          style={{
+            width: '100%', padding: '6px 8px', fontSize: 13,
+            border: '1px solid var(--border, #ddd)', borderRadius: 4,
+            background: 'var(--bg, #fff)', color: 'var(--text, #333)',
+          }}
+        />
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

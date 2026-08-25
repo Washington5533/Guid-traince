@@ -29,7 +29,12 @@ export default defineConfig([
     platform: 'browser',
     target: 'es2022',
     sourcemap: true,
-    external: ['react', 'react/jsx-runtime', 'react-dom'],
+    // The platform module table (seed words) only provides react/react-dom/
+    // @deepseek-ai/* shells — everything else must be bundled.
+    deps: {
+      neverBundle: ['react', 'react/jsx-runtime', 'react-dom'],
+      alwaysBundle: ['d3'],
+    },
     outputOptions: {
       // Force `.js` (not `.cjs`): package.json `type: module` would otherwise
       // make tsdown emit `index.cjs`, but DSH's loader resolves the bundle via

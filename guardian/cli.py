@@ -70,6 +70,16 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--remote-port", type=int, default=8765, help="远程通信端口，默认 8765")
     w.add_argument("--remote-host", default="0.0.0.0", help="远程监听地址，默认 0.0.0.0")
     w.add_argument("--remote-auth", default=None, help="远程通信鉴权 token")
+    w.add_argument("--remote-keepalive", type=int, default=60,
+                   help="训练结束后远程服务保持在线秒数（PC 端补拉最终状态），默认 60")
+    w.add_argument("--attach-pid", type=int, default=None,
+                   help="附加到已有训练进程 PID（不自行启动）")
+    w.add_argument("--screen", default=None, metavar="SESSION",
+                   help="在 screen 会话中启动训练（SSH 断开后继续守护）")
+    w.add_argument("--tmux", default=None, metavar="SESSION",
+                   help="在 tmux 会话中启动训练")
+    w.add_argument("--persist-agent", default=None, metavar="PATH",
+                   help="SubAgent 状态持久化文件路径（断点续守）")
 
     c = sub.add_parser("contract", help="契约校验与审核")
     c.add_argument("action", choices=["check", "review"])
@@ -480,6 +490,10 @@ def cmd_start(args, train_cmd: list[str]) -> int:
             with_mcp=False,        # 已有独立 SSE MCP，避免第二个 stdio MCP 抢终端
             with_dashboard=True,   # cmd_watch 检测到端口占用即复用并注册进程
             dash_port=dash_port,
+            remote=False, remote_port=8765, remote_host="0.0.0.0",
+            remote_auth=None, remote_keepalive=60,
+            autonomy="supervised",
+            attach_pid=None, screen=None, tmux=None, persist_agent=None,
         )
         return cmd_watch(watch_args, train_cmd)
 
@@ -494,12 +508,19 @@ def cmd_start(args, train_cmd: list[str]) -> int:
 
 
 def cmd_watch(args, train_cmd: list[str]) -> int:
-    if not train_cmd:
+    if not train_cmd and not args.attach_pid:
         print("用法: python run.py watch -- <训练命令>\n"
-              "例如: python run.py watch -- python train.py --epochs 20", flush=True)
+              "例如: python run.py watch -- python train.py --epochs 20\n"
+              "      python run.py watch --attach-pid 12345", flush=True)
         return 2
 
     cfg, contract = _load(args)
+
+    # ---- 进程模式互斥校验 ----
+    _process_modes = sum(bool(x) for x in [args.attach_pid, args.screen, args.tmux])
+    if _process_modes > 1:
+        print("错误: --attach-pid / --screen / --tmux 只能选一个", flush=True)
+        return 1
 
     # ---- 启动前守卫：自动探测项目结构 ----
     from .project_context import ProjectContext
@@ -607,6 +628,229 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
 
     summary_gen = SummaryGenerator(project, monitor, analyzer, watchdog, advisor=advisor)
 
+    # ---- 进程模式选择 + ProcessAdapter ----
+    from .process_adapter import (
+        AttachedProcessAdapter,
+        ScreenProcessAdapter,
+        TmuxProcessAdapter,
+    )
+    import time as _time_mod
+
+    log_dir = Path(project["log_dir"])
+    process_mode = "spawn"
+    process_adapter = None
+    if args.attach_pid:
+        process_mode = "attach"
+        process_adapter = AttachedProcessAdapter(
+            args.attach_pid, log_file=log_dir / "train.log",
+        )
+        print(f"[进程] 附加模式: PID={args.attach_pid}", flush=True)
+    elif args.screen:
+        process_mode = "screen"
+        process_adapter = ScreenProcessAdapter(args.screen)
+        # screen 启动在后面（需要 train_cmd）
+    elif args.tmux:
+        process_mode = "tmux"
+        process_adapter = TmuxProcessAdapter(args.tmux)
+        # tmux 启动在后面（需要 train_cmd）
+
+    # ---- SubAgent 实例化 + 持久化 ----
+    persist_path: Path | None = None
+    if args.persist_agent:
+        persist_path = Path(args.persist_agent)
+    elif process_mode != "spawn" and advisor is not None:
+        persist_path = log_dir / "sub_agent_state.json"
+
+    sub_agent = None
+    if advisor is not None:
+        from .sub_agent import SubAgent, default_registry
+        _sa_cfg = dict(cfg.get("sub_agent") or cfg.get("agent", {}))
+        _sa_cfg["autonomy"] = args.autonomy
+
+        if persist_path and persist_path.exists() and process_mode == "attach":
+            # 断点续守：恢复 SubAgent 状态
+            sub_agent = SubAgent.restore_from(persist_path, _sa_cfg, default_registry())
+            print(f"[SubAgent] 从 {persist_path} 恢复"
+                  f"（{len(sub_agent.memory)} 条记忆）", flush=True)
+        else:
+            sub_agent = SubAgent(config=_sa_cfg, tool_registry=default_registry())
+            sub_agent._advisor = advisor  # LLM 回调复用
+            if persist_path:
+                sub_agent._persist_path = persist_path
+            sub_agent.spawn({
+                "command": " ".join(train_cmd),
+                "total_epochs": contract.script.get("epochs", 0) if hasattr(contract, 'script') else 0,
+                "model_entry": (contract.script.get("buildable_entry", {}).get("model_fn", "")
+                                if hasattr(contract, 'script') else ""),
+                "project_dir": str(Path(args.project_dir or ".").resolve()),
+                "log_file": str(log_dir / "train.log"),
+            })
+            print(f"[SubAgent] 已启动（autonomy={args.autonomy}）", flush=True)
+
+    # 将 SubAgent 引用注入 watchdog（崩溃记忆同步）
+    watchdog.sub_agent = sub_agent
+
+    # --remote：启动 SSE/REST 远程通信服务（PC 端 DSH 插件 / Dashboard 连接）。
+    # 事件由 on_tick 在每轮 watchdog tick 中推送（metrics/anomaly/gpu/decision）。
+    remote_server = None
+    remote_state: dict[str, Any] = {
+        "sid": project.get("name", "guardian-run"),
+        "status": "running",
+        "last_step": None,
+        "decision_count": 0,
+    }
+    if args.remote:
+        import time
+
+        from .remote.server import RemoteServer
+        from .remote.persistence import PersistenceManager
+
+        log_dir = Path(project["log_dir"])
+        persist = PersistenceManager(log_dir)
+        decision_log = log_dir / "decisions.jsonl"
+
+        def _read_decisions() -> list[dict]:
+            if not decision_log.is_file():
+                return []
+            out: list[dict] = []
+            try:
+                for line in decision_log.read_text(encoding="utf-8").splitlines():
+                    try:
+                        out.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+            except OSError:
+                pass
+            return out
+
+        def _gpu_payload() -> dict:
+            """最新 GPU 快照，字段按 DSH 插件 GpuTab 期望的形状映射。"""
+            hist = monitor.get_gpu_history() if monitor is not None else []
+            latest_by_id: dict[int, dict] = {}
+            for rec in hist:
+                latest_by_id[int(rec.get("gpu_id", rec.get("index", 0)))] = rec
+            gpus = []
+            for rec in latest_by_id.values():
+                gpus.append({
+                    "index": rec.get("gpu_id", 0),
+                    "name": rec.get("name", ""),
+                    "utilization": rec.get("utilization"),
+                    "temperature": rec.get("temperature_c"),
+                    "vram_used_mb": rec.get("memory_used_mb"),
+                    "vram_total_mb": rec.get("memory_total_mb"),
+                    "timestamp": rec.get("timestamp"),
+                })
+            return {"gpu_count": len(gpus), "gpus": gpus, "timestamp": time.time()}
+
+        class _WatchRemoteHandler:
+            """把 monitor / watchdog 的实时状态翻译成 RemoteServer 的查询接口。"""
+
+            def get_training_status(self, session_id: str) -> dict:
+                proc = watchdog.proc
+                pid = None
+                if proc is not None:
+                    pid = proc.get_pid() if hasattr(proc, 'get_pid') else getattr(proc, 'pid', None)
+                return {
+                    "session_id": session_id,
+                    "status": remote_state["status"],
+                    "pid": pid,
+                    "current_step": monitor.current_step() if monitor else None,
+                }
+
+            def get_metrics_history(self, session_id: str, limit: int = 200, offset: int = 0) -> dict:
+                hist = monitor.get_metrics_history() if monitor else []
+                page = hist[offset:offset + limit]
+                return {"total": len(hist), "returned": len(page), "metrics": page}
+
+            def get_gpu_status(self) -> dict:
+                return _gpu_payload()
+
+            def approve_action(self, session_id: str, action_id: str) -> dict:
+                if sub_agent and sub_agent.is_spawned:
+                    result = sub_agent.approve(action_id)
+                    return {"success": result.success, "tool": result.tool_name,
+                            "error": result.error or None}
+                return {"error": "SubAgent 未启用"}
+
+            def reject_action(self, session_id: str, action_id: str, reason: str = "") -> dict:
+                if sub_agent and sub_agent.is_spawned:
+                    result = sub_agent.reject(action_id, reason)
+                    return {"success": True, "rejected": result.rejected}
+                return {"error": "SubAgent 未启用"}
+
+            def get_decision_log(self, session_id: str, limit: int = 50) -> list[dict]:
+                return _read_decisions()[-limit:]
+
+            def get_anomaly_history(self, session_id: str, limit: int = 50) -> list[dict]:
+                hist = monitor.get_anomaly_history() if monitor else []
+                return hist[-limit:]
+
+            def get_training_log(self, session_id: str, lines: int = 100, grep: str = "") -> list[str]:
+                log_file = log_dir / "train.log"
+                if not log_file.is_file():
+                    return []
+                try:
+                    with open(log_file, encoding="utf-8", errors="replace") as f:
+                        all_lines = f.readlines()
+                    result = all_lines[-lines:] if not grep else [l for l in all_lines if grep in l][-lines:]
+                    return result
+                except OSError:
+                    return []
+
+            def get_device_info(self) -> dict:
+                try:
+                    import platform
+                    import psutil
+
+                    return {
+                        "hostname": platform.node(),
+                        "os": platform.system(),
+                        "cpu_count": psutil.cpu_count(),
+                        "memory_total_gb": round(psutil.virtual_memory().total / 1024**3, 1),
+                        "memory_used_pct": psutil.virtual_memory().percent,
+                    }
+                except Exception:
+                    return {"hostname": "unknown"}
+
+            def get_pending_actions(self, session_id: str) -> list[dict]:
+                if sub_agent and sub_agent.is_spawned:
+                    return sub_agent.get_pending_actions()
+                return []
+
+            def trigger_recovery(self, session_id: str, action: str, params: dict) -> dict:
+                return {"error": "watch 模式下不提供恢复接口"}
+
+        try:
+            remote_server = RemoteServer(
+                _WatchRemoteHandler(),
+                port=args.remote_port,
+                host=args.remote_host,
+                auth_token=args.remote_auth,
+                persist_dir=log_dir / "remote",
+                agent_advisor=advisor,
+            )
+            remote_server.start()
+            remote_server.register_session(remote_state["sid"], {
+                "name": project.get("name", "guardian-run"),
+                "command": " ".join(train_cmd),
+                "log_file": str(log_dir / "train.log"),
+                "model_entry": contract.script.get("buildable_entry", {}).get("model_fn", ""),
+                "project_dir": str(Path(args.project_dir or ".").resolve()),
+            })
+            remote_server.push_event(remote_state["sid"], "training_start", {
+                "command": " ".join(train_cmd),
+            })
+            print("=" * 56, flush=True)
+            print("  Guardian Remote Server (watch --remote)", flush=True)
+            print(f"  SSE/REST : http://{args.remote_host}:{args.remote_port}", flush=True)
+            print(f"  session  : {remote_state['sid']}", flush=True)
+            if args.remote_auth:
+                print("  auth     : 已启用（X-Auth-Token / ?token=）", flush=True)
+            print("=" * 56, flush=True)
+        except Exception as exc:
+            print(f"[remote] 远程服务启动失败，训练照常进行: {exc}", flush=True)
+            remote_server = None
+
     # --with-mcp：在 watchdog 就绪后后台启动
     if args.with_mcp:
         from .mcp_server import GuardianMCPServer
@@ -679,7 +923,26 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
 
     def on_tick(_wd, _proc) -> None:
         if monitor is not None:
-            monitor.poll_metrics()
+            tick_events = monitor.poll_metrics()
+            # Remote server: push metrics / anomalies / gpu / decisions via SSE
+            if remote_server is not None:
+                hist = monitor.get_metrics_history()
+                if hist:
+                    last = hist[-1]
+                    step = last.get("step")
+                    if step is not None and step != remote_state["last_step"]:
+                        remote_state["last_step"] = step
+                        remote_server.push_event(remote_state["sid"], "metrics", last)
+                for ev in tick_events:
+                    remote_server.push_event(remote_state["sid"], "anomaly", ev.to_dict())
+                gpu = _gpu_payload()
+                if gpu.get("gpu_count"):
+                    remote_server.push_event(remote_state["sid"], "gpu_status", gpu)
+                decisions = _read_decisions()
+                if len(decisions) > remote_state["decision_count"]:
+                    for d in decisions[remote_state["decision_count"]:]:
+                        remote_server.push_event(remote_state["sid"], "decision", d)
+                    remote_state["decision_count"] = len(decisions)
             # Dashboard: push via HTTP
             if dash_url and monitor.enabled:
                 try:
@@ -705,6 +968,49 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
                     pass
         analyzer.poll()
 
+        # ---- SubAgent: 自主异常检测 + LLM 决策 ----
+        if sub_agent is not None and sub_agent.is_spawned:
+            hist = monitor.get_metrics_history() if monitor else []
+            sa_metrics = hist[-1] if hist else {}
+            # GPU 数据：直接从 monitor 获取，不依赖 _gpu_payload
+            sa_gpu = None
+            if monitor is not None:
+                gpu_hist = getattr(monitor, "get_gpu_history", lambda: [])()
+                if gpu_hist:
+                    sa_gpu = gpu_hist
+            sa_actions = sub_agent.on_tick(sa_metrics, sa_gpu)
+            import uuid as _uuid
+            for item in sa_actions:
+                action = item["action"]
+                if not item["needs_approval"]:
+                    # 立即执行
+                    result_sa = sub_agent.tools.execute(action, sub_agent.autonomy)
+                    sub_agent.tools.record_result(result_sa)
+                else:
+                    # 入 pending 队列等待审批
+                    aid = f"sa_{_uuid.uuid4().hex[:12]}"
+                    sub_agent._pending_actions.append({
+                        "action_id": aid,
+                        "action": action,
+                        "status": "pending",
+                        "created_at": _time_mod.time(),
+                        "priority": item.get("priority", "normal"),
+                    })
+                    # 推送 SSE decision 事件
+                    if remote_server:
+                        remote_server.push_event(remote_state["sid"], "decision", {
+                            "action_id": aid,
+                            "tool": action.tool_name,
+                            "params": action.params,
+                            "reason": action.reason,
+                            "source": "sub_agent",
+                            "priority": item.get("priority", "normal"),
+                        })
+            # 处理已审批动作（来自 PC 端 approve）
+            for approved_action in sub_agent.drain_approved():
+                result_sa = sub_agent.tools.execute(approved_action, sub_agent.autonomy)
+                sub_agent.tools.record_result(result_sa)
+
     if dash_url:
         try:
             import json as _json, urllib.request as _ur
@@ -717,12 +1023,48 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
             pass
 
     print(f"[守护] {' '.join(train_cmd)}", flush=True)
+
+    # ---- screen/tmux 启动 ----
+    if process_mode == "screen" and process_adapter is not None:
+        try:
+            process_adapter.start(train_cmd)
+            print(f"[screen] 会话 '{args.screen}' 已启动", flush=True)
+        except Exception as exc:
+            print(f"[screen] 启动失败: {exc}", flush=True)
+            return 1
+    elif process_mode == "tmux" and process_adapter is not None:
+        try:
+            process_adapter.start(train_cmd)
+            print(f"[tmux] 会话 '{args.tmux}' 已启动", flush=True)
+        except Exception as exc:
+            print(f"[tmux] 启动失败: {exc}", flush=True)
+            return 1
+
+    # ---- watchdog 运行模式分发 ----
     try:
-        result = watchdog.run(train_cmd, on_tick=on_tick)
+        if process_mode == "spawn":
+            result = watchdog.run(train_cmd, on_tick=on_tick)
+        else:
+            result = watchdog.run_attach(process_adapter, on_tick=on_tick)
     except KeyboardInterrupt:
         watchdog.stop()
         result = {"status": "stopped", "exit_code": None}
         print("\n[守护] 收到中断信号", flush=True)
+
+    # ---- SubAgent shutdown ----
+    if sub_agent is not None and sub_agent.is_spawned:
+        final_metrics = monitor.get_metrics_history()[-1] if monitor else None
+        sa_summary = sub_agent.shutdown(final_metrics)
+        if persist_path:
+            persist_path.unlink(missing_ok=True)  # 清理持久化文件
+        if remote_server:
+            remote_server.push_event(remote_state["sid"], "decision", {
+                "type": "sub_agent_shutdown",
+                "narrative": sa_summary.get("narrative"),
+                "stats": sa_summary.get("stats"),
+            })
+        print(f"[SubAgent] 已关闭"
+              f"（{sa_summary.get('stats', {}).get('total_decisions', 0)} 次决策）", flush=True)
 
     if monitor is not None:
         monitor.poll_metrics()
@@ -738,6 +1080,20 @@ def cmd_watch(args, train_cmd: list[str]) -> int:
             ), timeout=3)
         except Exception:
             pass
+
+    if remote_server is not None:
+        remote_state["status"] = result.get("status", "stopped")
+        remote_server.push_event(remote_state["sid"], "training_end", {
+            "status": remote_state["status"],
+            "exit_code": result.get("exit_code"),
+        })
+        keepalive = int(getattr(args, "remote_keepalive", 60) or 0)
+        if keepalive > 0:
+            print(f"[remote] 训练已结束，服务保持在线 {keepalive}s 供 PC 端补拉最终状态 ...", flush=True)
+            import time as _time
+
+            _time.sleep(keepalive)
+        remote_server.stop()
 
     summary = summary_gen.generate(result)
     print(flush=True)
@@ -1322,8 +1678,19 @@ def cmd_remote(args) -> int:
             return {"error": "standalone remote mode does not support recovery"}
 
     handler = _Handler()
+
+    # 可选 AgentAdvisor（架构图 AI 解读）
+    advisor = None
+    agent_cfg = cfg.get("agent", {})
+    if agent_cfg.get("enabled", False):
+        from .agent_advisor import AgentAdvisor
+        advisor = AgentAdvisor(agent_cfg)
+        if not advisor.is_enabled():
+            advisor = None
+
     server = RemoteServer(handler, port=args.port, host=args.host, auth_token=args.auth,
-                          persist_dir=Path(persist_root) / "remote")
+                          persist_dir=Path(persist_root) / "remote",
+                          agent_advisor=advisor)
 
     # 注册已有会话
     for session in persist.list_sessions():

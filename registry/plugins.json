@@ -1,11 +1,11 @@
 {
-  "version": 2,
+  "version": 3,
   "registry_url": "https://raw.githubusercontent.com/Washington5533/guarftrain/main/registry/plugins.json",
-  "updated_at": "2026-08-24",
+  "updated_at": "2026-08-26",
   "plugins": [
     {
       "name": "@linxin666/dsh-client-ui-training-guardian",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Training Guardian panel for DSH Web GUI: real-time metrics, GPU status, anomaly feed, and sub-agent decision approvals",
       "author": "Washington5533",
       "license": "MIT",
@@ -33,7 +33,7 @@
           "whenToUse": "Use when the user asks about training status, GPU utilization, loss curves, anomalies, or sub-agent decisions. Opens the Training Guardian panel in the current session."
         }
       ],
-      "updated_at": "2026-08-24"
+      "updated_at": "2026-08-26"
     }
   ]
 }

@@ -9,6 +9,7 @@ export interface TrainingGuardianSettings {
   autoConnect: boolean
   modelEntry: string
   projectDir: string
+  dashboardUrl: string
 }
 
 export const DEFAULT_SETTINGS: TrainingGuardianSettings = {
@@ -18,6 +19,7 @@ export const DEFAULT_SETTINGS: TrainingGuardianSettings = {
   autoConnect: true,
   modelEntry: '',
   projectDir: '',
+  dashboardUrl: '',
 }
 
 export type TgSettingsCardFace = {
@@ -181,6 +183,23 @@ export function SettingsCard({ controller, t }: SettingsCardProps) {
           value={settings.projectDir}
           onChange={e => handleChange('projectDir', e.target.value)}
           placeholder={t('settings.projectDirHint')}
+          style={{
+            width: '100%', padding: '6px 8px', fontSize: 13,
+            border: '1px solid var(--border, #ddd)', borderRadius: 4,
+            background: 'var(--bg, #fff)', color: 'var(--text, #333)',
+          }}
+        />
+      </div>
+
+      <div>
+        <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4 }}>
+          {t('settings.dashboardUrl')}
+        </label>
+        <input
+          type="text"
+          value={settings.dashboardUrl}
+          onChange={e => handleChange('dashboardUrl', e.target.value)}
+          placeholder={t('settings.dashboardUrlHint')}
           style={{
             width: '100%', padding: '6px 8px', fontSize: 13,
             border: '1px solid var(--border, #ddd)', borderRadius: 4,

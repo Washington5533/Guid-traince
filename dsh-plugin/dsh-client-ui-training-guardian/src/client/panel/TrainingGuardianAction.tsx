@@ -1,13 +1,13 @@
 /**
- * Session-header action that opens the Training Guardian monitoring panel as
- * a free-floating, draggable window.
+ * Session-header action that opens the Training Guardian monitoring panel.
  *
- * - Rendered through a portal to document.body, so no header/overflow/
- *   transform container can clip or block it.
- * - Drag the title bar to move it anywhere; release near a screen edge to
- *   dock (snap) to that edge/corner.
- * - The docked position persists per browser (localStorage).
- * - Outside-pointer click closes the window.
+ * Supports three layout modes:
+ * - float: draggable free-floating window (portal to body)
+ * - sidebar: fixed right-side inline panel (360px, stays across DSH pages)
+ * - expanded: full-screen overlay (90vw x 90vh, great for arch view)
+ *
+ * Layout preference persists per browser (localStorage).
+ * A Dashboard button opens the Guardian Dashboard (index.html) in a new tab.
  */
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
@@ -22,6 +22,8 @@ export interface TrainingGuardianActionProps {
   authToken?: string
   modelEntry?: string
   projectDir?: string
+  dashboardUrl?: string
+  autoConnect?: boolean
   onApprove: (actionId: string) => void | Promise<void>
   onReject: (actionId: string, reason: string) => void | Promise<void>
   /** Translate function, injected by the slot framework via `locale: 'training-guardian'`. */
@@ -33,10 +35,40 @@ const MAX_HEIGHT = 0.7 // of viewport height
 const EDGE_MARGIN = 8
 const SNAP_THRESHOLD = 24 // px — release within this distance of an edge to dock
 const POS_KEY = 'training-guardian.panel-pos'
+const LAYOUT_KEY = 'training-guardian.layout-mode'
+const SIDEBAR_WIDTH = 360
+type LayoutMode = 'float' | 'sidebar' | 'expanded'
 
 interface PanelPos {
   x: number
   y: number
+}
+
+/** Sidebar mode: fixed right panel, full height. */
+const SIDEBAR_STYLE: CSSProperties = {
+  position: 'fixed',
+  right: 0, top: 0, bottom: 0,
+  width: SIDEBAR_WIDTH,
+  display: 'flex', flexDirection: 'column',
+  background: 'var(--surface, #1e1e2e)',
+  borderLeft: '1px solid var(--border, #333)',
+  boxShadow: '-4px 0 16px rgba(0,0,0,0.3)',
+  zIndex: 9999,
+  overflow: 'hidden',
+}
+
+/** Expanded mode: near full-screen overlay. */
+const EXPANDED_STYLE: CSSProperties = {
+  position: 'fixed',
+  left: '5vw', top: '5vh',
+  width: '90vw', height: '90vh',
+  display: 'flex', flexDirection: 'column',
+  background: 'var(--surface, #1e1e2e)',
+  border: '1px solid var(--border, #333)',
+  borderRadius: 8,
+  boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+  zIndex: 10000,
+  overflow: 'hidden',
 }
 
 const WINDOW_STYLE: CSSProperties = {
@@ -93,6 +125,18 @@ function savePos(pos: PanelPos): void {
   } catch { /* storage unavailable — position just won't persist */ }
 }
 
+function loadLayout(): LayoutMode {
+  try {
+    const raw = localStorage.getItem(LAYOUT_KEY)
+    if (raw === 'float' || raw === 'sidebar' || raw === 'expanded') return raw
+  } catch { /* fall through */ }
+  return 'float'
+}
+
+function saveLayout(mode: LayoutMode): void {
+  try { localStorage.setItem(LAYOUT_KEY, mode) } catch { /* ignore */ }
+}
+
 /** Clamp a position into the viewport, keeping the window fully visible. */
 function clampPos(x: number, y: number, winW: number, winH: number): PanelPos {
   const vw = window.innerWidth
@@ -127,8 +171,10 @@ function snapPos(pos: PanelPos, winW: number, winH: number): PanelPos {
 export function TrainingGuardianAction(props: TrainingGuardianActionProps) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<PanelPos | null>(null)
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>(loadLayout)
   const rootRef = useRef<HTMLDivElement>(null)
   const winRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(null)
 
   // Outside-pointer dismissal: the window lives in a portal, so both the
@@ -139,6 +185,7 @@ export function TrainingGuardianAction(props: TrainingGuardianActionProps) {
       const target = event.target as Node
       const inside = (rootRef.current?.contains(target) ?? false)
         || (winRef.current?.contains(target) ?? false)
+        || (panelRef.current?.contains(target) ?? false)
       if (!inside) setOpen(false)
     }
     document.addEventListener('mousedown', onPointerDown)
@@ -187,43 +234,110 @@ export function TrainingGuardianAction(props: TrainingGuardianActionProps) {
     savePos(docked)
   }
 
-  const windowNode = open && pos !== null ? (
-    <div ref={winRef} style={{ ...WINDOW_STYLE, left: pos.x, top: pos.y }} data-plugin="training-guardian-panel">
-      <div
-        style={HANDLE_STYLE}
-        onPointerDown={onHandlePointerDown}
-        onPointerMove={onHandlePointerMove}
-        onPointerUp={onHandlePointerUp}
-        title="Drag to move — release near a screen edge to dock"
+  const cycleLayout = (): void => {
+    const next: LayoutMode = layoutMode === 'float' ? 'sidebar' : layoutMode === 'sidebar' ? 'expanded' : 'float'
+    setLayoutMode(next)
+    saveLayout(next)
+    // Reset pos when switching to float so it re-positions
+    if (next === 'float') setPos(null)
+  }
+
+  const layoutIcon = layoutMode === 'float' ? '⬒' : layoutMode === 'sidebar' ? '◧' : '⬜'
+  const layoutTooltip = layoutMode === 'float' ? props.t('panel.layoutFloat')
+    : layoutMode === 'sidebar' ? props.t('panel.layoutSidebar')
+    : props.t('panel.layoutExpanded')
+
+  const panelBody = (
+    <TrainingPanel
+      sse={props.sse}
+      sessionId={props.sessionId}
+      serverUrl={props.serverUrl}
+      authToken={props.authToken}
+      modelEntry={props.modelEntry}
+      projectDir={props.projectDir}
+      autoConnect={props.autoConnect}
+      t={props.t}
+      onApprove={props.onApprove}
+      onReject={props.onReject}
+    />
+  )
+
+  // Title bar with layout toggle + dashboard button + close
+  const titleBar = (
+    <div
+      style={HANDLE_STYLE}
+      onPointerDown={layoutMode === 'float' ? onHandlePointerDown : undefined}
+      onPointerMove={layoutMode === 'float' ? onHandlePointerMove : undefined}
+      onPointerUp={layoutMode === 'float' ? onHandlePointerUp : undefined}
+      title={layoutMode === 'float' ? 'Drag to move — release near a screen edge to dock' : undefined}
+    >
+      {layoutMode === 'float' && <span aria-hidden="true" style={{ letterSpacing: -2 }}>⠿</span>}
+      <span style={{ flex: 1 }}>{props.t ? props.t('panel.title') : 'Training Guardian'}</span>
+      {/* Layout toggle */}
+      <button
+        type="button"
+        title={layoutTooltip}
+        onClick={cycleLayout}
+        onPointerDown={e => e.stopPropagation()}
+        style={{
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          color: 'var(--text-secondary, #888)', fontSize: 13, padding: '0 4px',
+        }}
       >
-        <span aria-hidden="true" style={{ letterSpacing: -2 }}>⠿</span>
-        <span style={{ flex: 1 }}>{props.t ? props.t('panel.title') : 'Training Guardian'}</span>
+        {layoutIcon}
+      </button>
+      {/* Dashboard link */}
+      {props.dashboardUrl && (
         <button
           type="button"
-          aria-label="Close"
-          onClick={() => setOpen(false)}
+          title={props.t('panel.dashboard')}
+          onClick={() => window.open(props.dashboardUrl, '_blank')}
           onPointerDown={e => e.stopPropagation()}
           style={{
             background: 'transparent', border: 'none', cursor: 'pointer',
-            color: 'var(--text-secondary, #888)', fontSize: 13, padding: '0 2px',
+            color: 'var(--text-secondary, #888)', fontSize: 12, padding: '0 4px',
           }}
         >
-          ✕
+          ↗
         </button>
-      </div>
-      <div style={BODY_STYLE}>
-        <TrainingPanel
-          sse={props.sse}
-          sessionId={props.sessionId}
-          serverUrl={props.serverUrl}
-          authToken={props.authToken}
-          modelEntry={props.modelEntry}
-          projectDir={props.projectDir}
-          t={props.t}
-          onApprove={props.onApprove}
-          onReject={props.onReject}
-        />
-      </div>
+      )}
+      {/* Close */}
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={() => setOpen(false)}
+        onPointerDown={e => e.stopPropagation()}
+        style={{
+          background: 'transparent', border: 'none', cursor: 'pointer',
+          color: 'var(--text-secondary, #888)', fontSize: 13, padding: '0 2px',
+        }}
+      >
+        ✕
+      </button>
+    </div>
+  )
+
+  // Float mode: portal floating window
+  const floatNode = open && layoutMode === 'float' && pos !== null ? (
+    <div ref={winRef} style={{ ...WINDOW_STYLE, left: pos.x, top: pos.y }} data-plugin="training-guardian-panel">
+      {titleBar}
+      <div style={BODY_STYLE}>{panelBody}</div>
+    </div>
+  ) : null
+
+  // Sidebar mode: fixed right panel (inline, not portal)
+  const sidebarNode = open && layoutMode === 'sidebar' ? (
+    <div ref={panelRef} style={SIDEBAR_STYLE} data-plugin="training-guardian-sidebar">
+      {titleBar}
+      <div style={{ ...BODY_STYLE, flex: 1, minHeight: 0 }}>{panelBody}</div>
+    </div>
+  ) : null
+
+  // Expanded mode: near full-screen overlay
+  const expandedNode = open && layoutMode === 'expanded' ? (
+    <div ref={panelRef} style={EXPANDED_STYLE} data-plugin="training-guardian-expanded">
+      {titleBar}
+      <div style={{ ...BODY_STYLE, flex: 1, minHeight: 0 }}>{panelBody}</div>
     </div>
   ) : null
 
@@ -244,7 +358,10 @@ export function TrainingGuardianAction(props: TrainingGuardianActionProps) {
       >
         {props.t ? props.t('panel.title') : 'TG'}
       </button>
-      {windowNode !== null && createPortal(windowNode, document.body)}
+      {/* Float mode uses portal; sidebar/expanded render inline */}
+      {floatNode !== null && createPortal(floatNode, document.body)}
+      {sidebarNode !== null && createPortal(sidebarNode, document.body)}
+      {expandedNode !== null && createPortal(expandedNode, document.body)}
     </div>
   )
 }

@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 # === Core dependencies (lightweight, torch assumed present in training env) ===
 dependencies = [
@@ -84,7 +84,14 @@ guarftrain = "guardian.cli:main"
 dsh-plugin = "scripts.dsh_plugin_cli:main"
 
 [tool.setuptools]
-packages = ["guardian", "guardian.dashboard", "guardian.dashboard.static", "scripts"]
+packages = [
+    "guardian",
+    "guardian.dashboard",
+    "guardian.dashboard.static",
+    "guardian.remote",
+    "guardian.sub_agent",
+    "scripts",
+]
 
 [tool.setuptools.package-data]
 guardian = ["dashboard/static/*"]

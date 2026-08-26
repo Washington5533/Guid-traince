@@ -581,6 +581,259 @@ class RemoteServer:
                 logger.warning("架构分析失败: %s", e, exc_info=True)
                 return JSONResponse({"error": str(e)}, 500)
 
+        # ── History API (离线浏览历史会话) ──────────────────────────
+
+        @app.get("/api/history/sessions")
+        async def history_sessions():
+            """扫描 persist_dir 子目录，列出所有历史训练会话。"""
+            if not self.persist_dir or not self.persist_dir.is_dir():
+                return JSONResponse({"sessions": []})
+            sessions = []
+            for d in sorted(self.persist_dir.iterdir()):
+                if not d.is_dir():
+                    continue
+                events_file = d / "events.jsonl"
+                if not events_file.is_file():
+                    continue
+                try:
+                    events = self.load_persisted_events(d.name)
+                    if not events:
+                        continue
+                    first_ts = float(events[0].get("timestamp", 0))
+                    last_ts = float(events[-1].get("timestamp", 0))
+                    type_counts: dict[str, int] = {}
+                    for ev in events:
+                        t = ev.get("type", "unknown")
+                        type_counts[t] = type_counts.get(t, 0) + 1
+                    # 取最后一条 metrics 事件作为最终指标
+                    last_metrics = {}
+                    for ev in reversed(events):
+                        if ev.get("type") == "metrics":
+                            last_metrics = ev.get("data", {})
+                            break
+                    sessions.append({
+                        "session_id": d.name,
+                        "event_count": len(events),
+                        "first_ts": first_ts,
+                        "last_ts": last_ts,
+                        "duration_seconds": max(0, last_ts - first_ts),
+                        "type_counts": type_counts,
+                        "last_metrics": last_metrics,
+                    })
+                except Exception:
+                    logger.debug("扫描历史会话失败: %s", d, exc_info=True)
+            return JSONResponse({"sessions": sessions})
+
+        @app.get("/api/history/{session_id}/summary")
+        async def history_summary(session_id: str):
+            """从 JSONL 聚合历史会话摘要。"""
+            events = self.load_persisted_events(session_id)
+            if not events:
+                return JSONResponse({"error": "not found"}, 404)
+            metrics_events = [e for e in events if e.get("type") == "metrics"]
+            anomaly_events = [e for e in events if e.get("type") == "anomaly"]
+            decision_events = [e for e in events if e.get("type") == "decision"]
+            crash_events = [e for e in events if e.get("type") == "crash"]
+            first_ts = float(events[0].get("timestamp", 0))
+            last_ts = float(events[-1].get("timestamp", 0))
+            return JSONResponse({
+                "session_id": session_id,
+                "event_count": len(events),
+                "duration_seconds": max(0, last_ts - first_ts),
+                "first_ts": first_ts,
+                "last_ts": last_ts,
+                "metrics_count": len(metrics_events),
+                "anomaly_count": len(anomaly_events),
+                "decision_count": len(decision_events),
+                "crash_count": len(crash_events),
+                "last_metrics": metrics_events[-1].get("data", {}) if metrics_events else {},
+            })
+
+        @app.get("/api/history/{session_id}/metrics")
+        async def history_metrics(session_id: str, limit: int = 500):
+            """提取历史会话中所有 metrics 事件。"""
+            events = self.load_persisted_events(session_id)
+            metrics = [
+                {"timestamp": e.get("timestamp"), **e.get("data", {})}
+                for e in events if e.get("type") == "metrics"
+            ]
+            return JSONResponse({"metrics": metrics[-limit:]})
+
+        @app.get("/api/history/{session_id}/anomalies")
+        async def history_anomalies(session_id: str, limit: int = 100):
+            """提取历史会话中所有 anomaly 事件。"""
+            events = self.load_persisted_events(session_id)
+            anomalies = [
+                {"timestamp": e.get("timestamp"), **e.get("data", {})}
+                for e in events if e.get("type") == "anomaly"
+            ]
+            return JSONResponse({"anomalies": anomalies[-limit:]})
+
+        @app.get("/api/history/{session_id}/decisions")
+        async def history_decisions(session_id: str, limit: int = 100):
+            """提取历史会话中所有 decision 事件。"""
+            events = self.load_persisted_events(session_id)
+            decisions = [
+                {"timestamp": e.get("timestamp"), **e.get("data", {})}
+                for e in events if e.get("type") == "decision"
+            ]
+            return JSONResponse({"decisions": decisions[-limit:]})
+
+        @app.get("/api/history/{session_id}/crashes")
+        async def history_crashes(session_id: str, limit: int = 50):
+            """提取历史会话中所有 crash 事件（崩溃/重启记录）。"""
+            events = self.load_persisted_events(session_id)
+            crashes = [
+                {"timestamp": e.get("timestamp"), **e.get("data", {})}
+                for e in events if e.get("type") == "crash"
+            ]
+            return JSONResponse({"crashes": crashes[-limit:]})
+
+        # ── AI 分析 & 追问（历史会话） ────────────────────────────
+
+        def _make_advisor():
+            """创建临时 AgentAdvisor（用于历史分析/追问）。"""
+            try:
+                from ..credentials import load_credentials, apply_credentials
+                apply_credentials(load_credentials())
+                from ..agent_advisor import AgentAdvisor
+                import os as _os
+                _provider = _os.environ.get("GUARDIAN_AI_PROVIDER", "anthropic")
+                _model = _os.environ.get("GUARDIAN_AI_MODEL") or None
+                _cfg = {"enabled": True, "provider": _provider, "decision_timeout": 15}
+                if _model:
+                    _cfg["model"] = _model
+                advisor = AgentAdvisor(_cfg)
+                if advisor.is_enabled():
+                    return advisor
+                advisor.close()
+            except Exception:
+                logger.warning("创建临时 AgentAdvisor 失败", exc_info=True)
+            return None
+
+        @app.post("/api/history/{session_id}/ai/analyze")
+        async def history_ai_analyze(session_id: str):
+            """AI 分析历史会话：基于指标摘要生成自然语言解读。"""
+            events = self.load_persisted_events(session_id)
+            if not events:
+                return JSONResponse({"error": "not found"}, 404)
+            metrics_events = [e for e in events if e.get("type") == "metrics"]
+            anomaly_events = [e for e in events if e.get("type") == "anomaly"]
+            last_metrics = metrics_events[-1].get("data", {}) if metrics_events else {}
+            # 构建摘要
+            losses = [m.get("data", {}).get("loss") for m in metrics_events
+                      if isinstance(m.get("data", {}).get("loss"), (int, float))]
+            accs = [m.get("data", {}).get("accuracy") for m in metrics_events
+                    if isinstance(m.get("data", {}).get("accuracy"), (int, float))]
+            summary = {
+                "loss_last": losses[-1] if losses else None,
+                "loss_min": min(losses) if losses else None,
+                "acc_last": accs[-1] if accs else None,
+                "acc_best": max(accs) if accs else None,
+                "metrics_count": len(metrics_events),
+            }
+            advisor = _make_advisor()
+            if advisor:
+                try:
+                    ctx = {
+                        "status": "completed",
+                        "latest_metrics": last_metrics,
+                        "metrics_summary": summary,
+                        "anomaly_count": len(anomaly_events),
+                        "process_name": session_id,
+                    }
+                    text = advisor.narrate({"type": "dashboard_analysis", **ctx})
+                    advisor.close()
+                    if text:
+                        return JSONResponse({"analysis": text, "source": "agent"})
+                except Exception:
+                    logger.warning("历史 AI 分析失败: %s", session_id, exc_info=True)
+                    advisor.close()
+            return JSONResponse({
+                "analysis": (
+                    f"历史实验 {session_id}: 共 {len(metrics_events)} 条指标, "
+                    f"最终 loss: {summary.get('loss_last', '?')}"
+                ),
+                "source": "summary",
+                "context": {"metrics_summary": summary},
+            })
+
+        @app.post("/api/history/{session_id}/ai/chat")
+        async def history_ai_chat(session_id: str, request: Request):
+            """AI 追问历史会话：基于上下文回答用户问题。"""
+            try:
+                body = await request.json()
+            except Exception:
+                return JSONResponse({"error": "invalid JSON"}, 400)
+            question = body.get("question", "")
+            if not question:
+                return JSONResponse({"answer": "请输入问题"}, 400)
+            events = self.load_persisted_events(session_id)
+            if not events:
+                return JSONResponse({"error": "not found"}, 404)
+            metrics_events = [e for e in events if e.get("type") == "metrics"]
+            last_metrics = metrics_events[-1].get("data", {}) if metrics_events else {}
+            losses = [m.get("data", {}).get("loss") for m in metrics_events
+                      if isinstance(m.get("data", {}).get("loss"), (int, float))]
+            summary = {
+                "loss_last": losses[-1] if losses else None,
+                "metrics_count": len(metrics_events),
+            }
+            advisor = _make_advisor()
+            if advisor:
+                try:
+                    ctx = {
+                        "status": "completed",
+                        "question": question,
+                        "latest_metrics": last_metrics,
+                        "metrics_summary": summary,
+                        "process_name": session_id,
+                    }
+                    ans = advisor.narrate({"type": "chat", "question": question, "context": ctx})
+                    advisor.close()
+                    if ans:
+                        return JSONResponse({"answer": ans})
+                except Exception:
+                    logger.warning("历史 AI 追问失败: %s", session_id, exc_info=True)
+                    advisor.close()
+            return JSONResponse({"answer": "AI 调用失败，请检查凭据配置"})
+
+        @app.post("/api/history/compare")
+        async def history_compare(request: Request):
+            """多会话对比：聚合多个历史会话的核心指标。"""
+            try:
+                body = await request.json()
+            except Exception:
+                return JSONResponse({"error": "invalid JSON"}, 400)
+            session_ids = body.get("session_ids", [])
+            if not session_ids or len(session_ids) < 2:
+                return JSONResponse({"error": "need at least 2 session_ids"}, 400)
+            results = []
+            for sid in session_ids:
+                events = self.load_persisted_events(sid)
+                if not events:
+                    results.append({"session_id": sid, "error": "not found"})
+                    continue
+                metrics_events = [e for e in events if e.get("type") == "metrics"]
+                anomaly_events = [e for e in events if e.get("type") == "anomaly"]
+                losses = [m.get("data", {}).get("loss") for m in metrics_events
+                          if isinstance(m.get("data", {}).get("loss"), (int, float))]
+                accs = [m.get("data", {}).get("accuracy") for m in metrics_events
+                        if isinstance(m.get("data", {}).get("accuracy"), (int, float))]
+                first_ts = float(events[0].get("timestamp", 0))
+                last_ts = float(events[-1].get("timestamp", 0))
+                results.append({
+                    "session_id": sid,
+                    "duration_seconds": max(0, last_ts - first_ts),
+                    "metrics_count": len(metrics_events),
+                    "anomaly_count": len(anomaly_events),
+                    "loss_final": losses[-1] if losses else None,
+                    "loss_min": min(losses) if losses else None,
+                    "acc_final": accs[-1] if accs else None,
+                    "acc_best": max(accs) if accs else None,
+                })
+            return JSONResponse({"sessions": results})
+
         return app
 
     def _narrate_arch_result(self, arch_data: dict, session_id: str) -> None:

@@ -1,12 +1,12 @@
 {
-  "process_id": "deepfucking",
-  "name": "deepfucking",
+  "process_id": "clip-linear-probe",
+  "name": "clip-linear-probe",
   "command": "train_clip.py --epochs 101 --resume",
-  "project_dir": "C:/Users/wst/Desktop/anytries/deepfucking",
+  "project_dir": "./projects/clip-linear-probe",
   "status": "completed",
   "registered_at": 1786098126.6729267,
   "finished_at": null,
   "config": {},
   "model_entry": "train_clip:build_model",
-  "log_file": "C:/Users/wst/Desktop/anytries/deepfucking/logs/train.log"
+  "log_file": "./projects/clip-linear-probe/logs/train.log"
 }

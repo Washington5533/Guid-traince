@@ -14,7 +14,7 @@ export type EventHandler = (data: unknown) => void
 export type StatusHandler = (status: ConnectionStatus) => void
 export type ErrorHandler = (error: SseError | null) => void
 
-export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error'
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error' | 'idle'
 
 /** Coarse failure cause; drives the localized headline and the advice prompt. */
 export type SseErrorKind =
@@ -152,6 +152,15 @@ export class SseClient {
     this.intentionalClose = false
     this.reconnectAttempts = 0
     this._open()
+  }
+
+  /**
+   * Enter idle state — no training task running, stop trying to connect.
+   * The panel shows "等待训练任务..." and offers a manual connect button.
+   */
+  goIdle(): void {
+    this.disconnect()
+    this._setStatus('idle')
   }
 
   /**

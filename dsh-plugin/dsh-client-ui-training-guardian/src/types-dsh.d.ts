@@ -32,6 +32,30 @@ declare module '@deepseek-ai/dsh-client-runtime' {
        * Register a component under a seat: `id` for list seats, `key` for
        * keyed seats (e.g. `settings.plugin.item` is keyed by the settings
        * namespace the card edits).
+       *
+       * Overload 1: inject factory returns business props, framework wires
+       * them into the React component automatically (plus `t` when `locale`
+       * is declared).
+       */
+      /**
+       * Overload 1: inject factory returns business props, framework wires
+       * them into the React component automatically (plus `t` when `locale`
+       * is declared). Component accepts `unknown` props because the actual
+       * shape is determined by the inject factory return type at runtime.
+       */
+      register<K extends string>(
+        options: {
+          name: K
+          id?: string
+          key?: string
+          order?: number
+          locale?: string
+          inject: () => Record<string, unknown>
+        },
+        component: (...args: any[]) => any,
+      ): unknown
+      /**
+       * Overload 2: plain options + component, no inject factory.
        */
       register<K extends string>(
         options: {
@@ -41,7 +65,7 @@ declare module '@deepseek-ai/dsh-client-runtime' {
           order?: number
           locale?: string
         },
-        component: (props: Record<string, unknown>) => unknown,
+        component: (...args: any[]) => any,
       ): unknown
     }
     settingsScope?: {

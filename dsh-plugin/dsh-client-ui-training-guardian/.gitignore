@@ -1,2 +1,5 @@
 # Build artifacts (root .gitignore covers dist/; client bundle lives in dist-client/)
 dist-client/
+# tsc incremental build residue (build uses tsc --noEmit)
+lib/
+tsconfig.tsbuildinfo

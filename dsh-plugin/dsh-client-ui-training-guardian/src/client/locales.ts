@@ -11,6 +11,8 @@ export type TgKey =
   | 'panel.noData'
   | 'panel.connecting'
   | 'panel.disconnected'
+  | 'panel.idle'
+  | 'panel.idleConnect'
   | 'panel.close'
   | 'panel.drag'
   // Connection diagnosis
@@ -75,6 +77,11 @@ export type TgKey =
   | 'overview.step'
   | 'overview.status'
   | 'overview.noMetrics'
+  | 'overview.chartTitle'
+  | 'overview.chartLoss'
+  | 'overview.chartAccuracy'
+  | 'overview.chartClear'
+  | 'overview.chartNoData'
   // GPU tab
   | 'gpu.title'
   | 'gpu.utilization'
@@ -98,6 +105,47 @@ export type TgKey =
   | 'decisions.time'
   | 'decisions.approve'
   | 'decisions.reject'
+  // History tab
+  | 'tab.history'
+  | 'history.title'
+  | 'history.noData'
+  | 'history.loading'
+  | 'history.loadBtn'
+  | 'history.back'
+  | 'history.sessions'
+  | 'history.events'
+  | 'history.duration'
+  | 'history.metrics'
+  | 'history.anomalies'
+  | 'history.decisions'
+  | 'history.crashes'
+  // Panel layout
+  | 'panel.layoutFloat'
+  | 'panel.layoutSidebar'
+  | 'panel.layoutExpanded'
+  | 'panel.dashboard'
+  // AI analysis & chat
+  | 'history.aiAnalyze'
+  | 'history.aiAnalyzing'
+  | 'history.aiResult'
+  | 'history.aiFailed'
+  | 'history.aiChat'
+  | 'history.aiChatPlaceholder'
+  | 'history.aiChatSend'
+  | 'history.crashData'
+  | 'history.noCrashes'
+  | 'history.compare'
+  | 'history.compareSelect'
+  | 'history.compareRun'
+  | 'history.compareResult'
+  | 'history.trend'
+  // Offline / local history
+  | 'history.offlineBanner'
+  | 'history.offlineHint'
+  | 'history.localBadge'
+  | 'history.localNoData'
+  | 'history.dataPoints'
+  | 'history.localClear'
   // Settings
   | 'settings.title'
   | 'settings.serverUrl'
@@ -112,6 +160,8 @@ export type TgKey =
   | 'settings.modelEntryHint'
   | 'settings.projectDir'
   | 'settings.projectDirHint'
+  | 'settings.dashboardUrl'
+  | 'settings.dashboardUrlHint'
   // Severity
   | 'severity.low'
   | 'severity.medium'
@@ -129,6 +179,8 @@ const zh: Record<TgKey, string> = {
   'panel.noData': '暂无数据，请检查连接',
   'panel.connecting': '连接中...',
   'panel.disconnected': '已断开',
+  'panel.idle': '等待训练任务...',
+  'panel.idleConnect': '手动连接',
   'panel.close': '关闭',
   'panel.drag': '拖拽移动',
   // Connection diagnosis
@@ -161,6 +213,11 @@ const zh: Record<TgKey, string> = {
   'overview.step': 'Step',
   'overview.status': '状态',
   'overview.noMetrics': '等待指标数据...',
+  'overview.chartTitle': '训练曲线',
+  'overview.chartLoss': '损失',
+  'overview.chartAccuracy': '准确率',
+  'overview.chartClear': '清除历史',
+  'overview.chartNoData': '等待数据点以绘制曲线...',
   'gpu.title': 'GPU 设备状态',
   'gpu.utilization': '利用率',
   'gpu.temperature': '温度',
@@ -212,6 +269,47 @@ const zh: Record<TgKey, string> = {
   'arch.source': '来源',
   'arch.sourceAgent': 'AI 生成',
   'arch.sourceDirect': '直接分析',
+  // History tab
+  'tab.history': '历史',
+  'history.title': '历史会话',
+  'history.noData': '暂无历史训练记录',
+  'history.loading': '加载中...',
+  'history.loadBtn': '查看',
+  'history.back': '返回实时',
+  'history.sessions': '个会话',
+  'history.events': '事件',
+  'history.duration': '时长',
+  'history.metrics': '指标',
+  'history.anomalies': '异常',
+  'history.decisions': '决策',
+  'history.crashes': '崩溃',
+  // AI analysis & chat
+  'history.aiAnalyze': 'AI 分析',
+  'history.aiAnalyzing': 'AI 分析中...',
+  'history.aiResult': 'AI 解读',
+  'history.aiFailed': 'AI 分析失败',
+  'history.aiChat': 'AI 追问',
+  'history.aiChatPlaceholder': '输入关于这次训练的问题...',
+  'history.aiChatSend': '发送',
+  'history.crashData': '崩溃记录',
+  'history.noCrashes': '无崩溃记录',
+  'history.compare': '对比',
+  'history.compareSelect': '选择要对比的会话',
+  'history.compareRun': '开始对比',
+  'history.compareResult': '对比结果',
+  'history.trend': '趋势',
+  // Offline / local history
+  'history.offlineBanner': '服务器未连接，以下为本地缓存的记录',
+  'history.offlineHint': '启动 RemoteServer 可查看完整历史记录',
+  'history.localBadge': '本地',
+  'history.localNoData': '暂无本地缓存的训练记录',
+  'history.dataPoints': '数据点',
+  'history.localClear': '清除缓存',
+  // Panel layout
+  'panel.layoutFloat': '浮动',
+  'panel.layoutSidebar': '侧栏',
+  'panel.layoutExpanded': '全屏',
+  'panel.dashboard': '打开 Dashboard',
   // Settings
   'settings.title': 'Training Guardian',
   'settings.serverUrl': 'Guardian 服务器地址',
@@ -226,6 +324,8 @@ const zh: Record<TgKey, string> = {
   'settings.modelEntryHint': '格式 module:function，如 scripts.train:build_model',
   'settings.projectDir': '项目目录',
   'settings.projectDirHint': '训练项目根目录的绝对路径',
+  'settings.dashboardUrl': 'Dashboard 地址',
+  'settings.dashboardUrlHint': 'Guardian Dashboard 页面地址，如 http://192.168.1.100:8765',
   // Severity
   'severity.low': '低',
   'severity.medium': '中',
@@ -243,6 +343,8 @@ const en: Record<TgKey, string> = {
   'panel.noData': 'No data — check connection',
   'panel.connecting': 'Connecting...',
   'panel.disconnected': 'Disconnected',
+  'panel.idle': 'Waiting for training task...',
+  'panel.idleConnect': 'Connect',
   'panel.close': 'Close',
   'panel.drag': 'Drag to move',
   // Connection diagnosis
@@ -275,6 +377,11 @@ const en: Record<TgKey, string> = {
   'overview.step': 'Step',
   'overview.status': 'Status',
   'overview.noMetrics': 'Waiting for metrics...',
+  'overview.chartTitle': 'Training Curves',
+  'overview.chartLoss': 'Loss',
+  'overview.chartAccuracy': 'Accuracy',
+  'overview.chartClear': 'Clear History',
+  'overview.chartNoData': 'Waiting for data points to plot...',
   'gpu.title': 'GPU Status',
   'gpu.utilization': 'Utilization',
   'gpu.temperature': 'Temperature',
@@ -326,6 +433,47 @@ const en: Record<TgKey, string> = {
   'arch.source': 'Source',
   'arch.sourceAgent': 'AI-generated',
   'arch.sourceDirect': 'Direct analysis',
+  // History tab
+  'tab.history': 'History',
+  'history.title': 'Past Sessions',
+  'history.noData': 'No historical training sessions found',
+  'history.loading': 'Loading...',
+  'history.loadBtn': 'View',
+  'history.back': 'Back to Live',
+  'history.sessions': 'sessions',
+  'history.events': 'events',
+  'history.duration': 'duration',
+  'history.metrics': 'metrics',
+  'history.anomalies': 'anomalies',
+  'history.decisions': 'decisions',
+  'history.crashes': 'crashes',
+  // AI analysis & chat
+  'history.aiAnalyze': 'AI Analysis',
+  'history.aiAnalyzing': 'Analyzing...',
+  'history.aiResult': 'AI Analysis',
+  'history.aiFailed': 'AI analysis failed',
+  'history.aiChat': 'AI Chat',
+  'history.aiChatPlaceholder': 'Ask a question about this training...',
+  'history.aiChatSend': 'Send',
+  'history.crashData': 'Crash Records',
+  'history.noCrashes': 'No crash records',
+  'history.compare': 'Compare',
+  'history.compareSelect': 'Select sessions to compare',
+  'history.compareRun': 'Compare',
+  'history.compareResult': 'Comparison',
+  'history.trend': 'Trend',
+  // Offline / local history
+  'history.offlineBanner': 'Server offline — showing locally cached records',
+  'history.offlineHint': 'Start RemoteServer to view full history',
+  'history.localBadge': 'Local',
+  'history.localNoData': 'No locally cached training records',
+  'history.dataPoints': 'data points',
+  'history.localClear': 'Clear cache',
+  // Panel layout
+  'panel.layoutFloat': 'Float',
+  'panel.layoutSidebar': 'Sidebar',
+  'panel.layoutExpanded': 'Expanded',
+  'panel.dashboard': 'Open Dashboard',
   // Settings
   'settings.title': 'Training Guardian',
   'settings.serverUrl': 'Guardian Server URL',
@@ -340,6 +488,8 @@ const en: Record<TgKey, string> = {
   'settings.modelEntryHint': 'Format module:function, e.g. scripts.train:build_model',
   'settings.projectDir': 'Project Directory',
   'settings.projectDirHint': 'Absolute path to the training project root',
+  'settings.dashboardUrl': 'Dashboard URL',
+  'settings.dashboardUrlHint': 'Guardian Dashboard page URL, e.g. http://192.168.1.100:8765',
   // Severity
   'severity.low': 'Low',
   'severity.medium': 'Medium',

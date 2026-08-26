@@ -51,7 +51,7 @@ guardian watch --agent -- python train.py
 ### 启动阶段
 
 ```
-python run.py watch --agent -- python train.py --epochs 20 --batch_size 64
+guarftrain watch --agent -- python train.py --epochs 20 --batch_size 64
   │
   ├─ 1. TaskContract 契约校验
   │     ✓ resumable:       --resume / --ckpt

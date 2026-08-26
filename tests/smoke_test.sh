@@ -66,7 +66,7 @@ if [ -n "$LIVE" ]; then
   check     "进程详情 $LIVE"       "$HOST/api/process/$LIVE"         "200"
   check     "进程指标 $LIVE"       "$HOST/api/process/$LIVE/metrics?limit=10" "200"
 else
-  echo "  ⚠️  无 live 进程（正常——需要先 python run.py watch 启动训练）"
+  echo "  ⚠️  无 live 进程（正常——需要先 guarftrain watch 启动训练）"
 fi
 
 echo ""

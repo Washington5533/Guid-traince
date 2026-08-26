@@ -6,7 +6,7 @@ async function main() {
 
   console.log('Navigating to DSH web...')
   await page.goto('http://127.0.0.1:3080', { waitUntil: 'networkidle', timeout: 15000 })
-  await page.screenshot({ path: 'C:/Users/wst/Desktop/anytries/guarftrain/dsh-web-1-home.png', fullPage: true })
+  await page.screenshot({ path: 'dsh-web-1-home.png', fullPage: true })
   console.log('Screenshot 1: home page saved')
 
   // Click first workspace
@@ -15,16 +15,16 @@ async function main() {
   if (await firstWorkspace.count() > 0) {
     await firstWorkspace.click()
     await page.waitForTimeout(2000)
-    await page.screenshot({ path: 'C:/Users/wst/Desktop/anytries/guarftrain/dsh-web-2-session.png', fullPage: true })
+    await page.screenshot({ path: 'dsh-web-2-session.png', fullPage: true })
     console.log('Screenshot 2: session view saved')
   } else {
     console.log('No workspace found, trying alternative selector...')
     // Try clicking any clickable item in sidebar
-    const sidebarItems = page.locator('text=/chain|ai_interview|anytries|min_prompt|wst|anycpp/').first()
+    const sidebarItems = page.locator('.sidebar-item, [class*="session"], [class*="conversation"]').first()
     if (await sidebarItems.count() > 0) {
       await sidebarItems.click()
       await page.waitForTimeout(2000)
-      await page.screenshot({ path: 'C:/Users/wst/Desktop/anytries/guarftrain/dsh-web-2-session.png', fullPage: true })
+      await page.screenshot({ path: 'dsh-web-2-session.png', fullPage: true })
       console.log('Screenshot 2: session view saved')
     }
   }
@@ -36,10 +36,10 @@ async function main() {
   console.log(`Training Guardian button found: ${tgFound}`)
 
   if (tgFound) {
-    await tgButton.screenshot({ path: 'C:/Users/wst/Desktop/anytries/guarftrain/dsh-web-3-tg-button.png' })
+    await tgButton.screenshot({ path: 'dsh-web-3-tg-button.png' })
     await tgButton.click()
     await page.waitForTimeout(1000)
-    await page.screenshot({ path: 'C:/Users/wst/Desktop/anytries/guarftrain/dsh-web-4-tg-panel.png', fullPage: true })
+    await page.screenshot({ path: 'dsh-web-4-tg-panel.png', fullPage: true })
     console.log('Screenshot 3-4: TG button and panel saved')
   }
 

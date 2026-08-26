@@ -6,6 +6,14 @@ import { GpuTab } from './GpuTab'
 import { AnomaliesTab } from './AnomaliesTab'
 import { DecisionsTab } from './DecisionsTab'
 import { ArchTab, type ArchNarration } from './ArchTab'
+import { HistoryTab } from './HistoryTab'
+import {
+  MAX_HISTORY,
+  loadMetricsHistory,
+  saveMetricsHistory,
+  clearMetricsHistory,
+  registerLocalSession,
+} from '../storage'
 
 export interface TrainingPanelProps {
   sse: SseClient
@@ -17,9 +25,10 @@ export interface TrainingPanelProps {
   authToken?: string
   modelEntry?: string
   projectDir?: string
+  autoConnect?: boolean
 }
 
-type Tab = 'overview' | 'gpu' | 'anomalies' | 'decisions' | 'arch'
+type Tab = 'overview' | 'gpu' | 'anomalies' | 'decisions' | 'arch' | 'history'
 
 const TABS: { key: Tab; labelKey: TgKey }[] = [
   { key: 'overview', labelKey: 'tab.overview' },
@@ -27,6 +36,7 @@ const TABS: { key: Tab; labelKey: TgKey }[] = [
   { key: 'anomalies', labelKey: 'tab.anomalies' },
   { key: 'decisions', labelKey: 'tab.decisions' },
   { key: 'arch', labelKey: 'tab.arch' },
+  { key: 'history', labelKey: 'tab.history' },
 ]
 
 /** Map SseError.kind to a locale key for the diagnosis headline. */
@@ -46,9 +56,17 @@ const ERROR_HINT_KEY: Record<string, TgKey> = {
   unreachable: 'conn.hintUnreachable',
 }
 
-export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUrl = '', authToken, modelEntry, projectDir }: TrainingPanelProps) {
+export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUrl = '', authToken, modelEntry, projectDir, autoConnect = true }: TrainingPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [metrics, setMetrics] = useState<Record<string, unknown>>({})
+  // Effective storage key: use sessionId when set, fall back to 'auto' so
+  // data always persists — even when the user hasn't configured a session ID.
+  const effectiveKey = (sessionId && sessionId.trim()) || 'auto'
+
+  const [metricsHistory, setMetricsHistory] = useState<Array<Record<string, unknown>>>(() => {
+    // Restore persisted history for current session on mount.
+    return loadMetricsHistory(effectiveKey)
+  })
   const [gpuStatus, setGpuStatus] = useState<Record<string, unknown> | null>(null)
   const [anomalies, setAnomalies] = useState<Array<Record<string, unknown>>>([])
   const [pendingActions, setPendingActions] = useState<Array<Record<string, unknown>>>([])
@@ -56,6 +74,29 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
   const [connError, setConnError] = useState<SseError | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [archNarration, setArchNarration] = useState<ArchNarration | null>(null)
+
+  // Debounced persistence of metrics history to localStorage + registry.
+  const persistTimer = useRef<number | null>(null)
+  useEffect(() => {
+    if (metricsHistory.length === 0) return
+    if (persistTimer.current) window.clearTimeout(persistTimer.current)
+    persistTimer.current = window.setTimeout(() => {
+      saveMetricsHistory(effectiveKey, metricsHistory)
+      // Register in the local session registry so HistoryTab can find it.
+      const last = metricsHistory[metricsHistory.length - 1] || {}
+      registerLocalSession(effectiveKey, metricsHistory.length, last)
+    }, 500)
+    return () => { if (persistTimer.current) window.clearTimeout(persistTimer.current) }
+  }, [metricsHistory, effectiveKey])
+
+  // Reload history when the effective session key changes.
+  const prevKeyRef = useRef<string>(effectiveKey)
+  useEffect(() => {
+    if (prevKeyRef.current !== effectiveKey) {
+      prevKeyRef.current = effectiveKey
+      setMetricsHistory(loadMetricsHistory(effectiveKey))
+    }
+  }, [effectiveKey])
 
   useEffect(() => {
     const unsubs: Array<() => void> = []
@@ -70,8 +111,14 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
     }))
 
     // Merge incoming metrics fields rather than overwriting the whole object.
+    // Also accumulate into history for live chart rendering.
     unsubs.push(sse.on('metrics', (data) => {
-      setMetrics(prev => ({ ...prev, ...(data as Record<string, unknown>) }))
+      const d = data as Record<string, unknown>
+      setMetrics(prev => ({ ...prev, ...d }))
+      setMetricsHistory(prev => {
+        const next = [...prev, d]
+        return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next
+      })
     }))
 
     unsubs.push(sse.on('gpu_status', (data) => {
@@ -98,7 +145,12 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
       })
     }))
 
-    sse.connect()
+    // Respect autoConnect setting: false means start in idle state.
+    if (autoConnect) {
+      sse.connect()
+    } else {
+      sse.goIdle()
+    }
     return () => {
       unsubs.forEach(fn => { try { fn() } catch { /* swallow */ } })
     }
@@ -131,10 +183,29 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
   }, [onReject])
 
   const connected = connectionStatus === 'connected'
+  const idle = connectionStatus === 'idle'
 
   // Build the connection status bar content.
   const statusContent = (() => {
     if (connected) return null
+    // Idle state: neutral blue, manual connect button.
+    if (idle) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <span>{t('panel.idle')}</span>
+          <button
+            onClick={() => sse.connect()}
+            style={{
+              padding: '1px 10px', fontSize: 10, cursor: 'pointer',
+              background: 'var(--accent, #007acc)', color: '#fff',
+              border: 'none', borderRadius: 3,
+            }}
+          >
+            {t('panel.idleConnect')}
+          </button>
+        </div>
+      )
+    }
     if (connectionStatus === 'connecting') return t('panel.connecting')
     // Disconnected or error — show diagnosis if available.
     if (connError) {
@@ -207,8 +278,8 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
       {statusContent && (
         <div style={{
           padding: '4px 12px', fontSize: 11,
-          background: connected ? 'transparent' : 'var(--warning-bg, #332200)',
-          color: connected ? 'var(--text)' : 'var(--warning-text, #ffa726)',
+          background: idle ? 'var(--info-bg, #0a2540)' : connected ? 'transparent' : 'var(--warning-bg, #332200)',
+          color: idle ? 'var(--info-text, #4fc3f7)' : connected ? 'var(--text)' : 'var(--warning-text, #ffa726)',
           textAlign: 'center',
         }}>
           {typeof statusContent === 'string' ? statusContent : statusContent}
@@ -232,7 +303,15 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
       {/* Tab content */}
       <div style={{ flex: 1, overflow: 'auto' }}>
         {activeTab === 'overview' && (
-          <MetricsTab metrics={metrics} t={t} />
+          <MetricsTab
+            metrics={metrics}
+            metricsHistory={metricsHistory}
+            t={t}
+            onClearHistory={() => {
+              setMetricsHistory([])
+              clearMetricsHistory(effectiveKey)
+            }}
+          />
         )}
         {activeTab === 'gpu' && (
           <GpuTab gpuStatus={gpuStatus} t={t} />
@@ -257,6 +336,14 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
             projectDir={projectDir}
             t={t}
             archNarration={archNarration}
+          />
+        )}
+        {activeTab === 'history' && (
+          <HistoryTab
+            serverUrl={serverUrl}
+            authToken={authToken}
+            t={t}
+            currentSessionKey={effectiveKey}
           />
         )}
       </div>

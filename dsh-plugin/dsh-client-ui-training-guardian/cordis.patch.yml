@@ -8,7 +8,7 @@
     version: "0.1.0"
     description: "Training Guardian panel for DSH Web GUI: real-time metrics, GPU status, anomaly feed, and sub-agent decision approval"
     author: "Washington5533"
-    license: "Apache-2.0"
+    license: "MIT"
     homepage: "https://github.com/Washington5533/guarftrain"
     keywords: ["training", "monitoring", "gpu", "anomaly-detection", "dsh-plugin"]
     skills:

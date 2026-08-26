@@ -40,9 +40,6 @@ MCP server 在 guardian 进程内的独立线程运行，**直接共享内存中
 
 ```bash
 # 训练已经在跑（可能已经跑了几小时）
-python run.py serve --transport stdio
-
-# 或
 guarftrain serve --transport stdio
 ```
 
@@ -79,9 +76,9 @@ guarftrain start -- python train.py --epochs 20
 {
   "mcpServers": {
     "guardian": {
-      "command": "/d/anaconda/envs/DL_gpu/python.exe",
-      "args": ["run.py", "serve", "--transport", "stdio"],
-      "cwd": "C:\\Users\\wst\\Desktop\\anytries\\guarftrain"
+      "command": "guarftrain",
+      "args": ["serve", "--transport", "stdio"],
+      "cwd": "/path/to/your-project"
     }
   }
 }
@@ -116,9 +113,9 @@ ssh -L 8766:127.0.0.1:8766 user@your-training-server
 {
   "mcpServers": {
     "guardian": {
-      "command": "python",
-      "args": ["run.py", "serve", "--transport", "stdio"],
-      "cwd": "C:\\Users\\wst\\Desktop\\anytries\\guarftrain"
+      "command": "guarftrain",
+      "args": ["serve", "--transport", "stdio"],
+      "cwd": "/path/to/your-project"
     }
   }
 }
@@ -440,7 +437,7 @@ restart_with_params(action="reduce_batch", param=0.5, request_id="abc-123")
 ```
 ┌─ 远程训练服务器 ──────────────────────────────────┐
 │                                                    │
-│  python run.py serve --transport sse --port 8766   │
+│  guarftrain serve --transport sse --port 8766      │
 │    → MCP server 监听 127.0.0.1:8766               │
 │                                                    │
 └────────────────────────────────────────────────────┘

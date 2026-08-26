@@ -3,8 +3,7 @@
 ## 第一步：安装依赖
 
 ```bash
-cd C:\Users\wst\Desktop\anytries\guarftrain
-pip install -r requirements-mcp.txt
+pip install guarftrain[mcp]
 ```
 
 验证：
@@ -20,19 +19,19 @@ python -c "import mcp; print('OK')"
 ### A. 训练时同进程启动（实时性最好）
 
 ```bash
-python run.py watch --with-mcp -- python train.py --epochs 20
+guarftrain watch --with-mcp -- python train.py --epochs 20
 ```
 
 ### B. 独立 stdio 进程（Claude Code 子进程接入）
 
 ```bash
-python run.py serve --transport stdio
+guarftrain serve --transport stdio
 ```
 
 ### C. 一键启动 Dashboard + MCP + 浏览器自动打开
 
 ```bash
-python run.py start
+guarftrain start
 ```
 
 ## 第三步：配置 Claude Code
@@ -45,9 +44,9 @@ python run.py start
 {
   "mcpServers": {
     "guardian": {
-      "command": "python",
-      "args": ["run.py", "serve", "--transport", "stdio"],
-      "cwd": "C:\\Users\\wst\\Desktop\\anytries\\guarftrain"
+      "command": "guarftrain",
+      "args": ["serve", "--transport", "stdio"],
+      "cwd": "/path/to/your-project"
     }
   }
 }
@@ -57,7 +56,7 @@ python run.py start
 
 **远程服务器：**
 ```bash
-python run.py serve --transport sse --port 8766
+guarftrain serve --transport sse --port 8766
 ```
 
 **本机：**

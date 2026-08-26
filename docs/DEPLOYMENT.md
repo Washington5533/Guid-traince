@@ -1,532 +1,351 @@
-# Training Guardian Agent — 使用说明书
+# Training Guardian · 部署指南
 
-## 1. 项目简介
+## 目录
 
-Training Guardian Agent 是一个 **sidecar-first** 的训练守护系统。以独立进程运行在训练脚本之外，训练脚本**零行改动**即可获得完整守护能力。
+- [部署模式总览](#部署模式总览)
+- [模式 A：本地开发（WSL + dsh-wsl）](#模式-a本地开发wsl--dsh-wsl)
+- [模式 B：Docker 容器](#模式-bdocker-容器)
+- [模式 C：云端服务器（systemd + SSH tunnel）](#模式-c云端服务器systemd--ssh-tunnel)
+- [模式 D：远程 Dashboard（PC 浏览器连接算力服务器）](#模式-d远程-dashboardpc-浏览器连接算力服务器)
+- [网络拓扑](#网络拓扑)
+- [故障排查](#故障排查)
 
-**三阶段覆盖：**
+---
 
-| 阶段 | 功能 |
-|------|------|
-| 训练前 | F8 资源预估（显存/batch/时长）、契约校验 |
-| 训练中 | F1 GPU+Loss 监控告警、F6 崩溃自动恢复、Agent 智能决策 |
-| 训练后 | F9 日志摘要+AI 解读、F2 Checkpoint 分析、F3 图片筛选展示、F7 推理测试 |
-| 跨实验 | F4 NL 查询历史实验、F10 模型管线可视化+组件库改进建议 |
+## 部署模式总览
 
-## 2. 快速开始
+| 模式 | 适用场景 | 复杂度 |
+|------|----------|--------|
+| **A. WSL 本地开发** | 在 Windows 上跑 dsh-wsl + 插件 | ⭐ |
+| **B. Docker** | 单容器打包 DSH + guardian server | ⭐⭐ |
+| **C. 云端服务器** | 算力服务器上跑 guardian + systemd | ⭐⭐⭐ |
+| **D. 远程 Dashboard** | PC 浏览器连接远程 guardian | ⭐⭐⭐ |
 
-### 2.1 安装
+---
 
-```bash
-# 方式 1: pip 安装（推荐）
-pip install guarftrain
+## 模式 A：本地开发（WSL + dsh-wsl）
 
-# 按需安装可选组件
-pip install guarftrain[agent]       # AI 决策层
-pip install guarftrain[mcp]         # MCP 外部 Agent 接入
-pip install guarftrain[dashboard]   # Web 控制面板
-pip install guarftrain[full]        # 全部安装
+### 前提
 
-# 方式 2: 从源码安装
-git clone https://github.com/Washington5533/guarftrain.git
-cd guarftrain
-pip install -r requirements-core.txt       # 核心（必需）
-pip install -r requirements-mcp.txt        # MCP 接入（可选）
-```
+- Windows 11 + WSL2（推荐 Ubuntu 22.04+）
+- Node.js ≥ 22（WSL 内）
+- pnpm ≥ 9
+- Python ≥ 3.10（WSL 内）
 
-### 2.2 一行命令守护训练
+### 步骤
 
 ```bash
-# 纯规则守护（零外部依赖）
-guarftrain watch -- python train.py --epochs 20
+# 1. 克隆 dsh-wsl
+git clone https://github.com/DeepSeek-ai/dsh-wsl.git ~/dsh-wsl
+cd ~/dsh-wsl
+pnpm install
+pnpm build
 
-# Agent 智能决策（需 API key）
-guarftrain watch --agent -- python train.py --epochs 20
+# 2. 安装 Training Guardian 插件（本地开发模式，用 file: 链接）
+pnpm dsh plugin --profile web add /path/to/guarftrain/dsh-plugin/dsh-client-ui-training-guardian
 
-# Agent + Dashboard 控制面板
-guarftrain watch --with-dashboard --agent -- python train.py --epochs 20
-
-# Agent + MCP 外部接入
-guarftrain watch --agent --with-mcp -- python train.py --epochs 20
-
-# 带项目配置（自动读取 .guardian-project.yaml 中的路径）
-guarftrain watch --with-dashboard --agent \
-  --config ../my-project/configs/guardian.yaml \
-  -- python ../my-project/train_clip.py --epochs 20
+# 3. 启动 DSH web
+pnpm dsh web
+# → http://127.0.0.1:3080
 ```
 
-### 2.3 训练脚本需要满足什么？
+### 验证
 
-四项契约（详见 `checkpoint/cp_11.md`）——本质就是写好训练脚本的基本功：
+1. Windows 浏览器打开 http://127.0.0.1:3080
+2. 登录 DSH 后进入任意会话
+3. 会话头部应看到 **"Training Guardian"** 按钮
+4. 点击按钮弹出监控面板（5 个 tab）
 
-1. `--resume` / `--ckpt`：支持断点续训
-2. checkpoint 保存为 `cp_{epoch}/model.pth`，含 `epoch/model_state_dict/optimizer_state_dict`
-3. 结构化日志：`epoch {n} loss {v} val_acc {v} lr {v}`
-4. 可外部 import：`train_clip:build_model` / `train_clip:get_dataloaders`
+### 插件热更新
 
-缺失任一项只关闭对应能力，不阻断启动。
-
-## 3. 项目上下文（路径自适应）
-
-解决跨项目使用时每次都要手写长路径的问题。
-
-### 3.1 初始化
+插件源码改完后重新 build：
 
 ```bash
-# 自动扫描项目结构，生成 .guardian-project.yaml
-guarftrain project init /path/to/your/project
-
-# AI 补全缺失项（model entry、task type 等）
-guarftrain project fill --agent
+cd /path/to/guarftrain/dsh-plugin/dsh-client-ui-training-guardian
+pnpm build
+# dsh-wsl 的 dev 模式会自动 reload client bundle
 ```
 
-### 3.2 自动发现
+---
 
-执行命令时按以下优先级解析路径：
+## 模式 B：Docker
 
+### Dockerfile
+
+```dockerfile
+# 多阶段构建
+FROM node:22-slim AS dsh-builder
+WORKDIR /dsh-wsl
+RUN git clone https://github.com/DeepSeek-ai/dsh-wsl.git . \
+    && pnpm install \
+    && pnpm build
+
+FROM python:3.11-slim AS guardian-runtime
+RUN pip install guarftrain[full]
+
+FROM node:22-slim
+WORKDIR /app
+
+# 层 1: DSH web
+COPY --from=dsh-builder /dsh-wsl /dsh-wsl
+WORKDIR /dsh-wsl
+
+# 安装插件
+COPY dsh-plugin/package.json dsh-plugin/
+COPY dsh-plugin/cordis.patch.yml dsh-plugin/
+RUN pnpm add ./dsh-plugin
+
+# 层 2: guardian runtime
+COPY --from=guardian-runtime /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY guardian/ /guardian/
+
+EXPOSE 3080 8765
+
+CMD ["pnpm", "dsh", "web"]
 ```
-CLI 显式参数  >  .guardian-project.yaml  >  自动扫描目录  >  默认值
+
+### 运行
+
+```bash
+docker build -t guarftrain-dsh .
+docker run -p 3080:3080 -p 8765:8765 guarftrain-dsh
 ```
 
-`.guardian-project.yaml` 示例（自动生成）：
+### docker-compose（推荐）
 
 ```yaml
-project:
-  name: clip-pets
-  ckpt_dir: C:/Users/wst/Desktop/anytries/deepfucking/checkpoints
-  log_dir: C:/Users/wst/Desktop/anytries/deepfucking/logs
-  data_dir: C:/Users/wst/Desktop/anytries/deepfucking/data
-model:
-  entry: train_clip:build_model
-  task_type: classification
+version: '3.8'
+services:
+  dsh-web:
+    build: .
+    ports:
+      - "3080:3080"
+    environment:
+      - DSH_PROFILE=web
+    volumes:
+      - dsh-data:/root/.dsh
+    restart: unless-stopped
+
+volumes:
+  dsh-data:
 ```
 
-### 3.3 三种使用方式
+---
+
+## 模式 C：云端服务器（systemd + SSH tunnel）
+
+适用：训练跑在远程 Linux 服务器，用 Windows/Mac 浏览器远程查看。
+
+### 1. 服务器端：安装 DSH + 插件
 
 ```bash
-# 方式1：在项目目录内运行（自动发现）
-cd /path/to/project && python /path/to/guarftrain/run.py experiments
+# 在算力服务器上
+ssh gpu-server
 
-# 方式2：显式指定项目目录
-guarftrain experiments --project-dir /path/to/project
+# 安装 Node.js 22
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
 
-# 方式3：手动覆盖（优先级最高）
-guarftrain experiments --log-dir /custom/logs --ckpt-dir /custom/checkpoints
+# 安装 pnpm
+corepack enable && corepack prepare pnpm@11.22.0 --activate
+
+# 克隆 dsh-wsl
+git clone https://github.com/DeepSeek-ai/dsh-wsl.git ~/dsh-wsl
+cd ~/dsh-wsl && pnpm install && pnpm build
+
+# 安装插件
+pnpm dsh plugin --profile web add @linxin666/dsh-client-ui-training-guardian
 ```
 
-## 4. 全部命令
-
-```
-guarftrain <command> [options]
-
-训练守护：
-  watch         守护任意训练命令
-  contract      契约校验 (check / review)
-  preflight     训练前资源预检
-  analyze       独立扫描已有 checkpoint
-  analyze_architecture 架构图分析 (D3 treemap + backbone)
-
-查询与分析：
-  experiments   列出所有历史实验
-  query         自然语言查询（"上次 mAP 最高的 lr 是多少"）
-  compare       对比两个实验
-
-模型理解：
-  visualize     模型管线可视化（结构图 + FLOPs + 瓶颈 + 改进建议）
-  infer         模型推理测试（固定脚本，不生成代码）
-
-展示：
-  gallery       图片筛选与展示（agent 提议策略 → 确认 → 执行）
-
-远程通信：
-  remote        启动 FastAPI 远程通信服务（算力服务器端）
-
-工具：
-  project       项目上下文管理（init/show/scan/fill）
-  serve         独立启动 MCP server
-  start         一键启动 Dashboard + MCP + DSH
-  dashboard     Web 控制面板（独立）
-  check         环境就绪检查
-  init          初始化项目
-```
-
-## 5. 训练后功能详解
-
-### 5.1 实验查询（F4）
+### 2. 配置 Guardian RemoteServer
 
 ```bash
-# 列出所有实验
-guarftrain experiments [--log-dir <path>] [--name <prefix>] [--limit 20]
+# 安装 guarftrain
+pip install guarftrain[full]
 
-# NL 查询
-guarftrain query "最高准确率的实验，lr是多少" [--agent]
-
-# 对比
-guarftrain compare exp_a exp_b [--agent]
+# 启动训练时开启 remote
+guarftrain watch --remote --remote-auth <your-token> -- python train.py
 ```
 
-同名实验自动用时间戳去重。`--name` 可手动设置前缀。
+### 3. 创建 systemd 服务
 
-### 5.2 模型结构可视化（F10）
+新建 `/etc/systemd/system/guarftrain-dsh.service`：
+
+```ini
+[Unit]
+Description=Guarftrain DSH Web UI
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/dsh-wsl
+ExecStart=/usr/bin/pnpm dsh web
+Restart=always
+RestartSec=5
+Environment=DSH_PROFILE=web
+Environment=NODE_ENV=production
+
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
+```
 
 ```bash
-guarftrain visualize --model train_clip:build_model [--agent]
+sudo systemctl daemon-reload
+sudo systemctl enable --now guarftrain-dsh
+sudo systemctl status guarftrain-dsh
 ```
 
-输出交互式 HTML（D3.js 可折叠树）：
-- 自动折叠同构层（如 12 个相同的 TransformerBlock → ×12）
-- 真实 FLOPs 计算（forward hook + dummy input）
-- 瓶颈标注（参数占比 >25%）
-- 经典组件库匹配改进建议（含代码）
-- 点击展开/收缩，悬停显示详情
-
-启用 `--agent` 后：
-- AI 分析瓶颈并匹配组件库（SEBlock、Bottleneck、MultiQueryAttention 等 10+ 组件）
-- 无匹配组件时 AI 自行编写新的优化方案
-
-### 5.3 推理测试（F7）
+### 4. 防火墙配置
 
 ```bash
-# 自动选 best checkpoint + 自动检测任务类型
-guarftrain infer --ckpt 17 [--task classification] [--inputs <path>]
+# 仅允许特定 IP 访问（替换 <YOUR_IP>）
+sudo ufw allow from <YOUR_IP> to any port 3080
+sudo ufw allow from <YOUR_IP> to any port 8765
 
-# 在项目目录内不写路径，自动继承 data_dir
-cd /path/to/project && python ../guarftrain/run.py infer --ckpt 17
+# 或走 SSH tunnel（更安全，不需要开放端口）
 ```
 
-固定推理脚本（不生成代码）：
-- `scripts/infer_classification.py`
-- `scripts/infer_detection.py`
-- `scripts/infer_segmentation.py`
+### 5. SSH Tunnel（推荐，无需开放端口）
 
-### 5.4 图片筛选（F3）
+在本地 Windows 上：
+
+```powershell
+# PowerShell: 隧道 3080
+ssh -L 3080:localhost:3080 ubuntu@gpu-server
+
+# 浏览器访问 http://localhost:3080
+```
+
+或用 `autossh` 保持持久隧道：
 
 ```bash
-guarftrain gallery --ckpt 17 [--data <path>] [--agent]
+sudo apt install autossh
+sudo systemctl enable --now autossh@dsh-tunnel
 ```
 
-交互流程：
+---
+
+## 模式 D：远程 Dashboard（PC 浏览器连接算力服务器）
+
+当训练跑在远程服务器时，不需要跑完整 DSH，只需要 guardian server + 插件通过浏览器远程访问。
+
+### 架构
+
 ```
-agent 提议多套筛选策略（汇报精选 / 难样本 / 边界案例）
-  → 终端展示 name + rationale + filters
-  → 用户确认: [回车]执行 | [NL修正] | export | cancel
-  → 执行推理 + 筛选 → 保存结果 JSON + 可选 Streamlit 展示
+┌──────────────┐     HTTPS/SSE      ┌──────────────┐     SSH tunnel     ┌──────────────┐
+│  PC 浏览器    │ ◄─────────────────► │ 反向代理      │ ◄───────────────► │ 算力服务器     │
+│  localhost:3080│   (nginx/Caddy)    │  443/80       │                   │  guardian:8765 │
+└──────────────┘                     └──────────────┘                   └──────────────┘
 ```
 
+### 方案 1：SSH Tunnel（最简单）
 
-### 5.5 架构图分析（v0.3 新增）
+```powershell
+# Windows PowerShell — 一条命令
+ssh -L 3080:localhost:3080 -L 8765:localhost:8765 ubuntu@gpu-server -N
+```
+
+然后：
+- DSH Web → http://localhost:3080
+- Guardian SSE → ws://localhost:8765（插件自动走 localhost）
+
+### 方案 2：Caddy 反向代理（需要域名）
 
 ```bash
-# 独立分析（CLI）
-guarftrain analyze_architecture --model train_clip:build_model
+# 在算力服务器上安装 Caddy
+sudo apt install caddy
 
-# 或在 Dashboard 中点击「架构分析」标签页
-# 或在 DSH 侧栏点击「Architecture」标签
+# /etc/caddy/Caddyfile
+gpu.example.com {
+    reverse_proxy localhost:3080
+    # TLS 自动由 Let's Encrypt 提供
+}
+
+sudo systemctl reload caddy
 ```
 
-三种视图入口：
+PC 浏览器直接访问 https://gpu.example.com
 
-| 入口 | 位置 | 说明 |
-|------|------|------|
-| Dashboard | 架构分析标签页 | 点击「分析」按钮 → treemap/backbone 双视图 |
-| DSH Plugin | 侧栏面板 | DeepSeek Harness 内嵌 ArchTab |
-| MCP 工具 | analyze_architecture | 外部 Agent 获取架构树数据 |
+### 方案 3：Nginx + 自签名证书（内网）
 
-输出包含：模块树（FLOPs/参数量）、瓶颈检测（>25% 占比）、分析耗时。
-identical block folding：≥4 个相同模块自动折叠为 ×N。
+```nginx
+# /etc/nginx/sites-available/guarftrain
+server {
+    listen 443 ssl;
+    server_name gpu.internal;
 
-### 5.6 远程通信（v0.3 新增）
+    ssl_certificate     /etc/ssl/guarftrain.crt;
+    ssl_certificate_key /etc/ssl/guarftrain.key;
 
-算力服务器端远程通信，PC Dashboard 远程连接：
+    location / {
+        proxy_pass http://localhost:3080;
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+```
+
+---
+
+## 网络拓扑
+
+```
+训练场景 1 — 全部本地
+────────────────────
+Windows ←WSL mirrored→ WSL(dsh-wsl:3080 + guardian:8765)
+
+训练场景 2 — 训练在服务器，监控在 PC
+────────────────────────────────────
+gpu-server                PC
+├── python train.py       ├── browser (localhost:3080 via SSH tunnel)
+├── guardian:8765         │
+└── dsh-wsl:3080          │
+                          └── SSH tunnel: 3080, 8765
+
+训练场景 3 — 云端部署 + 域名
+────────────────────────────
+internet ──HTTPS──► Caddy/nginx ──HTTP──► dsh-wsl:3080
+                              └──HTTP──► guardian:8765
+```
+
+---
+
+## 故障排查
+
+### `pnpm dsh web` 报 "pnpm not found"
 
 ```bash
-# 算力服务器端
-guarftrain remote --token your-secret
-
-# PC 端（Dashboard 自动连接）
-guarftrain watch --with-dashboard --agent -- python train.py
+# WSL 里
+corepack enable
+corepack prepare pnpm@11.22.0 --activate
 ```
 
-**配置：**
-- `GUARDIAN_REMOTE_TOKEN`：鉴权 token
-- `GUARDIAN_REMOTE_HOST`：服务器地址（默认 localhost）
-- `GUARDIAN_REMOTE_PORT`：端口（默认 8765）
+### 浏览器访问 3080 空白页
 
-### 5.7 Sub-agent 自主决策（v0.3 新增）
+1. 确认 DSH web 确实在监听：`curl http://127.0.0.1:3080`
+2. 确认插件已安装：`pnpm dsh plugin --profile web list`
+3. 确认 boot manifest 包含插件：看启动日志里的 bundle 列表
+4. 如果是远程访问，检查 tunnel/proxy 是否转发
+
+### SSE 连接失败（401 Unauthorized）
+
+1. 确认插件设置里的 **Auth Token** 和 `--remote-auth` 参数一致
+2. 确认 guardian server 的 `--remote` 标志已启用
+3. 查看插件设置 → 确认 Server URL 正确（远程场景用公网 IP 或 tunnel 地址）
+
+### Guardian server 端口冲突
 
 ```bash
-# supervised（默认）：所有决策需用户确认
-guarftrain watch --autonomy supervised -- python train.py
-
-# auto：自动调整参数，重大干预需确认
-guarftrain watch --autonomy auto -- python train.py
-
-# full：完全自主，无需确认
-guarftrain watch --autonomy full -- python train.py
-```
-
-三种模式的决策权限对照：
-
-| 模式 | 自动调整参数 | 自动干预训练 | 需用户确认 |
-|------|-------------|-------------|-----------|
-| supervised | ❌ | ❌ | 全部 |
-| auto | ✅ | ⚠️ 重大干预 | 重大干预 |
-| full | ✅ | ✅ | 无需 |
-
-### 5.8 CPU 模式兼容（v0.3 新增）
-
-无 GPU 时自动降级：
-
-- CLI 启动时弹出 CPU 警告（未检测到 NVIDIA GPU）
-- 训练曲线（loss/accuracy/lr）正常显示，与设备无关
-- GPU 监控面板提示不可用（需 nvidia-smi + CUDA）
-- `resource_estimator` 回退兼容 PyTorch >= 1.13
-
-## 6. 接入外部 Agent（MCP）
-
-```bash
-# 独立 MCP server
-guarftrain serve --transport stdio
-
-# 或在 watch 时后台启动
-guarftrain watch --with-mcp -- python train.py
-```
-
-MCP 模式下 guardian agent 进入 provisional 模式，外部 Agent 可接管决策。Claude Code 获得全部 36 个工具的读写权限。
-
-> 完整文档：[docs/MCP.md](MCP.md) · [docs/MCP_API_REFERENCE.md](MCP_API_REFERENCE.md) · [docs/MCP_QUICKSTART.md](MCP_QUICKSTART.md)
-
-### 6.1 MCP 工具列表
-
-**只读工具（25 个）：**
-
-| 工具 | 功能 |
-|------|------|
-| `get_training_status` | 当前 epoch/step、loss、GPU 状态 |
-| `get_metrics_history` | 指标时间序列（分页） |
-| `list_checkpoints` | checkpoint 列表 + best/top_k |
-| `compare_checkpoints` | 对比两个 checkpoint |
-| `get_anomaly_history` | 异常事件 + 应对来源 |
-| `get_recovery_history` | 重启记录 |
-| `get_summary` | 训练摘要 + AI 解读 |
-| `get_agent_decision_log` | agent 决策日志 |
-| `get_contract_status` | 契约四项状态 |
-| `list_contract_proposals` | agent 提议记录 |
-| `list_experiments` | 所有历史实验 |
-| `query_experiment` | NL 查询实验 |
-| `compare_experiments` | 对比两个实验 |
-| `get_model_structure` | 模型结构 JSON（节点+边+FLOPs） |
-| `analyze_architecture` | 架构图分析（D3 treemap + backbone + 瓶颈检测） |
-| `get_guardian_mode` | 当前模式（standalone/mcp_delegated） |
-| `get_gallery_config` | 图片筛选策略配置 |
-| `get_import_format` | 导入格式规范（JSON Schema） |
-| `inspect_source` | 采样外部数据文件 |
-| `get_training_log` | 训练日志尾部（支持 grep 过滤） |
-| `get_post_training_checklist` | 训练结束后可执行的操作清单 |
-| `get_pending_decisions` | MCP 模式下待处理的 provisional 决策 |
-| `get_dashboard_config` | Dashboard 当前配置 |
-| `recommend_charts` | AI Agent 推荐应关注的图表组 |
-| `list_dashboard_templates` | 可用 Dashboard 布局模板 |
-
-**受限写工具（11 个，需 write_token + 阶段保护）：**
-
-| 工具 | 功能 | 训练中 |
-|------|------|--------|
-| `trigger_recovery` | 手动触发恢复 | ✅ |
-| `restart_with_params` | 带参重启 | ✅ |
-| `stop_training` | 停止训练 | ✅ |
-| `trigger_full_validate` | 完整校验 checkpoint | ✅ |
-| `approve_contract_proposal` | 批准契约提议 | ✅ |
-| `reject_contract_proposal` | 拒绝契约提议 | ✅ |
-| `run_visualization` | 生成模型可视化 HTML | ❌ 仅训练后 |
-| `set_gallery_config` | 更新筛选策略 | ❌ 仅训练后 |
-| `run_inference` | 触发推理 | ❌ 仅训练后 |
-| `submit_import` | 导入外部训练数据 | ✅ |
-| `resolve_decision` | 批准或覆盖待处理决策 | ✅ |
-| `set_dashboard_config` | 设置 Dashboard 配置 | ✅ |
-
-训练中写工具保护：`set_gallery_config` / `run_visualization` / `run_inference` 仅在训练结束后可用。
-
-### 6.2 双模式架构
-
-```
-┌─ Standalone ─────────────────────────────────────┐
-│ guardian AgentAdvisor 自主决策                    │
-│ 训练中：预设动作集，失败回退规则默认                 │
-│ 训练后：创造性策略（需用户确认）                    │
-├─ MCP Delegated ──────────────────────────────────┤
-│ 外部 Claude Code 决策，guardian agent 让位        │
-│ guardian 角色：数据提供者 + 安全执行器              │
-│ Claude Code 断开 → 自动恢复 standalone            │
-└──────────────────────────────────────────────────┘
-```
-
-### 6.3 DSH Web GUI 插件（v0.3）
-
-在 DeepSeek Harness (DSH) Web UI 中显示训练 Guardian 面板：
-
-- slots.inject('sidebar.training-guardian') → TrainingPanel (React)
-- slots.inject('web-ui.plugin.item') → SettingsCard
-
-**功能：**
-- 实时 metrics / GPU / anomalies / decisions / architecture SSE 推送
-- 5 标签页：概览 / GPU / 异常 / 决策 / 架构分析
-- 架构图（ArchTab）：D3 treemap/backbone + 瓶颈检测
-- 设置卡片：serverUrl / authToken / sessionId / autoConnect
-- zh/en 双语支持
-
-### 6.4 远程通信（v0.3）
-
-算力服务器端 FastAPI 服务，PC Dashboard 远程连接：
-
-```bash
-# 算力服务器端
-guarftrain remote --token your-secret --host 0.0.0.0 --port 8765
-
-# PC 端（Dashboard 自动连接）
-guarftrain watch --with-dashboard --agent -- python train.py
-```
-
-**特性：**
-- SSE/WebSocket 实时推送
-- Token 鉴权（GUARDIAN_REMOTE_TOKEN）
-- SQLite session 持久化
-- 用户操作受 dirty flag 保护
-
-## 7. 配置参考
-
-### 7.1 guardian.yaml（guardian 自身行为）
-
-```yaml
-project:
-  name: my-experiment
-  ckpt_dir: ./checkpoints
-  log_dir: ./logs
-
-watchdog:
-  max_retries: 3
-  restart_delay: 5
-  oom_batch_reduce_ratio: 0.5
-  min_batch_size: 8
-
-monitor:
-  poll_interval: 5
-  sliding_window: 50
-  loss_spike_ratio: 0.5
-  gpu_temp_threshold: 85
-
-agent:
-  enabled: false              # --agent 时自动启用
-  provider: anthropic
-  decision_timeout: 8
-
-mcp:
-  enabled: false
-  enable_write_tools: false   # 写工具需显式开启 + write_token
-
-contract:
-  path: configs/contract.yaml
-```
-
-### 7.2 contract.yaml（训练脚本接口面）
-
-```yaml
-script_contract:
-  resumable:
-    entry: cli
-    resume_flag: "--resume"
-    ckpt_flag: "--ckpt"
-  checkpoint_schema:
-    required_keys: [epoch, model_state_dict, optimizer_state_dict]
-  metrics_channel:
-    type: log_file
-    path: ../logs/train.log
-    log_pattern: "epoch (\\d+) loss ([\\d.]+) val_acc ([\\d.]+) lr ([\\d.e+-]+)"
-  buildable_entry:
-    model_fn: "train_clip:build_model"
-    dataloader_fn: "train_clip:get_dataloaders"
-  cli_mappings:
-    optimizer.lr: "--lr"
-    dataloader.batch_size: "--batch-size"
-
-metric_registry:
-  classification:
-    - {name: accuracy, direction: max}
-```
-
-### 7.3 环境变量覆盖
-
-```bash
-# 全大写 + 双下划线 = 嵌套键
-GUARDIAN_WATCHDOG__MAX_RETRIES=5
-GUARDIAN_AGENT__DECISION_TIMEOUT=12
-
-# Agent API key
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_AUTH_TOKEN=...       # OAuth / 第三方兼容 API
-ANTHROPIC_BASE_URL=...         # 自定义 endpoint
-
-# MCP 写工具口令
-GUARDIAN_MCP_TOKEN=your-secret
-```
-
-## 8. 实战示例：CLIP Linear Probe 训练
-
-```bash
-# 1. 准备训练脚本（满足四项契约）
-#    参见 deepfucking/train_clip.py
-
-# 2. 初始化项目
-guarftrain project init ../deepfucking
-
-# 3. 守护训练 20 epoch
-guarftrain watch --agent \
-  --config ../deepfucking/configs/guardian.yaml \
-  -- python ../deepfucking/train_clip.py --epochs 20
-
-# 4. 查看训练记录
-guarftrain experiments --project-dir ../deepfucking --name clip-pets
-guarftrain query "最好的epoch" --project-dir ../deepfucking
-
-# 5. 可视化 CLIP 结构
-guarftrain visualize --model clip_adapter:build_model_full
-
-# 6. 推理看效果
-guarftrain infer --ckpt 17 --project-dir ../deepfucking
-
-# 7. 图片筛选
-guarftrain gallery --ckpt 17 --project-dir ../deepfucking --agent
-```
-
-## 9. AI 决策边界
-
-```
-训练中（F1/F6）：
-  规则判定: "是不是异常" / "能不能恢复"（零延迟，确定性）
-  Agent 选择: "怎么应对" / "哪种策略"（预设动作集内选，失败回退默认）
-
-训练后（F3/F7/F10）：
-  Agent 主导: 创造性定义策略，执行前需用户确认
-  F10 提权: AI 分析瓶颈 → 匹配组件库 → 无匹配则自行编写方案
-  
-MCP 模式：
-  外部 Claude Code 决策，guardian agent 让位
-  断开 → 无缝恢复自主决策
-  
-不变式：
-  Agent 的自由度永远是人显式授予的
-  任何一层失效都退回上一层的确定性行为
-```
-
-## 10. 测试
-
-```bash
-# 全量测试
-python -m pytest tests/ -q
-
-# 分模块
-python -m pytest tests/test_experiment_query.py -q
-python -m pytest tests/test_model_viz.py -q
-python -m pytest tests/test_gallery.py -q
-python -m pytest tests/test_inference.py -q
+# 换端口
+guarftrain watch --remote --remote-port 8766 -- python train.py
+# 插件设置里同步改 Server URL
 ```

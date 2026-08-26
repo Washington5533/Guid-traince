@@ -150,6 +150,13 @@ def build_parser() -> argparse.ArgumentParser:
     viz.add_argument("--output", default="./logs/model_viz.html")
     viz.add_argument("--agent", action="store_true", help="启用 AI 瓶颈分析和建议")
 
+    arch = sub.add_parser("analyze_architecture",
+                          help="模型架构分析（FLOPs/参数量/瓶颈层/D3 数据）")
+    arch.add_argument("--model", help="模型入口，如 train:build_model（默认从 contract 解析）")
+    arch.add_argument("--project-dir", default=None, help="项目根目录（Python 导入路径）")
+    arch.add_argument("--output", default=None, help="将分析结果 JSON 写入指定文件")
+    arch.add_argument("--html", default=None, help="生成 D3 可视化 HTML（如 ./logs/arch.html）")
+
     gal = sub.add_parser("gallery", help="图片筛选与展示")
     gal.add_argument("--ckpt", type=int, required=True, help="checkpoint epoch")
     gal.add_argument("--data", default="./data/test", help="数据源路径")
@@ -1384,6 +1391,63 @@ def cmd_visualize(args) -> int:
     return 0
 
 
+def cmd_analyze_architecture(args) -> int:
+    """模型架构分析：FLOPs / 参数量 / 瓶颈层 / D3 tree data。"""
+    import importlib
+
+    from .arch_analyzer import ArchAnalyzer
+
+    if args.model:
+        try:
+            mod_path, fn_name = args.model.split(":", 1)
+            if "/" in mod_path or "\\" in mod_path:
+                _dir = str(Path(mod_path).parent)
+                if _dir not in sys.path:
+                    sys.path.insert(0, _dir)
+                mod_path = mod_path.replace("\\", "/").replace("/", ".").removesuffix(".py")
+            mod = importlib.import_module(mod_path)
+            model_fn = getattr(mod, fn_name)
+        except Exception as exc:
+            print(f"错误: 无法 import {args.model}: {exc}", flush=True)
+            return 1
+    else:
+        model_fn, err = _resolve_model_fn(
+            _load_contract(args),
+            project_dir=getattr(args, "project_dir", None),
+        )
+        if model_fn is None:
+            print(f"错误: {err}", flush=True)
+            return 1
+
+    analyzer = ArchAnalyzer()
+    result = analyzer.analyze(model_fn)
+    if result.get("error"):
+        print(f"错误: {result['error']}", flush=True)
+        return 1
+
+    print(f"模型: {result['model_name']}", flush=True)
+    print(f"参数量: {result['total_params']:,}", flush=True)
+    print(f"FLOPs: {result['total_flops_m']}M", flush=True)
+    print(f"模块数: {result['module_count']}  层数: {result['layer_count']}  耗时: {result['elapsed_ms']}ms", flush=True)
+    if result["bottlenecks"]:
+        print(f"瓶颈层 ({result['bottleneck_count']}):", flush=True)
+        for b in result["bottlenecks"][:5]:
+            print(f"  - [{b['severity']}] {b['layer']}: "
+                  f"参数 {b['params_pct']}% / FLOPs {b['flops_pct']}%", flush=True)
+
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"JSON 已写入: {out}", flush=True)
+
+    if args.html:
+        html_path = ArchAnalyzer.render_html(result, args.html)
+        print(f"D3 可视化 HTML: {html_path}", flush=True)
+
+    return 0
+
+
 def cmd_gallery(args) -> int:
     """图片筛选与展示。"""
     from .gallery import GalleryManager
@@ -2024,6 +2088,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_compare(args)
         if args.command == "visualize":
             return cmd_visualize(args)
+        if args.command == "analyze_architecture":
+            return cmd_analyze_architecture(args)
         if args.command == "gallery":
             return cmd_gallery(args)
         if args.command == "infer":

@@ -8,7 +8,7 @@
     python train.py --epochs 5
 
 被 guardian 守护：
-    python run.py watch -- python train.py --epochs 20
+    guarftrain watch -- python train.py --epochs 20
 """
 
 from __future__ import annotations

@@ -67,8 +67,9 @@ class TestToolCounts:
         # 新增 get_post_training_checklist + get_training_log +
         # get_pending_decisions + resolve_decision，
         # v0.2 再新增 4 个 Dashboard 工具
-        # （get/set_dashboard_config + recommend_charts + list_dashboard_templates）
-        assert total == 35
+        # （get/set_dashboard_config + recommend_charts + list_dashboard_templates），
+        # v0.3 新增 analyze_architecture
+        assert total == 36
 
     def test_readonly_tool_names_unique(self):
         all_names = [t["name"] for t in READONLY_TOOLS + READONLY_TOOLS_V2 +

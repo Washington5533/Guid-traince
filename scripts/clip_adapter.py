@@ -3,24 +3,31 @@
 
 用法:
     # 可视化 CLIP 结构
-    python run.py visualize --model scripts/clip_adapter:build_model_for_viz
+    guarftrain visualize --model scripts/clip_adapter:build_model_for_viz
 
     # 推理（需指定 checkpoint）
-    python run.py infer --ckpt 0 --inputs ../deepfucking/data/oxford-iiit-pet/images/ --task classification
+    guarftrain infer --ckpt 0 --inputs /path/to/clip-project/data/oxford-iiit-pet/images/ --task classification
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
-# 确保 CLIP 源码和 deepfucking 项目在 path 中
-_DEEPFUCKING = Path(__file__).resolve().parent.parent.parent / "deepfucking"
-_CLIP_SOURCE = _DEEPFUCKING / "clip_sourse" / "CLIP"
+# 外部 CLIP 项目位置：默认同级目录 ../clip-project，
+# 可用环境变量 GUARDIAN_CLIP_PROJECT_DIR 指定自己的项目路径。
+_CLIP_PROJECT = Path(
+    os.environ.get(
+        "GUARDIAN_CLIP_PROJECT_DIR",
+        str(Path(__file__).resolve().parent.parent.parent / "clip-project"),
+    )
+)
+_CLIP_SOURCE = _CLIP_PROJECT / "clip_sourse" / "CLIP"
 
 if str(_CLIP_SOURCE) not in sys.path:
     sys.path.insert(0, str(_CLIP_SOURCE))
-if str(_DEEPFUCKING) not in sys.path:
-    sys.path.insert(0, str(_DEEPFUCKING))
+if str(_CLIP_PROJECT) not in sys.path:
+    sys.path.insert(0, str(_CLIP_PROJECT))
 
 
 def build_model_for_viz():
@@ -53,7 +60,7 @@ def build_model_full():
 def build_model_with_head():
     """构建 CLIP + 线性分类头（step2_linear_probe.py 的训练产物）。
 
-    需要 best_head.pt 在 deepfucking 目录下。
+    需要 best_head.pt 在 CLIP 项目目录下。
     guarftrain 调用: visualize --model scripts/clip_adapter:build_model_with_head
     """
     import torch
@@ -80,7 +87,7 @@ def build_model_with_head():
     model = CLIPClassifier(clip_model, num_classes=37)
 
     # 加载训练好的分类头
-    head_path = _DEEPFUCKING / "best_head.pt"
+    head_path = _CLIP_PROJECT / "best_head.pt"
     if head_path.exists():
         state = torch.load(str(head_path), map_location=device)
         # best_head.pt 存储的是 head.state_dict()（纯 Linear 权重）
@@ -93,7 +100,7 @@ def build_model_with_head():
     return model
 
 
-# --------------- 为 guarftrain run.py infer 提供入口 ---------------
+# --------------- 为 guarftrain infer 提供入口 ---------------
 
 def get_dataloaders(batch_size=32):
     """返回 (train_loader, test_loader, class_names)。
@@ -115,7 +122,7 @@ def get_dataloaders(batch_size=32):
         Normalize(CLIP_MEAN, CLIP_STD),
     ])
 
-    data_root = str(_DEEPFUCKING / "data")
+    data_root = str(_CLIP_PROJECT / "data")
 
     test_data = OxfordIIITPet(
         root=data_root, split="test", download=False,

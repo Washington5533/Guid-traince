@@ -1,5 +1,6 @@
 # Build / packaging artifacts
 dist/
+build/
 *.egg-info/
 __pycache__/
 
@@ -8,7 +9,18 @@ logs/
 checkpoints/
 checkpoints_test/
 checkpoints_mcp_test/
+checkpoints_live/
 data/
+
+# Local dev/debug artifacts
+.tmp-playwright/
+.pytest_cache/
+live-server.log
+*.log
+tg-*.png
+tg-live-*
+dsh-web-*.png
+.tmp_check.py
 
 # Local / one-off files
 requirements-spaces.txt

@@ -47,6 +47,7 @@ export function apply(ctx: Context): void {
     autoConnect: boolean
     modelEntry: string
     projectDir: string
+    dashboardUrl: string
   }> | null = null
 
   try {
@@ -75,9 +76,12 @@ export function apply(ctx: Context): void {
     sse.setSessionId(s.sessionId || null)
     // url/token 变更必须重建 EventSource，不能只改 sessionId
     if (sse.setEndpoint({ url: s.serverUrl, authToken: s.authToken || undefined })) {
-      sse.disconnect()
-      sse.connect()
-    } else if (sse.getStatus() !== 'connected') {
+      // Only reconnect if we're not idle — idle is an intentional parked state.
+      if (sse.getStatus() !== 'idle') {
+        sse.disconnect()
+        sse.connect()
+      }
+    } else if (sse.getStatus() !== 'connected' && sse.getStatus() !== 'idle') {
       sse.disconnect()
       sse.connect()
     }
@@ -137,6 +141,8 @@ export function apply(ctx: Context): void {
           authToken: controller.getSnapshot().authToken || undefined,
           modelEntry: controller.getSnapshot().modelEntry || undefined,
           projectDir: controller.getSnapshot().projectDir || undefined,
+          dashboardUrl: controller.getSnapshot().dashboardUrl || undefined,
+          autoConnect: controller.getSnapshot().autoConnect,
           onApprove,
           onReject,
         }),

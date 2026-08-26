@@ -449,7 +449,7 @@ WRITE_TOOLS_V2: list[dict[str, Any]] = [
     {
         "name": "set_gallery_config",
         "description": (
-            "更新图片筛选策略配��，触发重新筛选（多策略：汇报精选/难样本/边界案例）。"
+            "更新图片筛选策略配置，触发重新筛选（多策略：汇报精选/难样本/边界案例）。"
             "【仅在训练结束后可用】。生成类工具，无需 token。"
         ),
         "inputSchema": {

@@ -22,7 +22,7 @@ guarftrain init && guarftrain watch -- python train.py --epochs 20
 | 架构分析 (Arch Analysis) | D3 treemap + backbone 可视化，FLOPs/参数量/瓶颈层检测，参考 archify 设计 |
 | 远程通信 (Remote Server) | 算力服务器端 FastAPI 服务，PC Dashboard 远程连接，鉴权 token |
 | Sub-agent 自主决策 | `--autonomy supervised/auto/full`，自主调整参数/干预训练 |
-| DSH Web GUI Plugin | DeepSeek Harness 侧栏面板，实时 metrics/GPU/anomalies/decisions/architecture |
+| DSH Web GUI Plugin | DeepSeek Harness 侧栏面板，实时 metrics/GPU/anomalies/decisions/architecture/history（[插件文档](dsh-plugin/dsh-client-ui-training-guardian/README.zh.md)） |
 | CPU 模式兼容 | 无 GPU 时自动降级，训练曲线正常显示，GPU 面板提示不可用 |
 | PyTorch >= 1.13 支持 | resource_estimator 回退兼容 PyTorch 1.x |
 | MCP 工具扩展 | +1 `analyze_architecture` 工具（共 36 个） |
@@ -191,6 +191,23 @@ export GUARDIAN_WATCHDOG__MAX_RETRIES=5
 export GUARDIAN_MCP_TOKEN=your-secret   # write tool auth
 ```
 
+## DSH Web GUI Plugin · DSH 插件
+
+配套 DSH Web GUI 插件 `@linxin666/dsh-client-ui-training-guardian`，在 DSH 侧栏提供六标签页的 Training Guardian 面板（概览/设备/异常/决策/架构/历史），通过 SSE + REST 消费 `guarftrain remote` 服务。
+
+```bash
+# 安装插件（profile 目录 ~/.dsh/profiles/web）
+dsh plugin add @linxin666/dsh-client-ui-training-guardian --profile web
+
+# 训练机侧启动数据源
+guarftrain remote --port 8765
+guarftrain watch -- python train.py --epochs 50
+```
+
+- 源码：[dsh-plugin/dsh-client-ui-training-guardian](dsh-plugin/dsh-client-ui-training-guardian)
+- 完整使用说明书：[README.zh.md](dsh-plugin/dsh-client-ui-training-guardian/README.zh.md) / [README.md](dsh-plugin/dsh-client-ui-training-guardian/README.md)
+- 插件镜像仓库：<https://github.com/Washington5533/Guid-traince>
+
 ## Project Status · 项目状态
 
 | Metric | Value |
@@ -198,7 +215,7 @@ export GUARDIAN_MCP_TOKEN=your-secret   # write tool auth
 | Version | 0.3.0 |
 | Modules | 21 (cp_1 ~ cp_21) |
 | Production code | ~12,500 lines |
-| Tests | 221 (CI on push) |
+| Tests | 266 (CI on push) |
 | MCP tools | 36 (25 read + 11 write) |
 | CLI commands | 18 |
 | Test coverage | ~13% (core paths: 100%) |
@@ -214,6 +231,7 @@ export GUARDIAN_MCP_TOKEN=your-secret   # write tool auth
 | [docs/MCP_API_REFERENCE.md](docs/MCP_API_REFERENCE.md) | 36-tool API reference (ZH) |
 | [docs/MCP_QUICKSTART.md](docs/MCP_QUICKSTART.md) | 5-minute MCP onboarding (ZH) |
 | [docs/IMPLEMENTATION_REPORT.md](docs/IMPLEMENTATION_REPORT.md) | Per-module completion report (ZH) |
+| [dsh-plugin/…/README.zh.md](dsh-plugin/dsh-client-ui-training-guardian/README.zh.md) | DSH plugin user manual (ZH/EN) |
 
 ## License
 

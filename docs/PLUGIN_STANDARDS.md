@@ -250,7 +250,9 @@ git tag v0.2.0 && git push origin v0.2.0
 
 要点：
 
-- `pnpm/action-setup` 不 pin 版本，自动读取插件 `packageManager` 字段。
+- `pnpm/action-setup@v4` 必须显式 `version:`（与插件 `packageManager` 一致，当前 `11.22.0`）：
+  流水线 job 在仓库根目录运行，根目录没有 `package.json`，action 无法自动解析插件目录里的 `packageManager`；
+  `setup-node` 同时设 `cache: pnpm`，并把 `cache-dependency-path` 指向插件的 `pnpm-lock.yaml`。
 - `publish-npm` / `update-registry` / `github-release` 仅在 tag 触发时运行；
   `workflow_dispatch` 手动触发只跑校验/测试/构建（安全预检）。
 - `update-registry` 调用 `scripts/update_registry.py --write`（PyYAML 解析

@@ -130,8 +130,11 @@ python scripts/dsh_plugin_cli.py remove <pkg> --profile web
 4. **tag 与版本不一致** — CI `validate`/`publish-npm` 双重拦截。
 5. **registry 条目 clobber** — 旧 workflow 用正则重写导致 skills 富信息丢失；
    一律走 `update_registry.py`（YAML 解析 + merge 保留）。
-6. **pnpm 版本 pin 冲突** — workflow 不要 pin `pnpm/action-setup` version，
-   让它读插件 `packageManager` 字段。
+6. **pnpm/action-setup 读不到 `packageManager`** — 流水线 job 在仓库根目录运行，
+   根目录没有 `package.json`，action 无法解析插件目录里的 `packageManager`。
+   必须给 `pnpm/action-setup@v4` 显式 `version:`（与插件 `packageManager` 保持一致，
+   当前 `11.22.0`），并给 `setup-node` 设 `cache: pnpm` +
+   `cache-dependency-path: <插件>/pnpm-lock.yaml`。
 
 ## 参考插件对照
 

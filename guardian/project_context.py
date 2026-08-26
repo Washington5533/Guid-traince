@@ -390,15 +390,17 @@ adjustable_paths:
 
     @property
     def ckpt_dir(self) -> str:
-        return self.data.get("project", {}).get("ckpt_dir", "./checkpoints")
+        # `or` instead of `.get(key, default)`: PROJECT_TEMPLATE seeds these
+        # keys with empty strings, so a plain dict default never kicks in.
+        return self.data.get("project", {}).get("ckpt_dir") or "./checkpoints"
 
     @property
     def log_dir(self) -> str:
-        return self.data.get("project", {}).get("log_dir", "./logs")
+        return self.data.get("project", {}).get("log_dir") or "./logs"
 
     @property
     def data_dir(self) -> str:
-        return self.data.get("project", {}).get("data_dir", "./data")
+        return self.data.get("project", {}).get("data_dir") or "./data"
 
     @property
     def name(self) -> str:

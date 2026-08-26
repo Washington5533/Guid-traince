@@ -23,14 +23,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No `version:` pin — pnpm/action-setup honors the `packageManager`
-      # field in the plugin's package.json (pnpm@11.22.0).
+      # Version pinned explicitly: the action resolves `packageManager` from
+      # the job working directory (repo root), where no package.json exists —
+      # the plugin's lives in $PLUGIN_DIR. Keep in sync with its packageManager.
       - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: dsh-plugin/dsh-client-ui-training-guardian/pnpm-lock.yaml
 
       - name: Install dependencies
         run: |
@@ -57,10 +61,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: dsh-plugin/dsh-client-ui-training-guardian/pnpm-lock.yaml
 
       - name: Install
         run: |
@@ -83,10 +90,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: dsh-plugin/dsh-client-ui-training-guardian/pnpm-lock.yaml
 
       - name: Install
         run: |
@@ -122,10 +132,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: dsh-plugin/dsh-client-ui-training-guardian/pnpm-lock.yaml
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install

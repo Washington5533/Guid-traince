@@ -12,9 +12,9 @@ Wraps `dsh plugin --profile <name>` with community-friendly commands:
 Usage:
     dsh-plugin list --profile web
     dsh-plugin search training
-    dsh-plugin info @linxin666/dsh-client-ui-training-guardian
-    dsh-plugin add @linxin666/dsh-client-ui-training-guardian --profile web
-    dsh-plugin remove @linxin666/dsh-client-ui-training-guardian --profile web
+    dsh-plugin info @rrrelink/dsh-client-ui-training-guardian
+    dsh-plugin add @rrrelink/dsh-client-ui-training-guardian --profile web
+    dsh-plugin remove @rrrelink/dsh-client-ui-training-guardian --profile web
 """
 
 from __future__ import annotations

@@ -154,7 +154,7 @@ git clone https://github.com/DeepSeek-ai/dsh-wsl.git ~/dsh-wsl
 cd ~/dsh-wsl && pnpm install && pnpm build
 
 # 安装插件
-pnpm dsh plugin --profile web add @linxin666/dsh-client-ui-training-guardian
+pnpm dsh plugin --profile web add @rrrelink/dsh-client-ui-training-guardian
 ```
 
 ### 2. 配置 Guardian RemoteServer

@@ -1,5 +1,5 @@
 {
-  "name": "@linxin666/dsh-client-ui-training-guardian",
+  "name": "@rrrelink/dsh-client-ui-training-guardian",
   "description": {
     "zh": "DSH Web GUI 插件，在侧边栏增加 Training Guardian 面板：实时训练指标、GPU 设备状态、异常事件流、子 Agent 决策审批、架构分析与离线历史回放。",
     "en": "DSH Web GUI plugin that adds a Training Guardian sidebar panel: real-time metrics, GPU status, anomaly feed, decision approvals, architecture analysis and offline history replay."

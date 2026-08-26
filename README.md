@@ -193,11 +193,11 @@ export GUARDIAN_MCP_TOKEN=your-secret   # write tool auth
 
 ## DSH Web GUI Plugin · DSH 插件
 
-配套 DSH Web GUI 插件 `@linxin666/dsh-client-ui-training-guardian`，在 DSH 侧栏提供六标签页的 Training Guardian 面板（概览/设备/异常/决策/架构/历史），通过 SSE + REST 消费 `guarftrain remote` 服务。
+配套 DSH Web GUI 插件 `@rrrelink/dsh-client-ui-training-guardian`，在 DSH 侧栏提供六标签页的 Training Guardian 面板（概览/设备/异常/决策/架构/历史），通过 SSE + REST 消费 `guarftrain remote` 服务。
 
 ```bash
 # 安装插件（profile 目录 ~/.dsh/profiles/web）
-dsh plugin add @linxin666/dsh-client-ui-training-guardian --profile web
+dsh plugin add @rrrelink/dsh-client-ui-training-guardian --profile web
 
 # 训练机侧启动数据源
 guarftrain remote --port 8765

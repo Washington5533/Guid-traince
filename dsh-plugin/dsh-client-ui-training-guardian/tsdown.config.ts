@@ -7,7 +7,7 @@
 
 import { defineConfig } from 'tsdown'
 
-const CLIENT_ID = '@linxin666/dsh-client-ui-training-guardian'
+const CLIENT_ID = '@rrrelink/dsh-client-ui-training-guardian'
 
 export default defineConfig([
   // Host half: plain ESM

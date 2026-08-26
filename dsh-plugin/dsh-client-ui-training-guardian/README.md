@@ -52,14 +52,14 @@ Additional capabilities:
 ### Option A — from the community registry (recommended)
 
 ```bash
-dsh plugin add @linxin666/dsh-client-ui-training-guardian --profile web
+dsh plugin add @rrrelink/dsh-client-ui-training-guardian --profile web
 ```
 
 Or via the `dsh-plugin` helper shipped with guarftrain:
 
 ```bash
-python scripts/dsh_plugin_cli.py add @linxin666/dsh-client-ui-training-guardian --profile web
-python scripts/dsh_plugin_cli.py validate @linxin666/dsh-client-ui-training-guardian --profile web
+python scripts/dsh_plugin_cli.py add @rrrelink/dsh-client-ui-training-guardian --profile web
+python scripts/dsh_plugin_cli.py validate @rrrelink/dsh-client-ui-training-guardian --profile web
 ```
 
 ### Option B — from source (development)

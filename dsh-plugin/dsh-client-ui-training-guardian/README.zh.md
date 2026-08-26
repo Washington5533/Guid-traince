@@ -46,14 +46,14 @@ SSE + REST 接口，因此**任何**由 guardian 服务守护的训练任务都�
 ### 方式 A — 从社区 registry 安装（推荐）
 
 ```bash
-dsh plugin add @linxin666/dsh-client-ui-training-guardian --profile web
+dsh plugin add @rrrelink/dsh-client-ui-training-guardian --profile web
 ```
 
 或使用 guarftrain 自带的 `dsh-plugin` 辅助工具：
 
 ```bash
-python scripts/dsh_plugin_cli.py add @linxin666/dsh-client-ui-training-guardian --profile web
-python scripts/dsh_plugin_cli.py validate @linxin666/dsh-client-ui-training-guardian --profile web
+python scripts/dsh_plugin_cli.py add @rrrelink/dsh-client-ui-training-guardian --profile web
+python scripts/dsh_plugin_cli.py validate @rrrelink/dsh-client-ui-training-guardian --profile web
 ```
 
 ### 方式 B — 从源码安装（开发用）

@@ -5,7 +5,7 @@
     - id: training-guardian
       name: '@linxin666/dsh-client-ui-training-guardian'
   meta:
-    version: "0.1.0"
+    version: "0.1.1"
     description: "Training Guardian panel for DSH Web GUI: real-time metrics, GPU status, anomaly feed, and sub-agent decision approval"
     author: "Washington5533"
     license: "MIT"

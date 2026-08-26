@@ -1,7 +1,7 @@
 {
   "name": "@linxin666/dsh-client-ui-training-guardian",
   "description": "Training Guardian panel for DSH Web GUI: real-time metrics, GPU status, anomaly feed, and sub-agent decision approvals",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "packageManager": "pnpm@11.22.0",
   "engines": {

@@ -56,6 +56,22 @@ const ERROR_HINT_KEY: Record<string, TgKey> = {
   unreachable: 'conn.hintUnreachable',
 }
 
+/** Copyable remediation commands shown inside the advice block. */
+const CMD_WATCH = 'guarftrain watch --remote -- python train.py --epochs 50'
+const cmdRemote = (port: string) => `guarftrain remote --port ${port}`
+
+/**
+ * Per-failure-kind actionable advice: a localized suggestion plus, where the
+ * fix is "start the server", the exact command to run on the training machine.
+ */
+const ERROR_ADVICE: Record<string, { key: TgKey; cmd?: 'remote' | 'watch' }> = {
+  unreachable: { key: 'conn.adviceUnreachable', cmd: 'remote' },
+  exhausted: { key: 'conn.adviceExhausted', cmd: 'remote' },
+  unauthorized: { key: 'conn.adviceUnauthorized' },
+  not_found: { key: 'conn.adviceNotFound' },
+  server_error: { key: 'conn.adviceServerError', cmd: 'watch' },
+}
+
 export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUrl = '', authToken, modelEntry, projectDir, autoConnect = true }: TrainingPanelProps) {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [metrics, setMetrics] = useState<Record<string, unknown>>({})
@@ -74,6 +90,8 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
   const [connError, setConnError] = useState<SseError | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [archNarration, setArchNarration] = useState<ArchNarration | null>(null)
+  // Transient "copied" feedback for the advice command box.
+  const [copied, setCopied] = useState(false)
 
   // Debounced persistence of metrics history to localStorage + registry.
   const persistTimer = useRef<number | null>(null)
@@ -191,18 +209,24 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
     // Idle state: neutral blue, manual connect button.
     if (idle) {
       return (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          <span>{t('panel.idle')}</span>
-          <button
-            onClick={() => sse.connect()}
-            style={{
-              padding: '1px 10px', fontSize: 10, cursor: 'pointer',
-              background: 'var(--accent, #007acc)', color: '#fff',
-              border: 'none', borderRadius: 3,
-            }}
-          >
-            {t('panel.idleConnect')}
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <span>{t('panel.idle')}</span>
+            <button
+              onClick={() => sse.connect()}
+              style={{
+                padding: '1px 10px', fontSize: 10, cursor: 'pointer',
+                background: 'var(--accent, #007acc)', color: '#fff',
+                border: 'none', borderRadius: 3,
+              }}
+            >
+              {t('panel.idleConnect')}
+            </button>
+          </div>
+          <div style={{ fontSize: 10, opacity: 0.75, textAlign: 'center' }}>
+            {t('panel.idleHint')}{' '}
+            <code style={{ fontFamily: 'ui-monospace, Consolas, monospace' }}>{CMD_WATCH}</code>
+          </div>
         </div>
       )
     }
@@ -211,6 +235,13 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
     if (connError) {
       const kindKey = ERROR_KIND_KEY[connError.kind] || 'conn.unknown'
       const hintKey = ERROR_HINT_KEY[connError.kind]
+      const advice = ERROR_ADVICE[connError.kind]
+      const port = /:(\d+)(\/|$)/.exec(serverUrl)?.[1] || '8765'
+      const adviceCmd = advice?.cmd === 'watch'
+        ? CMD_WATCH
+        : advice?.cmd === 'remote'
+          ? cmdRemote(port)
+          : null
       const attemptInfo = connError.kind !== 'exhausted'
         ? ` (${connError.attempt}/${connError.maxAttempts})`
         : ''
@@ -221,24 +252,66 @@ export function TrainingPanel({ sse, sessionId, t, onApprove, onReject, serverUr
             {connError.status !== null && (
               <span style={{ opacity: 0.7 }}>HTTP {connError.status}</span>
             )}
-            {connError.kind === 'exhausted' && (
-              <button
-                onClick={() => sse.reconnectNow()}
-                style={{
-                  padding: '1px 8px', fontSize: 10, cursor: 'pointer',
-                  background: 'var(--accent, #007acc)', color: '#fff',
-                  border: 'none', borderRadius: 3,
-                }}
-              >
-                {t('conn.retry')}
-              </button>
-            )}
           </div>
           {hintKey && (
             <div style={{ fontSize: 10, opacity: 0.7 }}>{t(hintKey)}</div>
           )}
           {connError.detail && (
             <div style={{ fontSize: 10, opacity: 0.6 }}>{connError.detail}</div>
+          )}
+          {advice && (
+            <div style={{
+              marginTop: 4, padding: '6px 8px', borderRadius: 4,
+              background: 'rgba(0,0,0,0.25)', border: '1px solid var(--border, #333)',
+              display: 'flex', flexDirection: 'column', gap: 4, textAlign: 'left',
+            }}>
+              <div style={{ fontSize: 11 }}>
+                <span style={{ fontWeight: 600 }}>{t('conn.adviceLabel')}</span>
+                <span style={{ opacity: 0.85 }}> — {t(advice.key)}</span>
+              </div>
+              {adviceCmd && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 10, opacity: 0.6 }}>{t('conn.adviceCmdLabel')}:</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <code style={{
+                      flex: 1, fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 11,
+                      background: 'rgba(0,0,0,0.35)', padding: '3px 6px', borderRadius: 3,
+                      overflowX: 'auto', whiteSpace: 'nowrap',
+                    }}>
+                      {adviceCmd}
+                    </code>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard?.writeText(adviceCmd).catch(() => { /* clipboard denied */ })
+                        setCopied(true)
+                        window.setTimeout(() => setCopied(false), 2000)
+                      }}
+                      style={{
+                        padding: '2px 8px', fontSize: 10, cursor: 'pointer',
+                        background: 'var(--accent, #007acc)', color: '#fff',
+                        border: 'none', borderRadius: 3,
+                      }}
+                    >
+                      {copied ? '✓' : t('conn.adviceCopy')}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 10, opacity: 0.6 }}>{t('conn.adviceExtra')}</div>
+                </div>
+              )}
+              {connError.kind === 'exhausted' && (
+                <button
+                  onClick={() => sse.reconnectNow()}
+                  style={{
+                    alignSelf: 'flex-start',
+                    padding: '2px 10px', fontSize: 10, cursor: 'pointer',
+                    background: 'var(--accent, #007acc)', color: '#fff',
+                    border: 'none', borderRadius: 3,
+                  }}
+                >
+                  {t('conn.retry')}
+                </button>
+              )}
+            </div>
           )}
         </div>
       )

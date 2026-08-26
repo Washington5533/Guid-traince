@@ -32,6 +32,17 @@ export type TgKey =
   | 'conn.hintNotFound'
   | 'conn.hintServerError'
   | 'conn.hintUnreachable'
+  // Actionable advice per failure kind
+  | 'conn.adviceLabel'
+  | 'conn.adviceCmdLabel'
+  | 'conn.adviceCopy'
+  | 'conn.adviceExtra'
+  | 'conn.adviceUnreachable'
+  | 'conn.adviceExhausted'
+  | 'conn.adviceUnauthorized'
+  | 'conn.adviceNotFound'
+  | 'conn.adviceServerError'
+  | 'panel.idleHint'
   // Tabs
   | 'tab.overview'
   | 'tab.gpu'
@@ -200,6 +211,16 @@ const zh: Record<TgKey, string> = {
   'conn.hintNotFound': '请确认服务器地址和端口是否正确',
   'conn.hintServerError': '服务器内部错误，请查看服务器日志',
   'conn.hintUnreachable': '请检查网络连接和防火墙设置',
+  'conn.adviceLabel': '建议',
+  'conn.adviceCmdLabel': '在训练机终端执行',
+  'conn.adviceCopy': '复制',
+  'conn.adviceExtra': '若训练在另一台机器，请在插件设置中把服务器地址改为该机器的实际 IP。',
+  'conn.adviceUnreachable': '看起来 guardian 服务没有运行。',
+  'conn.adviceExhausted': '重试已用尽，多半是 guardian 服务没启动。启动后点上方“重试”即可恢复。',
+  'conn.adviceUnauthorized': '服务器要求鉴权：请在设置中填写与服务端 --auth 一致的 Token，或改用不带 --auth 启动。',
+  'conn.adviceNotFound': '请求的路径或会话不存在：清空设置中的会话 ID（自动订阅），或核对服务器地址。',
+  'conn.adviceServerError': '服务内部异常：请重启服务，或改用守护模式启动。',
+  'panel.idleHint': '训练机上可执行：',
   // Tabs
   'tab.overview': '概览',
   'tab.gpu': '设备',
@@ -364,6 +385,16 @@ const en: Record<TgKey, string> = {
   'conn.hintNotFound': 'Verify the server address and port',
   'conn.hintServerError': 'Check the server logs for details',
   'conn.hintUnreachable': 'Check your network and firewall settings',
+  'conn.adviceLabel': 'Advice',
+  'conn.adviceCmdLabel': 'Run on the training machine',
+  'conn.adviceCopy': 'Copy',
+  'conn.adviceExtra': 'If training runs on another machine, set its real IP as the server URL in plugin settings.',
+  'conn.adviceUnreachable': 'The guardian server appears to be down.',
+  'conn.adviceExhausted': 'Retries spent — the guardian server is likely not running. Start it, then click Retry above.',
+  'conn.adviceUnauthorized': 'The server requires auth: fill in the token matching --auth in settings, or start the server without --auth.',
+  'conn.adviceNotFound': 'The path or session was not found: clear the Session ID in settings (auto-subscribe) or check the server URL.',
+  'conn.adviceServerError': 'Internal server error: restart the service, or start it in guarded mode instead.',
+  'panel.idleHint': 'On the training machine you can run:',
   // Tabs
   'tab.overview': 'Overview',
   'tab.gpu': 'Devices',

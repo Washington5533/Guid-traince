@@ -1,6 +1,6 @@
 {
   "version": 3,
-  "registry_url": "https://raw.githubusercontent.com/Washington5533/guarftrain/main/registry/plugins.json",
+  "registry_url": "https://raw.githubusercontent.com/Washington5533/Guid-traince/main/registry/plugins.json",
   "updated_at": "2026-08-26",
   "plugins": [
     {
@@ -9,9 +9,9 @@
       "description": "Training Guardian panel for DSH Web GUI: real-time metrics, GPU status, anomaly feed, and sub-agent decision approvals",
       "author": "Washington5533",
       "license": "MIT",
-      "homepage": "https://github.com/Washington5533/guarftrain",
+      "homepage": "https://github.com/Washington5533/Guid-traince",
       "npm": "@rrrelink/dsh-client-ui-training-guardian",
-      "source": "https://github.com/Washington5533/guarftrain/tree/main/dsh-plugin/dsh-client-ui-training-guardian",
+      "source": "https://github.com/Washington5533/Guid-traince/tree/main/dsh-plugin/dsh-client-ui-training-guardian",
       "keywords": [
         "training",
         "monitoring",

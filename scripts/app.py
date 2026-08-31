@@ -140,10 +140,10 @@ with col2:
     )
     st.markdown(
         "[![GitHub](https://img.shields.io/badge/GitHub-仓库-blue?logo=github)]"
-        "(https://github.com/Washington5533/guarftrain)  "
-        "![Version](https://img.shields.io/badge/version-0.2.0-blue)  "
+        "(https://github.com/Washington5533/Guid-traince)  "
+        "![Version](https://img.shields.io/badge/version-0.3.0-blue)  "
         "![Python](https://img.shields.io/badge/python-3.10%2B-blue)  "
-        "![MCP](https://img.shields.io/badge/MCP-35_tools-green)"
+        "![MCP](https://img.shields.io/badge/MCP-36_tools-green)"
     )
 
 st.code("guarftrain init && guarftrain watch -- python train.py --epochs 20", language="bash")

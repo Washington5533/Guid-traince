@@ -36,7 +36,7 @@ except ImportError:
     urlopen = None  # type: ignore[assignment]
 
 REGISTRY_URL = (
-    "https://raw.githubusercontent.com/Washington5533/guarftrain/main/registry/plugins.json"
+    "https://raw.githubusercontent.com/Washington5533/Guid-traince/main/registry/plugins.json"
 )
 LOCAL_REGISTRY_CACHE = Path.home() / ".dsh" / "plugins" / "registry.json"
 PROFILE_DIRS = {

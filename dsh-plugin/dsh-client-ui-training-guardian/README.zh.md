@@ -3,7 +3,7 @@
 DSH Web GUI 插件，在侧边栏增加 **Training Guardian** 面板：实时训练指标、
 GPU 设备状态、异常事件流、子 Agent 决策审批、模型架构分析，以及离线历史回放。
 
-它是 [`guarftrain`](https://github.com/Washington5533/guarftrain)（Training
+它是 [`guarftrain`](https://github.com/Washington5533/Guid-traince)（Training
 Guardian Agent）的前端伴侣。面板消费 `guardian.remote.RemoteServer` 暴露的
 SSE + REST 接口，因此**任何**由 guardian 服务守护的训练任务都能直接使用 ——
 训练脚本本身零改动。
@@ -59,8 +59,8 @@ python scripts/dsh_plugin_cli.py validate @rrrelink/dsh-client-ui-training-guard
 ### 方式 B — 从源码安装（开发用）
 
 ```bash
-git clone https://github.com/Washington5533/guarftrain.git
-cd guarftrain/dsh-plugin/dsh-client-ui-training-guardian
+git clone https://github.com/Washington5533/Guid-traince.git
+cd Guid-traince/dsh-plugin/dsh-client-ui-training-guardian
 pnpm install
 pnpm build                 # tsc --noEmit && tsdown
 dsh plugin add . --profile web   # 或把构建产物复制到 ~/.dsh/profiles/web/node_modules/

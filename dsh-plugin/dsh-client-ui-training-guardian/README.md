@@ -6,7 +6,7 @@ feed, sub-agent decision approval, model architecture analysis, and offline
 history replay — all inside the DSH sidebar.
 
 It is the frontend companion of
-[`guarftrain`](https://github.com/Washington5533/guarftrain) (Training
+[`guarftrain`](https://github.com/Washington5533/Guid-traince) (Training
 Guardian Agent). The panel consumes the SSE + REST API exposed by
 `guardian.remote.RemoteServer`, so it works with **any** training job that has
 a guardian server running alongside it — your training script stays untouched.
@@ -65,8 +65,8 @@ python scripts/dsh_plugin_cli.py validate @rrrelink/dsh-client-ui-training-guard
 ### Option B — from source (development)
 
 ```bash
-git clone https://github.com/Washington5533/guarftrain.git
-cd guarftrain/dsh-plugin/dsh-client-ui-training-guardian
+git clone https://github.com/Washington5533/Guid-traince.git
+cd Guid-traince/dsh-plugin/dsh-client-ui-training-guardian
 pnpm install
 pnpm build                 # tsc --noEmit && tsdown
 dsh plugin add . --profile web   # or copy the built package into ~/.dsh/profiles/web/node_modules/

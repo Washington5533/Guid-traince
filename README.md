@@ -225,6 +225,8 @@ guarftrain watch -- python train.py --epochs 50
 
 | Document | Content |
 |----------|---------|
+| [docs/INTRODUCTION.md](docs/INTRODUCTION.md) | Project introduction (ZH) |
+| [docs/PACKAGES.md](docs/PACKAGES.md) | Package distribution & DSH/Agent integration guide (ZH) |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture & workflow (ZH) |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | User manual (ZH) |
 | [docs/MCP.md](docs/MCP.md) | MCP integration guide (ZH) |
